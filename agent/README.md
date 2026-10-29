@@ -6,13 +6,17 @@ Dự án tự động hóa tiếp nhận file sao kê ngân hàng, đọc dữ l
 
 ## 1. Nguồn Chân lý & Bộ Nguyên tắc Chung (Core Foundations)
 
-Mọi Agent hoạt động trong dự án BẮT BUỘC phải nắm vững và tuân thủ hai tài liệu nền tảng sau:
+Mọi Agent hoạt động trong dự án BẮT BUỘC phải nắm vững và tuân thủ các tài liệu nền tảng sau:
 
-1. 📘 **[Tài liệu Mô tả & Yêu cầu Sản phẩm Chính thức (`PRODUCT_SPEC.md`)](./PRODUCT_SPEC.md)**:
-   * **Nguồn chân lý duy nhất (Single Source of Truth):** Chứa toàn bộ mô tả bài toán, mục tiêu sản phẩm, luồng nghiệp vụ end-to-end, yêu cầu chi tiết của từng phân hệ (Upload, Parser, Cleansing, Database, Reporting) và các công thức đối soát kế toán.
+1. 📂 **[Thư mục Tài liệu Bối cảnh & Yêu cầu Dự án (`docs/`)](../docs/)**:
+   * **Nguồn hiểu bối cảnh nghiệp vụ:** Chứa các tài liệu yêu cầu nền tảng như `docs/BRD.md` (Business Requirements Document), `docs/SRS.md` (Software Requirements Specification), `docs/PRD.md` (Product Requirements Document), Ma trận ánh xạ ngân hàng...
+   * Toàn bộ Agent bắt buộc phải đọc các tài liệu này để hiểu sâu sắc mục tiêu, bối cảnh bài toán và kỳ vọng sản phẩm trước khi thực thi.
+
+2. 📘 **[Tài liệu Mô tả & Yêu cầu Sản phẩm Chính thức (`PRODUCT_SPEC.md`)](./PRODUCT_SPEC.md)**:
+   * **Nguồn chân lý nghiệp vụ thống nhất (Single Source of Truth):** Chứa toàn bộ mô tả bài toán, mục tiêu sản phẩm, luồng nghiệp vụ end-to-end, yêu cầu chi tiết của từng phân hệ (Upload, Parser, Cleansing, Database, Reporting) và các công thức đối soát kế toán.
    * Toàn bộ Agent không tự ý suy diễn hoặc thay đổi nghiệp vụ ngoài tài liệu này.
 
-2. ⚙️ **[Bộ Nguyên tắc Kỹ thuật Chung (`common_rules.md`)](./common_rules.md)**:
+3. ⚙️ **[Bộ Nguyên tắc Kỹ thuật Chung (`common_rules.md`)](./common_rules.md)**:
    * **Bộ quy chuẩn kỹ thuật bắt buộc:** Tiêu chuẩn kiểu dữ liệu số học độ chính xác cao (`DECIMAL(18, 2)`), định dạng thời gian ISO 8601, nguyên tắc phân tách Object Storage độc lập với CSDL, chuẩn an toàn thông tin (chống SQLi, Formula/CSV Injection, XSS), quản lý transaction và chuẩn đặt tên.
 
 ---
@@ -44,6 +48,12 @@ Mọi Agent hoạt động trong dự án BẮT BUỘC phải nắm vững và t
 ## 4. Sơ đồ Luồng Phối hợp (Workflow)
 
 ```
+                       ┌──────────────────────────────────────────────┐
+                       │          Thư mục Bối cảnh Dự án              │
+                       │           docs/ (BRD, SRS, PRD)              │
+                       └──────────────────────┬───────────────────────┘
+                                              │ (Nắm bắt bối cảnh nghiệp vụ)
+                                              ▼
                        ┌──────────────────────────────────────────────┐
                        │          Tài liệu Chính thức Dự án           │
                        │              PRODUCT_SPEC.md                 │

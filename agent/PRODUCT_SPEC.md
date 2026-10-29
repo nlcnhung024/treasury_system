@@ -2,7 +2,8 @@
 
 > **Dự án:** Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động (Bank Statement Processing & Reporting System)  
 > **Phiên bản:** 1.0.0  
-> **Trạng thái:** Tài liệu gốc chuẩn hóa (Single Source of Truth) cho toàn bộ Agent trong dự án.
+> **Trạng thái:** Tài liệu gốc chuẩn hóa (Single Source of Truth) về kiến trúc sản phẩm và luồng hệ thống.  
+> **Tài liệu Bối cảnh & Yêu cầu:** Toàn bộ Agent BẮT BUỘC phải đọc kết hợp các tài liệu trong thư mục [`docs/`](../docs/) (như `docs/BRD.md`, `docs/SRS.md`, `docs/PRD.md`) để nắm trọn vẹn bối cảnh nghiệp vụ và mục tiêu dự án.
 
 ---
 
@@ -78,7 +79,10 @@ Tự động hóa toàn bộ quy trình từ tiếp nhận file sao kê ngân h�
 
 ### Phân hệ 6: Trích xuất Báo cáo & Trực quan hóa (Reporting & Analytics)
 - **Bộ lọc đa chiều:** Theo khoảng ngày, số tài khoản, loại thu/chi, khoảng số tiền, từ khóa nội dung.
-- **Thống kê tổng hợp:** Tổng tiền vào, tổng tiền ra, số dư lũy kế, chênh lệch ròng (Net Cash Flow).
-- **Phân loại dòng tiền (Categorization):** Phân loại tự động theo mục đích (Lương, Thuế, Tiền hàng, Lãi vay, Phí dịch vụ).
-- **Xuất dữ liệu:** Xuất báo cáo ra file Excel tổng hợp có format chuẩn hoặc xuất PDF tóm tắt dòng tiền.
+- **Thống kê tồn quỹ tổng hợp (Báo cáo CFO - Ông Trần Ngọc Tuấn trước 9h00 sáng):** Tổng tiền tồn quỹ hôm nay = $\sum$ Tồn các tài khoản ngân hàng + Tồn quỹ tiền mặt (tài khoản MBBank của bà Nguyễn Thị Lan Anh được tính 100% vào chi phí/tiền mặt công ty). Hỗ trợ xem số tổng hợp nhất và drill-down chi tiết từng ngân hàng.
+- **Biểu đồ Thác nước Waterfall Thu/Chi (Báo cáo CEO - Bà Nguyễn Thị Lan Anh):** Tự động sinh biểu đồ Waterfall phân rã chi tiết từng cấu phần Thu và Chi từ số dư đầu kỳ đến số dư cuối kỳ, hỗ trợ xem theo lũy kế tuần (WTD) và lũy kế tháng (MTD).
+- **Giao diện tự quản lý quy tắc phân loại & Điều kiện nâng cao (Self-Service Rule Management UI):** Cung cấp màn hình trực quan cho phép người dùng tự tạo/chỉnh sửa danh mục Thu/Chi, thiết lập điều kiện kết hợp (Từ khóa nội dung, Số tài khoản ngân hàng, Loại phát sinh, Ngưỡng số tiền), sắp xếp độ ưu tiên và chủ động bấm "Chạy lại quy tắc".
+- **Phân loại thủ công & Khóa chống ghi đè (Manual Inline Tagging & Override Protection):** Cho phép người dùng click chọn danh mục trực tiếp trên bảng hoặc chọn hàng loạt dòng để gán nhãn thủ công cho các giao dịch đặc thù/ngoại lệ; gắn cờ khóa bảo vệ không cho phép quy tắc tự động ghi đè lên các dòng đã phân loại tay.
+- **Quản lý Ghi chú Nội bộ (Internal Transaction Notes):** Cho phép nhập, chỉnh sửa và lưu trữ ghi chú (`internal_note`) trực tiếp trên từng dòng giao dịch để giải trình nội bộ.
+- **Xuất Báo cáo Excel Chuẩn Mực Kế toán:** Xuất file `.xlsx` định dạng sẵn ngày tháng `DD/MM/YYYY`, định dạng tiền tệ kế toán `#,##0.00` căn phải, có dòng `TỔNG CỘNG` tự động tính và bảo đảm an toàn chống Formula Injection.
 

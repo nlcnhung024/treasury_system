@@ -1,13 +1,18 @@
 # BỘ NGUYÊN TẮC KỸ THUẬT CHUNG (COMMON TECHNICAL RULES)
 
 > **Phạm vi áp dụng:** BẮT BUỘC áp dụng cho TOÀN BỘ các Agent trong dự án.  
-> **Nguyên tắc cốt lõi:** Rules chỉ quy định về mặt kỹ thuật, kiến trúc, an toàn thông tin và tiêu chuẩn lập trình. Mọi thông tin về nghiệp vụ và tính năng sản phẩm BẮT BUỘC phải tra cứu từ [PRODUCT_SPEC.md](./PRODUCT_SPEC.md).
+> **Nguyên tắc cốt lõi:** Rules chỉ quy định về mặt kỹ thuật, kiến trúc, an toàn thông tin và tiêu chuẩn lập trình. Mọi thông tin về nghiệp vụ, bối cảnh dự án và tính năng sản phẩm BẮT BUỘC phải tra cứu từ thư mục tài liệu [`docs/`](../docs/) (BRD, SRS, PRD,...) và [PRODUCT_SPEC.md](./PRODUCT_SPEC.md).
 
 ---
 
-## 1. Nguyên tắc Nguồn Chân lý Nghiệp vụ Duy nhất (Single Source of Truth)
-- Toàn bộ các Agent không được tự ý suy diễn, bổ sung hoặc thay đổi nghiệp vụ/yêu cầu sản phẩm bên ngoài phạm vi của tài liệu [PRODUCT_SPEC.md](./PRODUCT_SPEC.md).
-- Khi có xung đột giữa giả định kỹ thuật và yêu cầu sản phẩm, nội dung trong `PRODUCT_SPEC.md` luôn có quyền ưu tiên cao nhất.
+## 1. Nguyên tắc Hiểu Bối cảnh & Nguồn Chân lý Nghiệp vụ (Context Understanding & Single Source of Truth)
+- **Bắt buộc đọc tài liệu bối cảnh:** Trước khi thực hiện bất kỳ nhiệm vụ phân tích, thiết kế, lập trình hay kiểm thử nào, TOÀN BỘ Agent BẮT BUỘC phải đọc và nắm bắt toàn diện bối cảnh dự án, bài toán kinh doanh và yêu cầu chức năng từ các tài liệu trong thư mục `docs/`:
+  - `docs/BRD.md`: Tài liệu Yêu cầu Nghiệp vụ (Business Requirements Document).
+  - `docs/SRS.md`: Tài liệu Đặc tả Yêu cầu Hệ thống / Phần mềm (System/Software Requirements Specification).
+  - `docs/PRD.md`: Tài liệu Yêu cầu Sản phẩm (Product Requirements Document).
+  - Kết hợp cùng tài liệu kiến trúc/đặc tả sản phẩm tổng thể [`agent/PRODUCT_SPEC.md`](./PRODUCT_SPEC.md).
+- **Tuyệt đối không suy diễn nghiệp vụ:** Toàn bộ các Agent không được tự ý suy diễn, bổ sung hoặc thay đổi nghiệp vụ/yêu cầu sản phẩm bên ngoài phạm vi đã được định nghĩa trong `docs/` và `PRODUCT_SPEC.md`.
+- **Thứ tự ưu tiên khi xung đột:** Khi có xung đột giữa giả định kỹ thuật và yêu cầu sản phẩm, nội dung trong tài liệu đặc tả nghiệp vụ (`docs/`, `PRODUCT_SPEC.md`) luôn có quyền ưu tiên cao nhất.
 
 ## 2. Tiêu chuẩn Kiểu dữ liệu & Độ chính xác (Typing & Numerical Precision)
 - **Kiểu dữ liệu tiền tệ:** BẮT BUỘC sử dụng kiểu số thực có độ chính xác cao (`DECIMAL(18, 2)` / `NUMERIC(18, 2)` trong SQL; `Decimal` trong Python; `Decimal.js` hoặc `BigNumber` trong JavaScript/TypeScript).

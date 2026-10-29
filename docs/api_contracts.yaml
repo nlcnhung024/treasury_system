@@ -1,0 +1,578 @@
+openapi: 3.0.3
+info:
+  title: Bank Statement Processing & Financial Reporting API
+  description: >
+    Hợp đồng giao tiếp API chuẩn mực phục vụ Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động.
+    Thiết kế bởi Lead System & Data Architect (@SystemArchitect).
+  version: 1.0.0
+  contact:
+    name: System Architecture Team
+servers:
+  - url: /api/v1
+    description: Production API Server Gateway
+
+tags:
+  - name: Statements
+    description: Tiếp nhận file sao kê, bóc tách và đối soát số dư
+  - name: Transactions
+    description: Quản lý giao dịch, tìm kiếm đa chiều, phân loại thủ công & ghi chú nội bộ
+  - name: Rule Management
+    description: Tự quản lý danh mục và thiết lập quy tắc nhận diện từ khóa nâng cao
+  - name: Reports
+    description: Báo cáo CFO (Tồn quỹ tức thì), Báo cáo CEO (Waterfall chart) & Xuất Excel chuẩn
+
+paths:
+  # ===========================================================================
+  # 1. TIẾP NHẬN FILE SAO KÊ
+  # ===========================================================================
+  /statements/upload:
+    post:
+      tags:
+        - Statements
+      summary: Tải file sao kê Excel (.xlsx, .xls) vào hệ thống
+      operationId: uploadStatementFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: File Excel sao kê ngân hàng (.xlsx hoặc .xls, dung lượng tối đa 25MB)
+                bank_code:
+                  type: string
+                  example: "VCB"
+                  description: Mã ngân hàng phát hành (VCB, TCB, ACB, BIDV, MBB... hoặc để trống để tự nhận diện)
+      responses:
+        '202':
+          description: File đã được tiếp nhận thành công và đẩy vào hàng đợi xử lý ngầm (Accepted)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_id:
+                    type: integer
+                    example: 1045
+                  file_uuid:
+                    type: string
+                    format: uuid
+                    example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                  filename:
+                    type: string
+                    example: "Sao_ke_VCB_Thang10_2026.xlsx"
+                  status:
+                    type: string
+                    example: "QUEUED"
+                  message:
+                    type: string
+                    example: "File đã được đưa vào hàng đợi bóc tách ngầm."
+        '400':
+          description: File không đúng định dạng cho phép hoặc vượt quá giới hạn 25MB
+        '409':
+          description: File sao kê trùng lặp hoàn toàn (Trùng mã băm SHA-256)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /statements/{file_id}/status:
+    get:
+      tags:
+        - Statements
+      summary: Kiểm tra tiến trình bóc tách và đối soát của file theo thời gian thực
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Trạng thái xử lý chi tiết
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_id:
+                    type: integer
+                  processing_status:
+                    type: string
+                    enum: [UPLOADED, QUEUED, PARSING, RECONCILING, COMPLETED, FAILED]
+                    example: "COMPLETED"
+                  reconciliation_status:
+                    type: string
+                    enum: [PENDING, BALANCED, DISCREPANCY]
+                    example: "BALANCED"
+                  total_transactions:
+                    type: integer
+                    example: 1250
+                  discrepancy_amount:
+                    type: number
+                    format: double
+                    example: 0.00
+                  error_message:
+                    type: string
+                    nullable: true
+
+  # ===========================================================================
+  # 2. TRUY VẤN GIAO DỊCH & PHÂN LOẠI THỦ CÔNG
+  # ===========================================================================
+  /transactions:
+    get:
+      tags:
+        - Transactions
+      summary: Tìm kiếm và lọc giao dịch đa tiêu chí
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2026-10-01"
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+          example: "2026-10-29"
+        - name: bank_code
+          in: query
+          schema:
+            type: string
+          example: "VCB"
+        - name: category_id
+          in: query
+          schema:
+            type: integer
+        - name: flow_type
+          in: query
+          schema:
+            type: string
+            enum: [ALL, CREDIT, DEBIT]
+          example: "ALL"
+        - name: min_amount
+          in: query
+          schema:
+            type: number
+        - name: max_amount
+          in: query
+          schema:
+            type: number
+        - name: keyword
+          in: query
+          description: Tìm kiếm từ khóa trong Nội dung giao dịch hoặc Ghi chú nội bộ
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Danh sách giao dịch phân trang
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/TransactionItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /transactions/{transaction_id}:
+    patch:
+      tags:
+        - Transactions
+      summary: Cập nhật danh mục thủ công (Inline Tagging) hoặc Ghi chú nội bộ (Internal Note)
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                category_id:
+                  type: integer
+                  description: ID danh mục muốn gán bằng tay
+                  example: 12
+                internal_note:
+                  type: string
+                  description: Ghi chú nội bộ do chị Cẩm Nhung nhập
+                  example: "Hóa đơn số 00459 - Chị Lan Anh duyệt miệng"
+      responses:
+        '200':
+          description: Cập nhật thành công, hệ thống tự động gắn cờ is_manual_override = true
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionItem'
+
+  /transactions/bulk-tag:
+    post:
+      tags:
+        - Transactions
+      summary: Gán danh mục thủ công hàng loạt cho nhiều dòng giao dịch đã chọn
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transaction_ids
+                - category_id
+              properties:
+                transaction_ids:
+                  type: array
+                  items:
+                    type: integer
+                  example: [101, 102, 105, 110]
+                category_id:
+                  type: integer
+                  example: 5
+      responses:
+        '200':
+          description: Gán danh mục hàng loạt thành công và kích hoạt khóa bảo vệ
+
+  # ===========================================================================
+  # 3. QUẢN LÝ QUY TẮC PHÂN LOẠI & DANH MỤC (SELF-SERVICE RULE BUILDER)
+  # ===========================================================================
+  /categories:
+    get:
+      tags:
+        - Rule Management
+      summary: Lấy danh sách toàn bộ danh mục Thu và Chi
+      responses:
+        '200':
+          description: Danh sách danh mục
+    post:
+      tags:
+        - Rule Management
+      summary: Tự tạo mới một danh mục Thu hoặc Chi
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - category_type
+                - category_name
+              properties:
+                category_type:
+                  type: string
+                  enum: [INCOME, EXPENSE]
+                category_name:
+                  type: string
+                  example: "Chi Nhà cung cấp Thép"
+                color_code:
+                  type: string
+                  example: "#EF4444"
+      responses:
+        '201':
+          description: Tạo danh mục thành công
+
+  /rules:
+    get:
+      tags:
+        - Rule Management
+      summary: Lấy danh sách các quy tắc nhận diện từ khóa nâng cao kèm thứ tự ưu tiên
+    post:
+      tags:
+        - Rule Management
+      summary: Tạo mới quy tắc nhận diện từ khóa kết hợp điều kiện nâng cao
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRulePayload'
+      responses:
+        '201':
+          description: Tạo quy tắc thành công
+
+  /rules/re-apply:
+    post:
+      tags:
+        - Rule Management
+      summary: Chạy lại toàn bộ bộ quy tắc lên dữ liệu lịch sử (Bảo vệ tuyệt đối dòng is_manual_override = true)
+      responses:
+        '200':
+          description: Kết quả chạy lại quy tắc
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_processed:
+                    type: integer
+                    example: 3500
+                  tagged_count:
+                    type: integer
+                    example: 280
+                  skipped_manual_override_count:
+                    type: integer
+                    example: 45
+                  message:
+                    type: string
+                    example: "Đã áp dụng quy tắc thành công. 45 dòng phân loại thủ công được bảo toàn nguyên vẹn."
+
+  # ===========================================================================
+  # 4. PHÂN HỆ BÁO CÁO (CFO, CEO & EXCEL EXPORT)
+  # ===========================================================================
+  /reports/cfo/daily-liquidity:
+    get:
+      tags:
+        - Reports
+      summary: Báo cáo CFO (Ông Trần Ngọc Tuấn) - Tổng tồn quỹ hợp nhất đầu ngày
+      responses:
+        '200':
+          description: Dữ liệu tồn quỹ hợp nhất sẵn sàng trước 9h00 sáng
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  report_date:
+                    type: string
+                    format: date
+                    example: "2026-10-29"
+                  total_consolidated_liquidity:
+                    type: number
+                    example: 125450000000.00
+                  total_bank_balance:
+                    type: number
+                    example: 120250000000.00
+                  total_cash_on_hand:
+                    type: number
+                    example: 5200000000.00
+                  bank_breakdown:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        bank_code:
+                          type: string
+                          example: "VCB"
+                        bank_name:
+                          type: string
+                          example: "Vietcombank"
+                        account_number:
+                          type: string
+                          example: "0071000123456"
+                        balance:
+                          type: number
+                          example: 45000000000.00
+
+  /reports/ceo/waterfall:
+    get:
+      tags:
+        - Reports
+      summary: Báo cáo CEO (Bà Nguyễn Thị Lan Anh) - Biểu đồ Thác nước (Waterfall) Thu/Chi
+      parameters:
+        - name: timeframe
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [WTD, MTD]
+            default: MTD
+          description: Lũy kế Tuần (WTD) hoặc Lũy kế Tháng (MTD)
+      responses:
+        '200':
+          description: Cấu trúc dữ liệu render biểu đồ Waterfall
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  timeframe:
+                    type: string
+                    example: "MTD"
+                  opening_balance:
+                    type: number
+                    example: 110000000000.00
+                  income_components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category_name:
+                          type: string
+                          example: "Thu bán hàng & Đối tác"
+                        amount:
+                          type: number
+                          example: 65000000000.00
+                  expense_components:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        category_name:
+                          type: string
+                          example: "Chi Nhà cung cấp"
+                        amount:
+                          type: number
+                          example: 32000000000.00
+                  closing_balance:
+                    type: number
+                    example: 125450000000.00
+
+  /reports/export/excel:
+    get:
+      tags:
+        - Reports
+      summary: Xuất bảng giao dịch ra file Excel (.xlsx) định dạng kế toán chuẩn mực
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: bank_code
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File Excel nhị phân định dạng số tiền #,##0.00, ngày DD/MM/YYYY, có dòng Tổng cộng
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
+
+components:
+  schemas:
+    TransactionItem:
+      type: object
+      properties:
+        transaction_id:
+          type: integer
+          example: 8945
+        transaction_date:
+          type: string
+          format: date-time
+          example: "2026-10-29T08:15:30+07:00"
+        bank_code:
+          type: string
+          example: "VCB"
+        account_number:
+          type: string
+          example: "0071000123456"
+        description:
+          type: string
+          example: "CTY TNHH TM THEP HOAP PHAT TT TIEN HANG HD 1102"
+        debit_amount:
+          type: number
+          example: 250000000.00
+        credit_amount:
+          type: number
+          example: 0.00
+        running_balance:
+          type: number
+          example: 45200000000.00
+        category_id:
+          type: integer
+          nullable: true
+          example: 3
+        category_name:
+          type: string
+          nullable: true
+          example: "Chi Nhà cung cấp Thép"
+        internal_note:
+          type: string
+          nullable: true
+          example: "Hóa đơn số 00459 - Chị Lan Anh duyệt miệng"
+        is_manual_override:
+          type: boolean
+          example: true
+
+    CreateRulePayload:
+      type: object
+      required:
+        - rule_name
+        - category_id
+        - keyword_patterns
+      properties:
+        rule_name:
+          type: string
+          example: "Quy tắc Chi NCC Thép Hòa Phát"
+        category_id:
+          type: integer
+          example: 3
+        priority:
+          type: integer
+          default: 10
+        keyword_patterns:
+          type: string
+          example: "thep hoa phat, hoa phat, hp steel"
+        target_bank_code:
+          type: string
+          nullable: true
+          example: "VCB"
+        min_amount:
+          type: number
+          nullable: true
+          example: 10000000.00
+        applies_to_flow:
+          type: string
+          enum: [ALL, CREDIT, DEBIT]
+          default: DEBIT
+
+    PaginationMeta:
+      type: object
+      properties:
+        current_page:
+          type: integer
+          example: 1
+        page_size:
+          type: integer
+          example: 50
+        total_records:
+          type: integer
+          example: 1250
+        total_pages:
+          type: integer
+          example: 25
+
+    ErrorResponse:
+      type: object
+      properties:
+        error_code:
+          type: string
+          example: "DUPLICATE_FILE_DETECTED"
+        message:
+          type: string
+          example: "File này đã được tải lên trước đó với mã băm sha256 trùng khớp."
+        correlation_id:
+          type: string
+          format: uuid
+
