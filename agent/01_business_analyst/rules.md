@@ -34,3 +34,23 @@
 ## 4. Nguyên tắc Không Mơ hồ (Zero-Ambiguity Rule)
 - TUYỆT ĐỐI KHÔNG sử dụng các từ ngữ định tính, mơ hồ trong tài liệu kỹ thuật (ví dụ: *"xử lý nhanh"*, *"giao diện đẹp"*, *"file dung lượng vừa phải"*).
 - BẮT BUỘC định lượng bằng con số kỹ thuật cụ thể (ví dụ: *"thời gian phản hồi API < 1.000ms"*, *"dung lượng file tối đa 25MB"*, *"sai số tính toán = 0"*).
+
+## 5. Tiêu chuẩn Đặc tả Động cơ Quy tắc Tự quản lý (Self-Service Rule Specification Standard)
+- Khi phân tích các phân hệ phân loại, gắn nhãn dữ liệu hoặc lọc giao dịch, BA **TUYỆT ĐỐI KHÔNG** đặc tả các bảng danh mục hay từ khóa cố định (hardcoded) trong mã nguồn.
+- BẮT BUỘC phải đặc tả dưới dạng **Mô hình Quy tắc Cấu hình Động (Config-driven Rule Engine)** với đầy đủ các cấu phần kỹ thuật:
+  - Cấu trúc điều kiện (Condition Schema): Cho phép kết hợp đa trường (`field`, `operator`, `value`, logic `AND`/`OR`).
+  - Mức độ ưu tiên thực thi (`priority` dạng số nguyên tăng dần).
+  - Trạng thái kích hoạt (`is_active: BOOLEAN`).
+  - Hành động thực thi (`action_type`, `target_category_id`).
+
+## 6. Tiêu chuẩn Đặc tả Cơ chế Khóa Ghi đè Thủ công (Manual Override & Immutability Standard)
+- Khi đặc tả bất kỳ tính năng xử lý hàng loạt tự động (Batch Processing / Auto-categorization / Bulk Sync), BA BẮT BUỘC phải định nghĩa cơ chế bảo vệ thao tác người dùng:
+  - Bắt buộc có cờ kỹ thuật khóa ghi đè: `is_manual_override: BOOLEAN DEFAULT FALSE`.
+  - Tiêu chí chấp nhận (AC) bắt buộc: Khi người dùng thao tác thủ công (gán nhãn, sửa note), cờ này được set thành `TRUE`. Mọi tiến trình chạy lại quy tắc tự động (Re-apply batch rules) **TUYỆT ĐỐI KHÔNG** được phép cập nhật hoặc ghi đè lên các bản ghi có `is_manual_override = TRUE`.
+
+## 7. Tiêu chuẩn Đặc tả Xuất Bảng tính Kế toán & Phòng chống Injection (Spreadsheet Export Standard)
+- Khi đặc tả chức năng xuất dữ liệu ra file bảng tính (Excel `.xlsx` / CSV), bảng đặc tả kỹ thuật của BA bắt buộc phải quy định rõ:
+  - Định dạng hiển thị ngày giờ chuẩn xác (`format: DD/MM/YYYY` hoặc `DD/MM/YYYY HH:mm:ss`).
+  - Định dạng số tiền tệ kế toán có phân cách hàng nghìn (`format: #,##0.00` hoặc `#,##0`) và căn phải ô dữ liệu.
+  - Hàng tổng cộng (Total Row) sử dụng công thức kế toán động (`SUBTOTAL` hoặc `SUM`).
+  - Ràng buộc an toàn thông tin: Bắt buộc đặc tả quy tắc sanitize và escape dấu nháy đơn `'` cho các chuỗi bắt đầu bằng ký tự nguy hiểm (`=`, `+`, `-`, `@`) để triệt tiêu lỗ hổng Formula/CSV Injection.
