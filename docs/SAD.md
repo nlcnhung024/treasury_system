@@ -5,7 +5,7 @@
 > **Phiên bản:** 1.0.0  
 > **Tiêu chuẩn kiến trúc:** IEEE 1471 / ISO/IEC/IEEE 42010 (Mô hình Kruchten 4+1 Views)  
 > **Chủ trì (Lead System & Data Architect):** Đội ngũ Kiến trúc sư Hệ thống (`@SystemArchitect`)  
-> **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`database/schema.sql`](../database/schema.sql), [`docs/api_contracts.yaml`](./api_contracts.yaml), [`agent/common_rules.md`](../agent/common_rules.md), [`Software Development Life Cycle (SDLC)`](../Software%20Developmemt%20Life%20Cycle%20SDLC/SDLC.md)
+> **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md), [`database/schema.sql`](../database/schema.sql), [`docs/api_contracts.yaml`](./api_contracts.yaml), [`agent/common_rules.md`](../agent/common_rules.md), [`Software Development Life Cycle (SDLC)`](../Software%20Developmemt%20Life%20Cycle%20SDLC/SDLC.md)
 
 ---
 
@@ -15,6 +15,7 @@
 | :---: | :---: | :---: | :--- |
 | **0.1.0** | 2026-10-27 | `@SystemArchitect` | Khởi thảo kiến trúc hệ thống sơ bộ (Draft Architecture Baseline) |
 | **1.0.0** | 2026-10-29 | `@SystemArchitect` | Hoàn thiện tài liệu SAD chuẩn mực theo mô hình 4+1 Views: Tích hợp đầy đủ các bài toán nghiệp vụ thực tế từ BRD (7+ ngân hàng, tài khoản MBBank cá nhân, Tồn quỹ kép, Quy tắc nâng cao, Khóa ghi đè, Báo cáo CFO < 9h sáng, Biểu đồ Waterfall CEO và Xuất Excel an toàn) |
+| **1.1.0** | 2026-10-29 | `@SystemArchitect` | Đồng bộ với `docs/Bank_Mapping_Matrix.md`: Chuẩn hóa Universal Config-Driven Stream Parser (`bank_templates_config.yaml`), 5 chế độ đối soát (`MODE_1`..`MODE_5`), cô lập dữ liệu Đa Pháp nhân (Multi-Entity Isolation qua `tax_code`/`account_holder`), và đồng nhất cấu trúc API Waterfall |
 
 ---
 
@@ -213,13 +214,13 @@ bank-statement-system/
 │   │   │   └── cash_ledger.py
 │   │   ├── schemas/                 # Pydantic Schemas (Data Contracts)
 │   │   └── services/                # Tầng Nghiệp vụ cốt lõi (Domain Logic)
-│   │       ├── parser/              # Động cơ Stream Parser theo mẫu
-│   │       │   ├── base_parser.py
-│   │       │   ├── vcb_parser.py
-│   │       │   ├── tcb_parser.py
-│   │       │   └── mbb_parser.py    # Parser chuyên biệt TK bà Lan Anh
-│   │       ├── cleansing_service.py # Chuẩn hóa Date ISO & Decimal
-│   │       ├── reconciler.py        # Đối soát số dư ĐK + Thu - Chi = CK
+│   │       ├── parser/              # Động cơ Universal Config-Driven Stream Parser
+│   │       │   ├── bank_templates_config.yaml # Cấu hình 6 lớp cho 7 mẫu thực tế & mở rộng Zero-Code
+│   │       │   ├── template_detector.py       # Nhận diện Magic Bytes & Signature NH
+│   │       │   ├── universal_stream_parser.py # Đọc OOXML (.xlsx) & BIFF8 (.xls), Unmerge, Entity Resolver
+│   │       │   └── balance_inferencer.py      # Nội suy số dư cho 5 chế độ (MODE_1 .. MODE_5)
+│   │       ├── cleansing_service.py # Chuẩn hóa Date ISO & Decimal (Bảo toàn Scientific Notation E)
+│   │       ├── reconciler.py        # Đối soát số dư 5 chế độ (MODE_1 .. MODE_5)
 │   │       ├── rule_engine.py       # Bộ so khớp luật từ khóa nâng cao
 │   │       └── excel_exporter.py    # Xuất file Excel chuẩn kế toán an toàn
 │   └── workers/                     # Tác vụ Worker chạy nền (Celery / Bull)
@@ -348,11 +349,21 @@ flowchart LR
   - Khi người dùng bấm nút *"Chạy lại quy tắc tự động"*, câu lệnh SQL quét lại chỉ chạm vào các dòng có `is_manual_override = FALSE`.
 
 #### Kịch bản 3: Biểu đồ Thác nước (Waterfall Chart) Thu/Chi phục vụ CEO Nguyễn Thị Lan Anh
-- Cấu trúc dữ liệu trả về từ API `/api/v1/reports/ceo/waterfall?timeframe=MTD`:
+- Cấu trúc dữ liệu trả về từ API `/api/v1/reports/ceo/waterfall?timeframe=MTD` (đồng bộ hoàn toàn với `docs/api_contracts.yaml`):
   ```json
   {
     "timeframe": "MTD",
     "opening_balance": 110000000000.00,
+    "income_components": [
+      { "category_name": "Thu bán hàng & Đối tác", "amount": 65000000000.00 },
+      { "category_name": "Thu hoàn ứng", "amount": 2500000000.00 }
+    ],
+    "expense_components": [
+      { "category_name": "Chi Nhà cung cấp", "amount": 32000000000.00 },
+      { "category_name": "Chi Lương & Phúc lợi", "amount": 12000000000.00 },
+      { "category_name": "Chi Rút tiền mặt (MBBank)", "amount": 5000000000.00 },
+      { "category_name": "Chi Thuế & Lãi vay", "amount": 3050000000.00 }
+    ],
     "steps": [
       { "name": "Số dư Đầu kỳ", "type": "OPENING", "value": 110000000000.00 },
       { "name": "Thu bán hàng & Đối tác", "type": "INCOME", "value": 65000000000.00 },
@@ -362,9 +373,16 @@ flowchart LR
       { "name": "Chi Rút tiền mặt (MBBank)", "type": "EXPENSE", "value": -5000000000.00 },
       { "name": "Chi Thuế & Lãi vay", "type": "EXPENSE", "value": -3050000000.00 },
       { "name": "Số dư Cuối kỳ", "type": "CLOSING", "value": 125450000000.00 }
-    ]
+    ],
+    "closing_balance": 125450000000.00
   }
   ```
+
+#### Kịch bản 4: Định tuyến Đa Pháp nhân (Multi-Entity Isolation) & Mở rộng Mẫu Ngân hàng Mới (Zero-Code Onboarding)
+- **Định tuyến Đa Pháp nhân (`Entity-Agnostic Template`):**
+  - Toàn bộ 7 mẫu cấu hình hiện có (`MBB_CORP_XLSX`, `MBB_PERSONAL_XLSX`, `MBV_CORP_XLSX`, `VPB_CORP_XLSX`, `TPB_CORP_XLSX`, `CTG_EFAST_XLS`, `SHB_CORP_XLS`) tại [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md) hoạt động ở tầng **Global Shared Layer**, không gắn cứng tên công ty hay số tài khoản.
+  - Khi nạp file, `UniversalStreamParser` trích xuất động `(account_number, account_holder, tax_code)` từ Header sao kê để tự động phân vùng dữ liệu theo từng doanh nghiệp (`tax_code` / `account_holder`), cho phép dùng chung 1 mẫu sao kê để quét độc lập cho nhiều doanh nghiệp khác nhau.
+- **Mở rộng Ngân hàng Mới ($\le 15$ phút):** Khi phát sinh ngân hàng mới (VCB, TCB, BIDV, ACB...), quản trị viên chỉ cần thêm 1 block cấu hình vào `bank_templates_config.yaml` với 1 trong 5 chế độ đối soát (`MODE_1` $\rightarrow$ `MODE_5`) mà không cần sửa đổi mã nguồn.
 
 ---
 
@@ -385,6 +403,7 @@ erDiagram
         varchar bank_code
         varchar account_number UK
         varchar account_holder
+        varchar tax_code
         varchar account_type
         decimal current_balance
     }
@@ -393,6 +412,8 @@ erDiagram
         bigint file_id PK
         uuid file_uuid UK
         bigint account_id FK
+        varchar template_code
+        varchar reconciliation_mode
         varchar file_sha256 UK
         varchar storage_path
         decimal header_opening_balance

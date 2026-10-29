@@ -4,7 +4,7 @@
 > **Phiên bản:** 1.0.0  
 > **Trạng thái:** Bản thiết kế Kiến trúc Chính thức (Architectural Baseline)  
 > **Chủ trì (Lead System Architect):** System & Data Architect Team (`@SystemArchitect`)  
-> **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`agent/PRODUCT_SPEC.md`](../agent/PRODUCT_SPEC.md), [`agent/common_rules.md`](../agent/common_rules.md), [`agent/02_system_architect/rules.md`](../agent/02_system_architect/rules.md)
+> **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md), [`agent/PRODUCT_SPEC.md`](../agent/PRODUCT_SPEC.md), [`agent/common_rules.md`](../agent/common_rules.md), [`agent/02_system_architect/rules.md`](../agent/02_system_architect/rules.md)
 
 ---
 
@@ -106,18 +106,23 @@ Tuân thủ nghiêm ngặt nguyên tắc **Stateless & Tách biệt Hoàn toàn 
 
 2. **Quy tắc Ép Kiểu & Toàn vẹn Số học:**
    - Toàn bộ giá trị tiền tệ bắt buộc ép sang kiểu `Decimal` với thuật toán làm tròn ngân hàng chuẩn mực `ROUND_HALF_UP`.
+   - Khi làm sạch chuỗi tiền tệ từ XML/Excel (như `'1.441E8'`, `'4.99999999E8'`), chỉ xóa từ khóa tiền tệ (`(?i)(VND|USD)`), khoảng trắng, `\t` và dấu phân cách; bảo toàn ký tự số mũ `E`/`e` trong Scientific Notation trước khi truyền vào `Decimal()`.
    - Xử lý số âm kế toán trong ngoặc đơn: Chuỗi `(1,500,000)` được chuyển đổi thành số âm chuẩn `-1500000.00`.
 
-3. **Công thức Đối soát Kế toán Cân bằng Số dư (Reconciliation Formula):**
-   $$\text{Số dư cuối kỳ tính toán} = \text{Số dư đầu kỳ} + \sum \text{Phát sinh Có (Thu)} - \sum \text{Phát sinh Nợ (Chi)}$$
+3. **Công thức Đối soát Kế toán Cân bằng Số dư 5 Chế độ (`MODE_1` $\rightarrow$ `MODE_5`):**
+   $$\text{Số dư cuối kỳ tính toán} = \text{Số dư đầu kỳ (hoặc nội suy)} + \sum \text{Phát sinh Có (Thu)} - \sum \text{Phát sinh Nợ (Chi)}$$
    $$\text{Độ lệch} \ (\Delta) = |\text{Số dư cuối kỳ thực tế} - \text{Số dư cuối kỳ tính toán}|$$
+   - Hỗ trợ đầy đủ 5 chế độ đối soát và nội suy số dư (`MODE_1_FULL_HEADER_FOOTER`, `MODE_2_INFERRED_OPENING_CLOSING`, `MODE_3_DERIVED_RUNNING_BALANCE`, `MODE_4_TOTAL_FLOW_ONLY`, `MODE_5_CUTOFF_INTEREST_INCLUDED`) theo đặc tả tại [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md).
    - Nếu $\Delta = 0.00 \rightarrow$ Ghi nhận `reconciliation_status = 'BALANCED'`.
    - Nếu $\Delta \neq 0.00 \rightarrow$ Ghi nhận `reconciliation_status = 'DISCREPANCY'`, lưu giá trị $\Delta$ và kích hoạt cờ cảnh báo trên màn hình cho chị Cẩm Nhung.
 
-4. **Chống Trùng lặp Giao dịch (Transaction Deduplication):**
-   - Tính toán chuỗi canonical hash cho từng dòng giao dịch:
-     $$\text{dedup\_hash} = \text{SHA256}(\text{account\_number} + \text{trans\_date} + \text{debit} + \text{credit} + \text{ref\_no})$$
+4. **Chống Trùng lặp Giao dịch (Transaction Deduplication - 6-Tuple Canonical Hash):**
+   - Tính toán chuỗi canonical hash 6 thành phần cho từng dòng giao dịch (phân biệt chính xác các bút toán tách Phí/VAT cùng mã tham chiếu):
+     $$\text{dedup\_hash} = \text{SHA256}(\text{account\_number} \parallel \text{"|"} \parallel \text{trans\_date\_iso} \parallel \text{"|"} \parallel \text{debit} \parallel \text{"|"} \parallel \text{credit} \parallel \text{"|"} \parallel \text{ref\_no} \parallel \text{"|"} \parallel \text{running\_balance})$$
    - Tận dụng ràng buộc `UNIQUE(account_id, dedup_hash)` trên CSDL kết hợp cú pháp `ON CONFLICT DO NOTHING` hoặc gắn cờ `is_duplicate = TRUE`.
+
+5. **Kiến trúc Đa Pháp nhân (Multi-Entity Isolation) & Mở rộng Ngân hàng Mới (Zero-Code):**
+   - Cấu hình mẫu trong `bank_templates_config.yaml` hoàn toàn độc lập với Pháp nhân (`Entity-Agnostic`), tự động trích xuất động `(account_number, account_holder, tax_code)` từ Header sao kê để định tuyến và cô lập dữ liệu cho nhiều doanh nghiệp khác nhau trên cùng một mẫu.
 
 ---
 

@@ -54,3 +54,13 @@
   - Định dạng số tiền tệ kế toán có phân cách hàng nghìn (`format: #,##0.00` hoặc `#,##0`) và căn phải ô dữ liệu.
   - Hàng tổng cộng (Total Row) sử dụng công thức kế toán động (`SUBTOTAL` hoặc `SUM`).
   - Ràng buộc an toàn thông tin: Bắt buộc đặc tả quy tắc sanitize và escape dấu nháy đơn `'` cho các chuỗi bắt đầu bằng ký tự nguy hiểm (`=`, `+`, `-`, `@`) để triệt tiêu lỗ hổng Formula/CSV Injection.
+
+## 8. Tiêu chuẩn Đặc tả Ma trận Ánh xạ Mở rộng & Đa Pháp nhân (Extensible & Multi-Entity Mapping Standard)
+- **Khả năng mở rộng mẫu nguồn mới (Zero-Code Template Extensibility):**
+  - Mọi ma trận ánh xạ dữ liệu phải được thiết kế theo kiến trúc **Declarative Config Schema** (YAML/JSON) tách rời hoàn toàn khỏi mã nguồn Parser, chuẩn hóa thành các khối cấu hình nguyên tử: nhận diện mẫu (`detection_rules`), trích xuất siêu dữ liệu (`metadata_extractors`), biên bảng dữ liệu (`grid_boundaries`), ánh xạ cột (`column_mappings`), quy cách định dạng số/ngày (`format_profiles`), và chế độ đối soát (`reconciliation_mode`).
+  - Hỗ trợ cơ chế dò dòng tiêu đề động theo danh sách từ khóa đồng nghĩa (`header_aliases`) kết hợp tọa độ cột cố định để nạp thêm mẫu mới trong $\le 15$ phút mà không cần sửa mã nguồn.
+- **Tính độc lập Pháp nhân / Đa Doanh nghiệp (Entity-Agnostic Template & Multi-Entity Isolation):**
+  - Cấu hình mẫu ánh xạ (`template_config`) **TUYỆT ĐỐI KHÔNG** được gắn cứng (hardcode) với tên doanh nghiệp, mã số thuế hay số tài khoản cụ thể.
+  - Phải phân tách rõ 2 tầng dữ liệu:
+    1. **Tầng Cấu hình Mẫu (Global Shared Layer):** Dùng chung một mẫu bóc tách cho $N$ doanh nghiệp khác nhau.
+    2. **Tầng Định danh & Cô lập Pháp nhân (Entity Resolution & Scoped Data Layer):** Trích xuất động `(account_number, account_holder, tax_code)` từ Header tài liệu để định tuyến và cô lập dữ liệu giao dịch, quy tắc phân loại và báo cáo theo từng doanh nghiệp (`company_id` / `entity_code`).

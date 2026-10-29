@@ -5,7 +5,7 @@
 > **Mã dự án:** `BSP-2026`  
 > **Trạng thái:** Bản chính thức (Approved Baseline)  
 > **Chủ trì (Product Owner / Lead BA):** Business Analyst Team (`@BusinessAnalyst`)  
-> **Tài liệu tham chiếu liên quan:** [`agent/PRODUCT_SPEC.md`](../agent/PRODUCT_SPEC.md), [`agent/common_rules.md`](../agent/common_rules.md), [`Software Development Life Cycle (SDLC)`](../Software%20Developmemt%20Life%20Cycle%20SDLC/SDLC.md)
+> **Tài liệu tham chiếu liên quan:** [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md), [`docs/SAD.md`](./SAD.md), [`agent/PRODUCT_SPEC.md`](../agent/PRODUCT_SPEC.md), [`agent/common_rules.md`](../agent/common_rules.md), [`Software Development Life Cycle (SDLC)`](../Software%20Developmemt%20Life%20Cycle%20SDLC/SDLC.md)
 
 ---
 
@@ -15,6 +15,7 @@
 | :---: | :---: | :---: | :--- |
 | **0.1.0** | 2026-10-25 | `@BusinessAnalyst` | Bản phác thảo yêu cầu nghiệp vụ sơ bộ từ khảo sát khách hàng |
 | **1.0.0** | 2026-10-29 | `@BusinessAnalyst` | Chuẩn hóa toàn bộ nội dung từ `PRODUCT_SPEC.md` sang tài liệu BRD theo chuẩn Agile: Bổ sung Tầm nhìn, Epics, User Stories, Gherkin AC, Quy tắc đối soát và Release Roadmap |
+| **1.1.0** | 2026-10-29 | `@BusinessAnalyst` | Đồng bộ với `docs/Bank_Mapping_Matrix.md`: Cập nhật 7 mẫu sao kê thực tế (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`), 5 chế độ đối soát (`MODE_1`..`MODE_5`), công thức `dedup_hash` 6 thành phần, trạng thái `BALANCED`/`DISCREPANCY`, và cơ chế Mở rộng Đa Doanh nghiệp (Multi-Entity Isolation) |
 
 ---
 
@@ -218,24 +219,25 @@ Hệ thống được tổ chức thành **6 Epics nghiệp vụ cốt lõi**:
 ### EPIC-03: Động cơ Đọc theo Cấu hình Mẫu Ngân hàng (Dynamic Bank Template Parser)
 * **Mục tiêu:** Linh hoạt bóc tách dữ liệu theo nhiều mẫu ngân hàng khác nhau mà không phải sửa mã nguồn hệ thống.
 
-#### US-03.1: Bóc tách Siêu dữ liệu Header & Footer của File
-* **User Story:** Là một *Chuyên viên Kế toán*, tôi muốn *hệ thống tự động trích xuất các thông tin chung của tài khoản (Tên chủ TK, Số TK, Kỳ sao kê từ ngày - đến ngày, Số dư đầu kỳ, Số dư cuối kỳ)*, để *tự động điền vào hồ sơ sao kê mà không cần gõ tay*.
+#### US-03.1: Bóc tách Siêu dữ liệu Header & Footer của File & Định danh Đa Pháp nhân (Multi-Entity)
+* **User Story:** Là một *Chuyên viên Kế toán*, tôi muốn *hệ thống tự động trích xuất động các thông tin định danh Pháp nhân (Tên Doanh nghiệp/Chủ TK, Số TK, Mã số thuế/CIF, Kỳ sao kê, Số dư đầu kỳ, Số dư cuối kỳ)*, để *tự động điền vào hồ sơ sao kê và cho phép dùng chung một mẫu sao kê để quét dữ liệu tách biệt cho nhiều doanh nghiệp khác nhau*.
 * **Độ ưu tiên:** Must Have (`P0`)
 * **Tiêu chí chấp nhận (AC):**
-  - Trích xuất chính xác Số dư đầu kỳ ($S_{start}$) và Số dư cuối kỳ ($S_{end}$).
+  - Trích xuất động (`Entity-Agnostic`) bộ định danh `(account_number, account_holder, tax_code)` từ Header để định tuyến và cô lập dữ liệu theo từng Doanh nghiệp/Pháp nhân.
+  - Trích xuất hoặc nội suy chính xác Số dư đầu kỳ ($S_{start}$) và Số dư cuối kỳ ($S_{end}$) theo 5 chế độ (`MODE_1` $\rightarrow$ `MODE_5`) quy định tại [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md).
   - Ghi nhận thông tin kỳ sao kê (`statement_period_start`, `statement_period_end`).
 
-#### US-03.2: Bóc tách Bảng Dòng Giao dịch theo Mẫu Động (Config-driven Parser)
-* **User Story:** Là một *Lập trình viên / Quản trị viên*, tôi muốn *định nghĩa tọa độ cột và dòng bắt đầu bằng file cấu hình JSON/YAML*, để *dễ dàng bổ sung ngân hàng mới khi khách hàng mở thêm tài khoản*.
+#### US-03.2: Bóc tách Bảng Dòng Giao dịch theo Mẫu Động (Config-driven Universal Parser)
+* **User Story:** Là một *Lập trình viên / Quản trị viên*, tôi muốn *định nghĩa tọa độ cột, từ khóa tiêu đề đồng nghĩa (`canonical_header_aliases`) và dòng bắt đầu bằng file cấu hình `bank_templates_config.yaml`*, để *xử lý chính xác 7 mẫu sao kê thực tế hiện có (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`) và bổ sung bất kỳ ngân hàng mới nào trong $\le 15$ phút mà không cần sửa mã nguồn*.
 * **Độ ưu tiên:** Must Have (`P0`)
-* **Cấu trúc trường dữ liệu bắt buộc phải bóc tách:**
-  1. Ngày giao dịch (Transaction Date).
-  2. Số tài khoản (Account Number).
-  3. Số phát sinh Nợ (Debit Amount - Tiền ra / Chi).
-  4. Số phát sinh Có (Credit Amount - Tiền vào / Thu).
-  5. Số dư lũy kế sau giao dịch (Running Balance).
-  6. Số tham chiếu / Mã bút toán giao dịch (Reference / Transaction ID).
-  7. Nội dung diễn giải chi tiết giao dịch (Description / Memo).
+* **Cấu trúc trường dữ liệu bắt buộc phải bóc tách / nội suy:**
+  1. Ngày giao dịch (`transaction_date`) & Ngày hạch toán/giá trị (`value_date`).
+  2. Số tài khoản (`account_number`) & Chủ tài khoản/Pháp nhân (`account_holder`).
+  3. Số phát sinh Nợ (`debit_amount` - Tiền ra / Chi).
+  4. Số phát sinh Có (`credit_amount` - Tiền vào / Thu).
+  5. Số dư lũy kế sau giao dịch (`running_balance` - bóc tách trực tiếp hoặc nội suy lũy kế đối với mẫu khuyết cột như `SHB_CORP_XLS`, `MBB_PERSONAL_XLSX`).
+  6. Số tham chiếu / Mã bút toán giao dịch (`reference_number`).
+  7. Nội dung diễn giải chi tiết giao dịch kết hợp thông tin đối ứng (`description`).
 
 ---
 
@@ -260,31 +262,31 @@ Hệ thống được tổ chức thành **6 Epics nghiệp vụ cốt lõi**:
     - `"- 250.000 VND"` $\rightarrow$ `-250000.00`
   - Bắt buộc lưu trữ dưới kiểu số chính xác cao (`DECIMAL(18, 2)`).
 
-#### US-04.3: Tự động Đối soát Cân bằng Kế toán Số dư (Balance Reconciliation)
-* **User Story:** Là một *Kế toán trưởng*, tôi muốn *hệ thống tự động tính toán đối soát giữa số dư đầu kỳ, tổng thu, tổng chi và số dư cuối kỳ theo công thức chuẩn*, để *phát hiện tức thì nếu file sao kê bị thiếu dòng hoặc bị tẩy xóa*.
+#### US-04.3: Tự động Đối soát Cân bằng Kế toán Số dư (5-Mode Balance Reconciliation)
+* **User Story:** Là một *Kế toán trưởng*, tôi muốn *hệ thống tự động tính toán đối soát giữa số dư đầu kỳ, tổng thu, tổng chi và số dư cuối kỳ theo 5 chế độ đối soát linh hoạt (`MODE_1` $\rightarrow$ `MODE_5`)*, để *phát hiện tức thì nếu file sao kê bị thiếu dòng hoặc bị tẩy xóa kể cả với các ngân hàng không in cột số dư lũy kế hoặc không in số dư đầu/cuối kỳ*.
 * **Độ ưu tiên:** Must Have (`P0`)
-* **Công thức nghiệp vụ đối soát:**
-  $$\text{Số dư cuối kỳ tính toán} = \text{Số dư đầu kỳ} + \sum \text{Phát sinh Có (Thu)} - \sum \text{Phát sinh Nợ (Chi)}$$
+* **Công thức nghiệp vụ đối soát chuẩn (Chi tiết 5 chế độ tại [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md#72-ma-trận-5-chế-độ-đối-soát-cân-bằng-kế-toán-reconciliation_mode)):**
+  $$\text{Số dư cuối kỳ tính toán} = \text{Số dư đầu kỳ (hoặc nội suy)} + \sum \text{Phát sinh Có (Thu)} - \sum \text{Phát sinh Nợ (Chi)}$$
   $$\Delta = |\text{Số dư cuối kỳ thực tế} - \text{Số dư cuối kỳ tính toán}|$$
 * **Tiêu chí chấp nhận (AC):**
   ```gherkin
   Scenario: Đối soát khớp hoàn toàn (Cân bằng)
     Given File sao kê có Số dư đầu kỳ = 10.000.000, Tổng Thu = 5.000.000, Tổng Chi = 3.000.000
-    When Hệ thống tính toán Số dư cuối kỳ = 12.000.000 trùng khớp 100% với Số dư cuối kỳ ghi trên file
-    Then Trạng thái đối soát của file là "RECONCILED_SUCCESS" (Hợp lệ)
+    When Hệ thống tính toán Số dư cuối kỳ = 12.000.000 trùng khớp 100% với Số dư cuối kỳ ghi trên file (delta = 0.00)
+    Then Trạng thái đối soát của file (reconciliation_status) là "BALANCED" (Hợp lệ)
 
   Scenario: Phát hiện chênh lệch đối soát
     Given File sao kê có chênh lệch delta > 0.00
     When Hệ thống hoàn thành tính toán
-    Then Trạng thái file là "RECONCILIATION_FAILED", bật cờ cảnh báo màu đỏ, hiển thị rõ số tiền chênh lệch để kế toán rà soát
+    Then Trạng thái đối soát của file (reconciliation_status) là "DISCREPANCY", bật cờ cảnh báo màu đỏ, lưu giá trị discrepancy_amount = delta để kế toán rà soát
   ```
 
-#### US-04.4: Lọc Trùng lặp Giao dịch (Transaction Deduplication)
-* **User Story:** Là một *Kế toán viên*, tôi muốn *hệ thống tự động loại bỏ hoặc cảnh báo các giao dịch bị trùng lặp giữa các lần upload*, để *tránh việc ghi nhận doanh thu hoặc chi phí 2 lần*.
+#### US-04.4: Lọc Trùng lặp Giao dịch (Transaction Deduplication - 6-Tuple Hash)
+* **User Story:** Là một *Kế toán viên*, tôi muốn *hệ thống tự động loại bỏ hoặc cảnh báo các giao dịch bị trùng lặp giữa các lần upload nhưng không nhận nhầm các bút toán tách Phí/VAT có cùng mã tham chiếu*, để *tránh việc ghi nhận doanh thu/chi phí 2 lần hoặc bỏ sót phí ngân hàng*.
 * **Độ ưu tiên:** Must Have (`P0`)
-* **Thuật toán băm định danh giao dịch (Deduplication Hash):**
-  $$\text{Hash} = \text{SHA256}(\text{account\_number} + \text{transaction\_date} + \text{amount} + \text{ref\_no})$$
-  - Nếu Hash đã tồn tại trong CSDL $\rightarrow$ Bỏ qua hoặc gắn cờ `IS_DUPLICATE = TRUE`.
+* **Thuật toán băm định danh giao dịch 6 thành phần (Deduplication Hash):**
+  $$\text{dedup\_hash} = \text{SHA256}(\text{account\_number} \parallel \text{"|"} \parallel \text{transaction\_date\_iso} \parallel \text{"|"} \parallel \text{debit\_amount} \parallel \text{"|"} \parallel \text{credit\_amount} \parallel \text{"|"} \parallel \text{reference\_number} \parallel \text{"|"} \parallel \text{running\_balance})$$
+  - Nếu `dedup_hash` đã tồn tại trong CSDL trên cùng `account_id` $\rightarrow$ Bỏ qua (`ON CONFLICT DO NOTHING`) hoặc gắn cờ `is_duplicate = TRUE`.
 
 #### US-04.5: Đối chiếu Dòng tiền Mặt qua Tài khoản Cá nhân Chủ Doanh nghiệp (Bà Nguyễn Thị Lan Anh - MBBank)
 * **User Story:** Là một *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *toàn bộ giao dịch phát sinh trên tài khoản MBBank của bà Nguyễn Thị Lan Anh được tự động ghi nhận 100% là chi phí hoạt động của công ty (kênh chi tiền mặt/tạm ứng)*, để *được cộng dồn vào dòng tiền chi và đối chiếu quỹ tiền mặt công ty mà không cần phân loại loại trừ chi tiêu cá nhân*.
@@ -424,7 +426,7 @@ gantt
 
 | Sprint | Thời lượng | Trọng tâm bàn giao (Goal & Deliverables) |
 | :---: | :---: | :--- |
-| **Sprint 1 (MVP)** | 2 tuần | Khung kiến trúc CSDL quan hệ, hạ tầng Object Storage lưu file gốc, giao diện kéo-thả upload và động cơ Parser bóc tách 2 ngân hàng lớn nhất (Vietcombank, Techcombank). |
+| **Sprint 1 (MVP)** | 2 tuần | Khung kiến trúc CSDL quan hệ (hỗ trợ Multi-Entity), hạ tầng Object Storage lưu file gốc, giao diện kéo-thả upload và động cơ Universal Config-Driven Parser bóc tách 7 mẫu sao kê thực tế (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`) kèm khả năng mở rộng Zero-Code cho VCB, TCB, BIDV, ACB. |
 | **Sprint 2** | 2 tuần | Pipeline chuẩn hóa dữ liệu (ngày ISO, tiền Decimal), cơ chế chống trùng lặp file & dòng giao dịch bằng SHA-256, module đối soát kế toán cân bằng số dư tự động kèm cảnh báo sai lệch. |
 | **Sprint 3** | 2 tuần | Màn hình Dashboard trực quan hóa dòng tiền ròng, bộ lọc đa tiêu chí, phân loại chi phí tự động theo từ khóa, chức năng xuất file Excel/PDF an toàn và nghiệm thu UAT toàn hệ thống. |
 

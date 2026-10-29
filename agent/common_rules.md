@@ -42,3 +42,20 @@
   - Code Typescript/Javascript: `camelCase` cho biến/hàm, `PascalCase` cho Class/Interface.
   - Code Python: `snake_case` cho hàm/biến, `PascalCase` cho Class.
 
+## 7. Tiêu chuẩn Đồng bộ Hóa Tài liệu & Kiểm soát Lan truyền Thay đổi (Cross-Artifact Synchronization Standard)
+Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thuật/nghiệp vụ nào (`docs/*.md`, `docs/*.yaml`, `database/*.sql`) BẮT BUỘC thực thi quy trình 3 bước để đảm bảo tính nhất quán tuyệt đối 100%:
+- **Bước 1 — Đối chiếu Ma trận Tác động Chéo (Ripple-Effect Impact Check):**
+  - Thay đổi Tên bảng / Tên cột / Kiểu dữ liệu / `ENUM` $\rightarrow$ Bắt buộc đồng bộ giữa `database/schema.sql`, `docs/Bank_Mapping_Matrix.md`, `docs/SAD.md`, `docs/architecture_spec.md` và `docs/api_contracts.yaml`.
+  - Thay đổi Công thức tính toán / Thuật toán băm / Chế độ kiểm toán $\rightarrow$ Bắt buộc đồng bộ giữa `docs/BRD.md`, `docs/Bank_Mapping_Matrix.md`, `docs/SAD.md`, `docs/architecture_spec.md` và `database/schema.sql`.
+  - Thay đổi Cấu trúc Request/Response JSON $\rightarrow$ Bắt buộc đồng bộ giữa `docs/api_contracts.yaml` và các ví dụ minh họa trong `docs/SAD.md`, `docs/architecture_spec.md`.
+- **Bước 2 — Kiểm tra 5 Bất biến Dùng chung (5 Shared Invariants Verification):**
+  Trước khi bàn giao tài liệu, Agent bắt buộc dùng công cụ tìm kiếm toàn cục để kiểm chứng 5 yếu tố sau không bị mâu thuẫn giữa các file:
+  1. *Tên định danh (`snake_case`)* của mọi bảng và cột.
+  2. *Tập giá trị hằng số/trạng thái (`ENUM`)* (tuyệt đối không dùng từ đồng nghĩa hoặc tên trạng thái tự đặt khác với `database/schema.sql`).
+  3. *Biểu thức công thức* (số lượng tham số, thứ tự trường, ký tự phân tách).
+  4. *Kiểu dữ liệu và độ chính xác* (`DECIMAL(18,2)`, chuẩn thời gian ISO 8601).
+  5. *Khóa JSON (JSON Keys)* trong các mẫu payload API.
+- **Bước 3 — Ghi nhận Phiên bản Liên kết (Linked Version Bump):**
+  Cập nhật bảng Lịch sử Phiên bản (Version History) tại các tài liệu vừa chỉnh sửa, ghi rõ phiên bản mới và danh sách các tệp đã được đồng bộ chéo.
+
+

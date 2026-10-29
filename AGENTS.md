@@ -32,4 +32,16 @@ Trong suốt quá trình xây dựng dự án, mỗi khi người dùng sửa l�
 - **Lỗi/Ràng buộc kỹ thuật áp dụng cho toàn hệ thống:** Tự động cập nhật bổ sung vào `agent/common_rules.md`.
 - **Điều chỉnh về mặt nghiệp vụ hoặc tính năng sản phẩm:** Tự động cập nhật vào thư mục `docs/` (BRD, SRS, PRD,...) hoặc `agent/PRODUCT_SPEC.md` (đảm bảo giữ vững nguyên tắc không đưa nghiệp vụ vào `rules.md`).
 
+## 6. Nguyên tắc Đồng bộ Liên Tài liệu & Chống Mâu thuẫn Chéo (Cross-Document Consistency & Ripple-Effect Rule)
+Để triệt tiêu vĩnh viễn tình trạng lệch pha hoặc mâu thuẫn giữa các tài liệu trong dự án, mọi Agent BẮT BUỘC tuân thủ kỷ luật đồng bộ nguyên tử sau:
+- **Cấm Cập nhật Cục bộ Đơn lẻ (No Siloed Documentation Edits):** Khi bất kỳ Agent nào thêm mới, sửa đổi hoặc loại bỏ một định nghĩa dùng chung (tên bảng/cột, tập giá trị `ENUM`, công thức tính toán/băm, cấu trúc API payload, hoặc quy tắc đối soát) trong một tài liệu, Agent đó BẮT BUỘC phải truy vết và cập nhật đồng bộ tất cả các tài liệu liên quan trong chuỗi (`docs/*`, `agent/PRODUCT_SPEC.md`, `database/schema.sql`) ngay trong **cùng một lượt thực thi (Atomic Turn)**.
+- **Phân quyền Nguồn Chân lý theo Miền Tài liệu (Canonical Domain Ownership):**
+  - Yêu cầu nghiệp vụ & luồng người dùng: `docs/BRD.md` & `agent/PRODUCT_SPEC.md`.
+  - Quy tắc ánh xạ dữ liệu nguồn & công thức chuẩn hóa/đối soát: `docs/Bank_Mapping_Matrix.md`.
+  - Cấu trúc bảng, tên cột, kiểu dữ liệu & ràng buộc `ENUM` CSDL: `database/schema.sql`.
+  - Đặc tả giao tiếp API, Request/Response Schema & HTTP Status: `docs/api_contracts.yaml`.
+  - Kiến trúc hệ thống tổng thể & luồng xử lý kỹ thuật: `docs/SAD.md` (và `docs/architecture_spec.md`).
+- **Cổng Kiểm tra Đồng bộ Chéo trước khi Hoàn tất (Pre-Signoff Consistency Gate):** Trước khi kết thúc nhiệm vụ tạo mới hoặc chỉnh sửa tài liệu, Agent bắt buộc phải thực hiện quét đối chiếu (`grep`/kiểm tra chéo) trên toàn bộ thư mục `docs/` và `database/` để xác nhận không tồn tại sự khác biệt về tên trường, mã trạng thái, kiểu dữ liệu hoặc công thức giữa các tệp.
+
+
 

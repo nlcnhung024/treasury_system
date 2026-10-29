@@ -46,8 +46,12 @@ paths:
                   description: File Excel sao kê ngân hàng (.xlsx hoặc .xls, dung lượng tối đa 25MB)
                 bank_code:
                   type: string
-                  example: "VCB"
-                  description: Mã ngân hàng phát hành (VCB, TCB, ACB, BIDV, MBB... hoặc để trống để tự nhận diện)
+                  example: "MBB"
+                  description: Mã ngân hàng phát hành (MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB... hoặc để trống để tự nhận diện)
+                template_code:
+                  type: string
+                  example: "MBB_CORP_XLSX"
+                  description: Mã cấu hình mẫu sao kê (Tùy chọn - nếu để trống hệ thống tự nhận diện qua Magic Bytes & Signature Rules)
       responses:
         '202':
           description: File đã được tiếp nhận thành công và đẩy vào hàng đợi xử lý ngầm (Accepted)
@@ -65,7 +69,10 @@ paths:
                     example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                   filename:
                     type: string
-                    example: "Sao_ke_VCB_Thang10_2026.xlsx"
+                    example: "Bang ket qua giao dich - 111386888 (2).xlsx"
+                  detected_template_code:
+                    type: string
+                    example: "MBB_CORP_XLSX"
                   status:
                     type: string
                     example: "QUEUED"
@@ -102,6 +109,18 @@ paths:
                 properties:
                   file_id:
                     type: integer
+                  template_code:
+                    type: string
+                    example: "MBB_CORP_XLSX"
+                  reconciliation_mode:
+                    type: string
+                    enum:
+                      - MODE_1_FULL_HEADER_FOOTER
+                      - MODE_2_INFERRED_OPENING_CLOSING
+                      - MODE_3_DERIVED_RUNNING_BALANCE
+                      - MODE_4_TOTAL_FLOW_ONLY
+                      - MODE_5_CUTOFF_INTEREST_INCLUDED
+                    example: "MODE_1_FULL_HEADER_FOOTER"
                   processing_status:
                     type: string
                     enum: [UPLOADED, QUEUED, PARSING, RECONCILING, COMPLETED, FAILED]
@@ -112,10 +131,10 @@ paths:
                     example: "BALANCED"
                   total_transactions:
                     type: integer
-                    example: 1250
+                    example: 125
                   discrepancy_amount:
                     type: number
-                    format: double
+                    description: Số tiền chênh lệch đối soát chính xác (DECIMAL(18,2))
                     example: 0.00
                   error_message:
                     type: string
@@ -146,7 +165,25 @@ paths:
           in: query
           schema:
             type: string
-          example: "VCB"
+          example: "MBB"
+        - name: account_number
+          in: query
+          description: Lọc theo số tài khoản cụ thể
+          schema:
+            type: string
+          example: "111386888"
+        - name: tax_code
+          in: query
+          description: Lọc theo Mã số thuế Pháp nhân / Doanh nghiệp (Multi-Entity Filter)
+          schema:
+            type: string
+          example: "0109730501"
+        - name: account_holder
+          in: query
+          description: Lọc theo tên Doanh nghiệp / Chủ tài khoản
+          schema:
+            type: string
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
         - name: category_id
           in: query
           schema:
@@ -347,6 +384,14 @@ paths:
       tags:
         - Reports
       summary: Báo cáo CFO (Ông Trần Ngọc Tuấn) - Tổng tồn quỹ hợp nhất đầu ngày
+      parameters:
+        - name: tax_code
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Lọc tồn quỹ theo Mã số thuế Doanh nghiệp (bỏ trống để xem hợp nhất)
+          example: "0109730501"
       responses:
         '200':
           description: Dữ liệu tồn quỹ hợp nhất sẵn sàng trước 9h00 sáng
@@ -375,16 +420,19 @@ paths:
                       properties:
                         bank_code:
                           type: string
-                          example: "VCB"
+                          example: "MBB"
                         bank_name:
                           type: string
-                          example: "Vietcombank"
+                          example: "Ngân hàng TMCP Quân Đội"
                         account_number:
                           type: string
-                          example: "0071000123456"
+                          example: "111386888"
+                        account_holder:
+                          type: string
+                          example: "CONG TY CO PHAN XI MANG SUNRISE"
                         balance:
                           type: number
-                          example: 45000000000.00
+                          example: 147097279.00
 
   /reports/ceo/waterfall:
     get:
@@ -400,9 +448,16 @@ paths:
             enum: [WTD, MTD]
             default: MTD
           description: Lũy kế Tuần (WTD) hoặc Lũy kế Tháng (MTD)
+        - name: tax_code
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Lọc báo cáo Waterfall theo Mã số thuế Doanh nghiệp (Multi-Entity)
+          example: "0109730501"
       responses:
         '200':
-          description: Cấu trúc dữ liệu render biểu đồ Waterfall
+          description: Cấu trúc dữ liệu render biểu đồ Waterfall (đồng bộ SAD & Frontend)
           content:
             application/json:
               schema:
@@ -436,6 +491,22 @@ paths:
                         amount:
                           type: number
                           example: 32000000000.00
+                  steps:
+                    type: array
+                    description: Mảng tuần tự các cột render trực tiếp lên biểu đồ Waterfall
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: "Số dư Đầu kỳ"
+                        type:
+                          type: string
+                          enum: [OPENING, INCOME, EXPENSE, CLOSING]
+                          example: "OPENING"
+                        value:
+                          type: number
+                          example: 110000000000.00
                   closing_balance:
                     type: number
                     example: 125450000000.00

@@ -16,6 +16,9 @@
   và đặc tả rõ ràng trong logic cập nhật: Cấm các tiến trình batch tự động ghi đè lên các bản ghi có `is_manual_override = TRUE`.
 - **Chỉ mục Tìm kiếm Toàn văn (Full-Text Search Indexing):** Các trường văn bản dài thường xuyên phục vụ người dùng tìm kiếm tự do (như `description`, `internal_note`) BẮT BUỘC phải được đánh chỉ mục GIN trên `to_tsvector` (hoặc Full-text Index tương đương) để đảm bảo tốc độ phản hồi < 200ms.
 - **Database Views cho Dashboard Quản trị Tức thời:** Với các chỉ số điều hành cấp cao (như Tồn quỹ khả dụng, Báo cáo đầu ngày), BẮT BUỘC phải thiết kế Database View chuyên dụng tổng hợp sẵn trên các bảng đã đánh chỉ mục, cam kết thời gian truy vấn API $\le 100\text{ms}$.
+- **Kiến trúc Cô lập Đa Pháp nhân (Multi-Entity / Multi-Tenant Isolation):**
+  - Tách biệt hoàn toàn giữa cấu hình mẫu dùng chung (Global Shared Templates) và dữ liệu giao dịch theo từng pháp nhân/doanh nghiệp (`account_holder`, `tax_code` / `entity_id`).
+  - Đảm bảo khả năng mở rộng dùng chung một mẫu cấu hình để quét và phân tách dữ liệu độc lập cho nhiều doanh nghiệp khác nhau mà không làm rò rỉ hay trộn lẫn số liệu.
 
 ## 2. Tiêu chuẩn Hạ tầng Lưu trữ File (Storage Architecture Standards)
 - **Phân vùng đường dẫn (Deterministic Path Partitioning):** Đường dẫn file trên Object Storage phải tuân thủ cấu trúc phân cấp thời gian:

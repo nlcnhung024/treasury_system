@@ -14,10 +14,11 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- =============================================================================
 CREATE TABLE bank_accounts (
     account_id BIGSERIAL PRIMARY KEY,
-    bank_code VARCHAR(20) NOT NULL,                         -- VCB, TCB, ACB, BIDV, MBB, ...
+    bank_code VARCHAR(20) NOT NULL,                         -- MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB, ...
     bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng đầy đủ
     account_number VARCHAR(50) NOT NULL UNIQUE,             -- Số tài khoản thanh toán
-    account_holder VARCHAR(150) NOT NULL,                   -- Tên chủ tài khoản (Cty hoặc Bà Nguyễn Thị Lan Anh)
+    account_holder VARCHAR(150) NOT NULL,                   -- Tên chủ tài khoản / Pháp nhân (Cty hoặc Bà Nguyễn Thị Lan Anh)
+    tax_code VARCHAR(50),                                   -- Mã số thuế / Mã định danh Pháp nhân (Multi-Entity Isolation)
     account_type VARCHAR(20) NOT NULL DEFAULT 'CORPORATE',  -- 'CORPORATE' (Cty) hoặc 'SPECIAL_CASH' (MBBank rút tiền mặt)
     currency VARCHAR(5) NOT NULL DEFAULT 'VND',             -- Đơn vị tiền tệ
     opening_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số dư khởi tạo ban đầu
@@ -29,6 +30,8 @@ CREATE TABLE bank_accounts (
 
 CREATE INDEX idx_bank_accounts_code ON bank_accounts(bank_code);
 CREATE INDEX idx_bank_accounts_type ON bank_accounts(account_type);
+CREATE INDEX idx_bank_accounts_tax_code ON bank_accounts(tax_code);
+CREATE INDEX idx_bank_accounts_holder ON bank_accounts(account_holder);
 
 -- =============================================================================
 -- 2. BẢNG QUẢN LÝ FILE SAO KÊ GỐC (BANK STATEMENT FILES)
@@ -38,6 +41,8 @@ CREATE TABLE bank_statement_files (
     file_id BIGSERIAL PRIMARY KEY,
     file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
     account_id BIGINT REFERENCES bank_accounts(account_id) ON DELETE SET NULL,
+    template_code VARCHAR(50),                              -- MBB_CORP_XLSX, MBB_PERSONAL_XLSX, MBV_CORP_XLSX, VPB_CORP_XLSX, TPB_CORP_XLSX, CTG_EFAST_XLS, SHB_CORP_XLS...
+    reconciliation_mode VARCHAR(50),                        -- MODE_1_FULL_HEADER_FOOTER .. MODE_5_CUTOFF_INTEREST_INCLUDED
     original_filename VARCHAR(255) NOT NULL,               -- Tên file gốc người dùng tải lên (.xlsx, .xls)
     storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: /statements/{bank}/{YYYY}/{MM}/{uuid}.xlsx
     file_size_bytes BIGINT NOT NULL,                        -- Dung lượng file (Bytes)
@@ -145,8 +150,8 @@ CREATE TABLE bank_transactions (
     credit_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,     -- Phát sinh Có (Tiền thu vào)
     running_balance DECIMAL(18, 2) NOT NULL,                -- Số dư lũy kế sau giao dịch
     
-    -- Chống trùng lặp dòng giao dịch
-    dedup_hash CHAR(64) NOT NULL,                           -- SHA256(account_no + date + debit + credit + ref_no)
+    -- Chống trùng lặp dòng giao dịch (6-Tuple Canonical Hash)
+    dedup_hash CHAR(64) NOT NULL,                           -- SHA256(account_no | trans_date_iso | debit | credit | ref_no | running_balance)
     is_duplicate BOOLEAN NOT NULL DEFAULT FALSE,            -- Cờ đánh dấu giao dịch trùng
     
     -- Cơ chế Phân loại & Khóa ghi đè (Manual Override & Notes)
