@@ -106,10 +106,24 @@ async def test_end_to_end_upload_rules_and_reports_flow():
         assert reapply_res.json()["tagged_count"] >= 2
 
         # 4. Kiểm tra Báo cáo CFO & CEO Waterfall
-        cfo_res = await ac.get("/api/v1/reports/cfo/daily-liquidity")
+        cfo_res = await ac.get("/api/v1/reports/cfo/daily-liquidity?timeframe=MTD&exclude_internal_transfers=true")
         assert cfo_res.status_code == 200
         cfo_data = cfo_res.json()
         assert Decimal(str(cfo_data["total_bank_balance"])) >= Decimal("64196071.00")
+        assert "opening_consolidated_liquidity" in cfo_data
+        assert "total_inflow_consolidated" in cfo_data
+        assert "total_outflow_consolidated" in cfo_data
+        assert "cash_summary" in cfo_data
+        for b_item in cfo_data["bank_breakdown"]:
+            b_open = Decimal(str(b_item["opening_balance"]))
+            b_in = Decimal(str(b_item["total_inflow"]))
+            b_out = Decimal(str(b_item["total_outflow"]))
+            b_close = Decimal(str(b_item["closing_balance"]))
+            assert b_open + b_in - b_out == b_close
+
+        cfo_excel_res = await ac.get("/api/v1/reports/cfo/export-excel?timeframe=MTD")
+        assert cfo_excel_res.status_code == 200
+        assert "spreadsheetml" in cfo_excel_res.headers.get("content-type", "")
 
         ceo_res = await ac.get("/api/v1/reports/ceo/waterfall?timeframe=MTD")
         assert ceo_res.status_code == 200

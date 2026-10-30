@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Search,
   Download,
@@ -13,20 +14,23 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import api from '../services/api';
-import { Transaction, Category } from '../types';
+import { Transaction, Category, BankAccount } from '../types';
 
 export const TransactionsPage: React.FC = () => {
+  const [searchParams] = useSearchParams();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // Bộ lọc đa chiều
-  const [keyword, setKeyword] = useState<string>('');
-  const [bankCode, setBankCode] = useState<string>('');
-  const [flowType, setFlowType] = useState<string>('');
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
-  const [fromDate, setFromDate] = useState<string>('');
-  const [toDate, setToDate] = useState<string>('');
+  // Bộ lọc đa chiều (hỗ trợ khởi tạo từ URL Query Params khi Drill-down từ Báo cáo CFO)
+  const [keyword, setKeyword] = useState<string>(searchParams.get('keyword') || '');
+  const [bankCode, setBankCode] = useState<string>(searchParams.get('bank_code') || '');
+  const [accountId, setAccountId] = useState<string>(searchParams.get('account_id') || '');
+  const [flowType, setFlowType] = useState<string>(searchParams.get('flow_type') || '');
+  const [categoryFilter, setCategoryFilter] = useState<string>(searchParams.get('category_id') || '');
+  const [fromDate, setFromDate] = useState<string>(searchParams.get('from_date') || '');
+  const [toDate, setToDate] = useState<string>(searchParams.get('to_date') || '');
   const [page, setPage] = useState<number>(1);
   const [totalPages, setTotalPages] = useState<number>(1);
   const [totalRecords, setTotalRecords] = useState<number>(0);
@@ -46,16 +50,26 @@ export const TransactionsPage: React.FC = () => {
 
   useEffect(() => {
     fetchCategories();
+    fetchAccounts();
   }, []);
 
   useEffect(() => {
     fetchTransactions();
-  }, [page, bankCode, flowType, categoryFilter, fromDate, toDate]);
+  }, [page, bankCode, accountId, flowType, categoryFilter, fromDate, toDate]);
 
   const fetchCategories = async () => {
     try {
       const res = await api.get('/categories');
       setCategories(res.data || []);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchAccounts = async () => {
+    try {
+      const res = await api.get('/accounts');
+      setAccounts(res.data || []);
     } catch (err) {
       console.error(err);
     }
@@ -70,6 +84,7 @@ export const TransactionsPage: React.FC = () => {
           limit: 50,
           keyword: keyword || undefined,
           bank_code: bankCode || undefined,
+          account_id: accountId !== '' ? Number(accountId) : undefined,
           flow_type: flowType || undefined,
           category_id: categoryFilter !== '' ? Number(categoryFilter) : undefined,
           from_date: fromDate || undefined,
@@ -182,6 +197,7 @@ export const TransactionsPage: React.FC = () => {
   const handleExportExcel = () => {
     const params = new URLSearchParams();
     if (bankCode) params.set('bank_code', bankCode);
+    if (accountId !== '') params.set('account_id', accountId);
     if (categoryFilter !== '') params.set('category_id', categoryFilter);
     if (fromDate) params.set('from_date', fromDate);
     if (toDate) params.set('to_date', toDate);
@@ -214,11 +230,11 @@ export const TransactionsPage: React.FC = () => {
 
         {/* Bộ lọc đa chiều */}
         <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4">
-          <div className="md:col-span-2 relative">
+          <div className="md:col-span-1 relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Tìm nội dung, số bút toán, ghi chú..."
+              placeholder="Tìm nội dung, mã GD..."
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => {
@@ -235,6 +251,7 @@ export const TransactionsPage: React.FC = () => {
             value={bankCode}
             onChange={(e) => {
               setBankCode(e.target.value);
+              setAccountId('');
               setPage(1);
             }}
             className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -246,6 +263,24 @@ export const TransactionsPage: React.FC = () => {
             <option value="TPB">TPBank (TPB)</option>
             <option value="CTG">VietinBank (CTG)</option>
             <option value="SHB">SHB</option>
+          </select>
+
+          <select
+            value={accountId}
+            onChange={(e) => {
+              setAccountId(e.target.value);
+              setPage(1);
+            }}
+            className="bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Tất cả Số tài khoản</option>
+            {accounts
+              .filter((acc) => !bankCode || acc.bank_code === bankCode)
+              .map((acc) => (
+                <option key={acc.account_id} value={acc.account_id}>
+                  [{acc.bank_code}] {acc.account_number} ({acc.account_type === 'SPECIAL_CASH' ? 'TK Cá nhân CEO' : 'TK Công ty'})
+                </option>
+              ))}
           </select>
 
           <select
@@ -311,11 +346,12 @@ export const TransactionsPage: React.FC = () => {
               }}
               className="bg-slate-50 border border-slate-300 rounded px-2 py-1"
             />
-            {(fromDate || toDate || bankCode || flowType || categoryFilter || keyword) && (
+            {(fromDate || toDate || bankCode || accountId || flowType || categoryFilter || keyword) && (
               <button
                 onClick={() => {
                   setKeyword('');
                   setBankCode('');
+                  setAccountId('');
                   setFlowType('');
                   setCategoryFilter('');
                   setFromDate('');

@@ -31,7 +31,7 @@
 | **`REQ-CLEAN-002`** | Chuẩn hóa Tiền tệ Độ chính xác Cao | `US-04.2`, `US-05.1` | Chuyển đổi $100\%$ chuỗi tiền tệ (US comma, VN dot, Space-tab, Scientific notation, số âm ngoặc đơn) sang kiểu `DECIMAL(18, 2)` với sai số làm tròn $= 0\text{ VND}$. Cấm tuyệt đối kiểu `FLOAT`/`DOUBLE`. |
 | **`REQ-CLEAN-003`** | Nội suy Số dư & Đối soát 5 Chế độ | `US-04.3`, `NFR-01` | Hỗ trợ 5 chế độ đối soát (`MODE_1` $\rightarrow$ `MODE_5`), tự động nội suy `running_balance` hoặc `header_opening/closing_balance` cho các mẫu khuyết cột, đảm bảo độ lệch đối soát $\Delta = 0.00\text{ VND}$. |
 | **`REQ-CLEAN-004`** | Băm Chống trùng Dòng Giao dịch | `US-04.4` | Sinh mã băm `dedup_hash` (`CHAR(64)`) kết hợp 6 thành phần định danh để phân biệt chính xác $100\%$ các giao dịch tách Phí/VAT có cùng mã tham chiếu và cùng giây giao dịch. |
-| **`REQ-PERSIST-001`** | Đối ứng Sổ Quỹ Tiền mặt | `US-04.5` | Tự động ánh xạ $100\%$ giao dịch từ tài khoản `SPECIAL_CASH` (MBBank cá nhân `0869596789`) và các bút toán rút tiền mặt nhập quỹ sang bảng `cash_ledger`. |
+| **`REQ-PERSIST-001`** | Đối ứng Sổ Quỹ Tiền mặt | `US-04.5` | Tự động ánh xạ $100\%$ giao dịch từ tài khoản `SPECIAL_CASH` (MBBank cá nhân `0869596789`) và tự động tính Sổ quỹ tiền mặt (`cash_ledger`) theo công thức: $\text{Quỹ tiền mặt} = \sum \text{Rút tiền mặt từ NH ("RUT TIEN" / INFLOW)} - \sum \text{Nộp tiền mặt vào NH ("NOP TIEN" / OUTFLOW)}$. |
 
 ---
 

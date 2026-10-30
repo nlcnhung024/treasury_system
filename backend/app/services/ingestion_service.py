@@ -1,8 +1,10 @@
 import logging
+import re
 from decimal import Decimal
 from typing import Dict, Any, List
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal
 from app.models.account import BankAccount
@@ -16,6 +18,98 @@ from app.services.parser.universal_stream_parser import parse_statement_file
 from app.services.rule_engine import find_matching_rule
 
 logger = logging.getLogger(__name__)
+
+CASH_WITHDRAWAL_PATTERN = re.compile(r"(?i)\b(rut\s*tien|rút\s*tiền)\b")
+CASH_DEPOSIT_PATTERN = re.compile(r"(?i)\b(nop\s*tien|nộp\s*tiền)\b")
+
+
+async def sync_and_recalculate_cash_ledger(db: AsyncSession) -> int:
+    """
+    Đồng bộ Sổ quỹ Tiền mặt (cash_ledger) theo công thức chuẩn:
+      Quỹ tiền mặt = Tổng Rút tiền mặt từ NH (INFLOW) - Tổng Nộp tiền mặt vào NH (OUTFLOW)
+    1. Xóa các bản ghi tự động mồ côi (khi file sao kê gốc đã bị xóa nên linked_transaction_id IS NULL).
+    2. Quét toàn bộ giao dịch ngân hàng để bổ sung các bút toán Rút tiền (INFLOW) hoặc Nộp tiền (OUTFLOW) còn thiếu.
+    3. Sắp xếp toàn bộ Sổ quỹ theo thứ tự thời gian (entry_date ASC, cash_entry_id ASC) và tính lại running_cash_balance.
+    """
+    # 1. Dọn các bút toán tự động mồ côi
+    await db.execute(
+        delete(CashLedger).where(
+            CashLedger.linked_transaction_id.is_(None),
+            CashLedger.internal_note.like("Tự động đối ứng%"),
+        )
+    )
+    await db.flush()
+
+    # 2. Lấy tập linked_transaction_id đã có trong cash_ledger
+    existing_linked_res = await db.execute(
+        select(CashLedger.linked_transaction_id).where(CashLedger.linked_transaction_id.is_not(None))
+    )
+    existing_linked_ids = set(existing_linked_res.scalars().all())
+
+    tx_stmt = (
+        select(BankTransaction)
+        .options(selectinload(BankTransaction.account))
+        .order_by(BankTransaction.transaction_date.asc(), BankTransaction.transaction_id.asc())
+    )
+    all_txs = list((await db.execute(tx_stmt)).scalars().all())
+
+    created_count = 0
+    for tx_obj in all_txs:
+        if tx_obj.transaction_id in existing_linked_ids:
+            continue
+        desc_str = tx_obj.description or ""
+        acc = tx_obj.account
+        bank_label = f"{acc.bank_code} - {acc.account_number}" if acc else f"Account #{tx_obj.account_id}"
+        holder_name = acc.account_holder if acc else None
+
+        reason_str = desc_str
+        if tx_obj.reference_number and tx_obj.reference_number not in reason_str:
+            reason_str = f"{reason_str} ({tx_obj.reference_number})"
+
+        if tx_obj.debit_amount > Decimal("0.00") and CASH_WITHDRAWAL_PATTERN.search(desc_str):
+            db.add(
+                CashLedger(
+                    linked_transaction_id=tx_obj.transaction_id,
+                    entry_date=tx_obj.value_date or tx_obj.transaction_date.date(),
+                    entry_type="INFLOW",
+                    amount=tx_obj.debit_amount,
+                    running_cash_balance=Decimal("0.00"),
+                    receiver_payer=holder_name,
+                    reason=reason_str,
+                    internal_note=f"Tự động đối ứng rút tiền mặt từ TK {bank_label}",
+                )
+            )
+            created_count += 1
+        elif tx_obj.credit_amount > Decimal("0.00") and CASH_DEPOSIT_PATTERN.search(desc_str):
+            db.add(
+                CashLedger(
+                    linked_transaction_id=tx_obj.transaction_id,
+                    entry_date=tx_obj.value_date or tx_obj.transaction_date.date(),
+                    entry_type="OUTFLOW",
+                    amount=tx_obj.credit_amount,
+                    running_cash_balance=Decimal("0.00"),
+                    receiver_payer=holder_name,
+                    reason=reason_str,
+                    internal_note=f"Tự động đối ứng nộp tiền mặt vào TK {bank_label}",
+                )
+            )
+            created_count += 1
+
+    await db.flush()
+
+    # 3. Tính lại running_cash_balance chuẩn xác theo thứ tự thời gian (Rút tiền - Nộp tiền)
+    all_cash_stmt = select(CashLedger).order_by(CashLedger.entry_date.asc(), CashLedger.cash_entry_id.asc())
+    all_cash_entries = list((await db.execute(all_cash_stmt)).scalars().all())
+    running_bal = Decimal("0.00")
+    for entry in all_cash_entries:
+        if entry.entry_type == "INFLOW":
+            running_bal += entry.amount
+        else:
+            running_bal -= entry.amount
+        entry.running_cash_balance = running_bal
+
+    await db.flush()
+    return created_count
 
 
 async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, Any]:
@@ -152,38 +246,8 @@ async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, An
 
         await db.flush()
 
-        # Tự động sinh bút toán Nhập quỹ tiền mặt (cash_ledger) đối ứng với các lệnh 'RUT TIEN'
-        cash_last_stmt = (
-            select(CashLedger)
-            .order_by(desc(CashLedger.entry_date), desc(CashLedger.cash_entry_id))
-            .limit(1)
-        )
-        cash_last_res = await db.execute(cash_last_stmt)
-        last_cash = cash_last_res.scalar_one_or_none()
-        running_cash = last_cash.running_cash_balance if last_cash else Decimal("0.00")
-
-        cash_entries_created = 0
-        for tx_obj in inserted_txs:
-            desc_upper = (tx_obj.description or "").upper()
-            if tx_obj.debit_amount > Decimal("0.00") and (
-                "RUT TIEN" in desc_upper or "RÚT TIỀN" in desc_upper
-            ):
-                running_cash = running_cash + tx_obj.debit_amount
-                reason_str = tx_obj.description
-                if tx_obj.reference_number and tx_obj.reference_number not in reason_str:
-                    reason_str = f"{reason_str} ({tx_obj.reference_number})"
-                cash_entry = CashLedger(
-                    linked_transaction_id=tx_obj.transaction_id,
-                    entry_date=tx_obj.value_date or tx_obj.transaction_date.date(),
-                    entry_type="INFLOW",
-                    amount=tx_obj.debit_amount,
-                    running_cash_balance=running_cash,
-                    receiver_payer=account.account_holder,
-                    reason=reason_str,
-                    internal_note=f"Tự động đối ứng rút tiền mặt từ TK {account.bank_code} - {account.account_number}",
-                )
-                db.add(cash_entry)
-                cash_entries_created += 1
+        # Tự động đồng bộ & tính lại Sổ quỹ tiền mặt (cash_ledger): Rút tiền (INFLOW) - Nộp tiền (OUTFLOW)
+        cash_entries_created = await sync_and_recalculate_cash_ledger(db)
 
         # Cập nhật kết quả đối soát lên BankStatementFile
         stmt_file.account_id = account.account_id

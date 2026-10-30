@@ -1,3 +1,17 @@
+export interface BankAccount {
+  account_id: number;
+  bank_code: string;
+  bank_name: string;
+  account_number: string;
+  account_holder: string;
+  tax_code?: string | null;
+  account_type: 'CORPORATE' | 'SPECIAL_CASH';
+  currency: string;
+  opening_balance: number;
+  current_balance: number;
+  is_active: boolean;
+}
+
 export interface Transaction {
   transaction_id: number;
   file_id: number;
@@ -51,22 +65,74 @@ export interface StatementFile {
   created_at: string;
 }
 
+export interface CFOBankBreakdownItem {
+  account_id?: number;
+  bank_code: string;
+  bank_name: string;
+  account_number: string;
+  account_holder: string;
+  account_type?: 'CORPORATE' | 'SPECIAL_CASH';
+  tax_code?: string | null;
+  opening_balance: number;
+  total_inflow: number;
+  total_outflow: number;
+  internal_inflow: number;
+  internal_outflow: number;
+  balance: number;
+  closing_balance: number;
+  net_change: number;
+  net_change_pct?: number | null;
+  share_pct: number;
+  period_tx_count: number;
+  reconciliation_status: 'BALANCED' | 'DISCREPANCY' | 'UNANCHORED' | 'NO_STATEMENT';
+  reconciliation_mode?: string | null;
+  discrepancy_amount: number;
+  latest_tx_date?: string | null;
+  last_uploaded_at?: string | null;
+  latest_filename?: string | null;
+}
+
+export interface CFOCashFundSummary {
+  opening_balance: number;
+  total_inflow: number;
+  total_outflow: number;
+  internal_inflow: number;
+  closing_balance: number;
+  net_change: number;
+  net_change_pct?: number | null;
+  share_pct: number;
+  period_entry_count: number;
+  latest_entry_date?: string | null;
+}
+
 export interface CFOLiquidityData {
   report_date: string;
+  timeframe: 'TODAY' | 'YESTERDAY' | 'WTD' | 'MTD' | 'ALL' | 'CUSTOM';
+  period_start?: string;
+  period_end?: string;
+  exclude_internal_transfers: boolean;
+  internal_transfer_tx_count: number;
+  internal_inflow_amount: number;
+  internal_outflow_amount: number;
+  opening_consolidated_liquidity: number;
+  total_inflow_consolidated: number;
+  total_outflow_consolidated: number;
+  gross_inflow_consolidated: number;
+  gross_outflow_consolidated: number;
+  external_inflow_consolidated: number;
+  external_outflow_consolidated: number;
   total_consolidated_liquidity: number;
+  net_change_consolidated: number;
+  net_change_consolidated_pct?: number | null;
+  opening_bank_balance: number;
   total_bank_balance: number;
+  corporate_bank_balance: number;
+  special_cash_bank_balance: number;
   total_cash_on_hand: number;
-  bank_breakdown: Array<{
-    account_id?: number;
-    bank_code: string;
-    bank_name: string;
-    account_number: string;
-    account_holder: string;
-    account_type?: 'CORPORATE' | 'SPECIAL_CASH';
-    tax_code?: string;
-    opening_balance?: number;
-    balance: number;
-  }>;
+  cash_summary?: CFOCashFundSummary | null;
+  discrepancy_accounts_count: number;
+  unanchored_accounts_count: number;
+  bank_breakdown: CFOBankBreakdownItem[];
 }
 
 export interface CashLedgerEntry {

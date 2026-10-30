@@ -17,7 +17,11 @@ from app.schemas.statement import StatementFileItem, StatementFileDetail, Statem
 from app.schemas.common import PaginationMeta
 from app.services.storage_service import save_statement_bytes
 from app.services.parser.template_detector import detect_bank_template
-from app.services.ingestion_service import process_statement_file, run_background_parse_task
+from app.services.ingestion_service import (
+    process_statement_file,
+    run_background_parse_task,
+    sync_and_recalculate_cash_ledger,
+)
 
 router = APIRouter(prefix="/statements", tags=["Statements"])
 
@@ -271,5 +275,7 @@ async def delete_statement_file(file_id: int, db: AsyncSession = Depends(get_db)
         raise HTTPException(status_code=404, detail="Không tìm thấy file sao kê")
 
     await db.delete(f)
+    await db.flush()
+    await sync_and_recalculate_cash_ledger(db)
     await db.commit()
     return {"message": f"Đã xóa file sao kê '{f.original_filename}' (ID: {file_id}) và các giao dịch liên kết."}

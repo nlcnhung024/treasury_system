@@ -1001,9 +1001,36 @@ paths:
     get:
       tags:
         - Reports
-      summary: Báo cáo CFO (Ông Trần Ngọc Tuấn) - Tổng tồn quỹ hợp nhất đầu ngày (< 9h00 sáng)
+      summary: Báo cáo CFO (Ông Trần Ngọc Tuấn) - Tồn quỹ hợp nhất & biến động dòng tiền đa kỳ (< 9h00 sáng)
       operationId: getCfoDailyLiquidity
       parameters:
+        - name: timeframe
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [TODAY, YESTERDAY, WTD, MTD, ALL, CUSTOM]
+            default: MTD
+          description: Kỳ phân tích tồn quỹ (Ngày mới nhất, Hôm trước, Lũy kế Tuần, Lũy kế Tháng, Toàn kỳ, Tùy chọn)
+        - name: from_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: exclude_internal_transfers
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+          description: Loại trừ luân chuyển nội bộ trên chỉ số Tổng Thu/Chi hợp nhất
         - name: tax_code
           in: query
           required: false
@@ -1011,13 +1038,63 @@ paths:
             type: string
           description: Lọc tồn quỹ theo Mã số thuế Doanh nghiệp (bỏ trống để xem hợp nhất toàn tập đoàn)
           example: "0109730501"
+        - name: bank_code
+          in: query
+          required: false
+          schema:
+            type: string
       responses:
         '200':
-          description: Dữ liệu tồn quỹ hợp nhất sẵn sàng trước 9h00 sáng (SLA truy vấn <= 100ms)
+          description: Dữ liệu tồn quỹ hợp nhất 3 Khối nguồn tiền kèm đủ 5 cột biến động (ĐK, Thu, Chi, CK, Chênh lệch)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/CfoLiquidityResponse'
+
+  /reports/cfo/export-excel:
+    get:
+      tags:
+        - Reports
+      summary: Xuất Báo cáo Tồn quỹ Hợp nhất CFO (3 Khối nguồn tiền) ra file Excel (.xlsx) chuẩn mực kế toán
+      operationId: exportCfoLiquidityExcel
+      parameters:
+        - name: timeframe
+          in: query
+          schema:
+            type: string
+            enum: [TODAY, YESTERDAY, WTD, MTD, ALL, CUSTOM]
+            default: MTD
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: exclude_internal_transfers
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: tax_code
+          in: query
+          schema:
+            type: string
+        - name: bank_code
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File Excel Báo cáo Tồn quỹ Hợp nhất CFO đã sanitize chống Formula Injection
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
 
   /reports/ceo/waterfall:
     get:
@@ -1789,21 +1866,79 @@ components:
           type: string
           format: date
           example: "2026-10-30"
+        timeframe:
+          type: string
+          enum: [TODAY, YESTERDAY, WTD, MTD, ALL, CUSTOM]
+          example: "MTD"
+        period_start:
+          type: string
+          format: date
+          example: "2026-10-01"
+        period_end:
+          type: string
+          format: date
+          example: "2026-10-30"
+        exclude_internal_transfers:
+          type: boolean
+          example: true
+        internal_transfer_tx_count:
+          type: integer
+          example: 14
+        internal_inflow_amount:
+          type: number
+          example: 450000000.00
+        internal_outflow_amount:
+          type: number
+          example: 450000000.00
+        opening_consolidated_liquidity:
+          type: number
+          example: 98500000000.00
+        total_inflow_consolidated:
+          type: number
+          example: 65200000000.00
+        total_outflow_consolidated:
+          type: number
+          example: 38250000000.00
         total_consolidated_liquidity:
           type: number
-          description: Tổng tiền tồn quỹ hợp nhất (DECIMAL 18,2) = Tổng ngân hàng + Tổng tồn quỹ tiền mặt
+          description: Tổng tiền tồn quỹ hợp nhất cuối kỳ (DECIMAL 18,2) = Tổng ngân hàng + Tổng tồn quỹ tiền mặt
           example: 125450000000.00
+        net_change_consolidated:
+          type: number
+          example: 26950000000.00
+        net_change_consolidated_pct:
+          type: number
+          nullable: true
+          example: 27.36
+        opening_bank_balance:
+          type: number
+          example: 95000000000.00
         total_bank_balance:
           type: number
           example: 120250000000.00
+        corporate_bank_balance:
+          type: number
+          example: 118500000000.00
+        special_cash_bank_balance:
+          type: number
+          example: 1750000000.00
         total_cash_on_hand:
           type: number
           example: 5200000000.00
+        discrepancy_accounts_count:
+          type: integer
+          example: 0
+        unanchored_accounts_count:
+          type: integer
+          example: 0
         bank_breakdown:
           type: array
           items:
             type: object
             properties:
+              account_id:
+                type: integer
+                example: 1
               bank_code:
                 type: string
                 example: "MBB"
@@ -1816,9 +1951,38 @@ components:
               account_holder:
                 type: string
                 example: "CONG TY CO PHAN XI MANG SUNRISE"
+              account_type:
+                type: string
+                enum: [CORPORATE, SPECIAL_CASH]
+                example: "CORPORATE"
+              opening_balance:
+                type: number
+                example: 54200000.00
+              total_inflow:
+                type: number
+                example: 125000000.00
+              total_outflow:
+                type: number
+                example: 32102721.00
               balance:
                 type: number
                 example: 147097279.00
+              closing_balance:
+                type: number
+                example: 147097279.00
+              net_change:
+                type: number
+                example: 92897279.00
+              share_pct:
+                type: number
+                example: 12.45
+              period_tx_count:
+                type: integer
+                example: 42
+              reconciliation_status:
+                type: string
+                enum: [BALANCED, DISCREPANCY, UNANCHORED, NO_STATEMENT]
+                example: "BALANCED"
 
     WaterfallReportResponse:
       type: object
