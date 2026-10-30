@@ -24,9 +24,7 @@ from app.schemas.report import (
 from app.models.account import BankAccount
 from app.models.transaction import BankTransaction
 from app.models.statement_file import BankStatementFile
-from app.models.cash_ledger import CashLedger
 from app.models.category_rule import Category
-from app.services.ingestion_service import sync_and_recalculate_cash_ledger
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 VN_TZ = timezone(timedelta(hours=7))
@@ -36,9 +34,7 @@ INTERNAL_TRANSFER_PATTERNS = re.compile(
 )
 
 
-def _is_internal_transfer(tx: BankTransaction, linked_cash_tx_ids: Optional[set] = None) -> bool:
-    if linked_cash_tx_ids and tx.transaction_id in linked_cash_tx_ids:
-        return True
+def _is_internal_transfer(tx: BankTransaction) -> bool:
     desc_str = tx.description or ""
     if INTERNAL_TRANSFER_PATTERNS.search(desc_str):
         return True
@@ -89,17 +85,8 @@ async def _compute_cfo_liquidity_data(
             if sf.account_id is not None:
                 files_by_acc.setdefault(sf.account_id, []).append(sf)
 
-    # Đảm bảo Sổ quỹ tiền mặt luôn được đồng bộ đầy đủ theo công thức: Rút tiền (INFLOW) - Nộp tiền (OUTFLOW)
-    await sync_and_recalculate_cash_ledger(db)
-    await db.commit()
-
-    cash_query = select(CashLedger).order_by(CashLedger.entry_date.asc(), CashLedger.cash_entry_id.asc())
-    all_cash: List[CashLedger] = list((await db.execute(cash_query)).scalars().all())
-    linked_cash_tx_ids = {c.linked_transaction_id for c in all_cash if c.linked_transaction_id is not None}
-
-    # Xác định ngày mốc (Anchor Date) từ giao dịch mới nhất trong CSDL
+    # Xác định ngày mốc (Anchor Date) từ giao dịch ngân hàng mới nhất trong CSDL
     all_dates: List[date] = [tx.transaction_date.astimezone(VN_TZ).date() for tx in all_txs]
-    all_dates.extend(c.entry_date for c in all_cash)
     anchor_date = max(all_dates) if all_dates else date.today()
     min_date = min(all_dates) if all_dates else anchor_date.replace(day=1)
 
@@ -164,7 +151,7 @@ async def _compute_cfo_liquidity_data(
         for t in period_txs:
             acc_inflow += t.credit_amount
             acc_outflow += t.debit_amount
-            if _is_internal_transfer(t, linked_cash_tx_ids):
+            if _is_internal_transfer(t):
                 internal_tx_count += 1
                 acc_int_in += t.credit_amount
                 acc_int_out += t.debit_amount
@@ -242,50 +229,9 @@ async def _compute_cfo_liquidity_data(
             )
         )
 
-    # Khối 3: Tính toán biến động Sổ quỹ Tiền mặt (cash_ledger) trong kỳ [p_start, p_end]
-    before_cash = [c for c in all_cash if c.entry_date < p_start]
-    period_cash = [c for c in all_cash if p_start <= c.entry_date <= p_end]
-
-    if before_cash:
-        cash_open = before_cash[-1].running_cash_balance
-    elif all_cash:
-        first_c = all_cash[0]
-        cash_open = (
-            first_c.running_cash_balance - first_c.amount
-            if first_c.entry_type == "INFLOW"
-            else first_c.running_cash_balance + first_c.amount
-        )
-    else:
-        cash_open = Decimal("0.00")
-
-    cash_inflow = Decimal("0.00")
-    cash_outflow = Decimal("0.00")
-    cash_internal_inflow = Decimal("0.00")
-    cash_internal_outflow = Decimal("0.00")
-    for c in period_cash:
-        reason_up = (c.reason or "").upper()
-        if c.entry_type == "INFLOW":
-            cash_inflow += c.amount
-            if c.linked_transaction_id is not None or "RUT TIEN" in reason_up or "RÚT TIỀN" in reason_up:
-                cash_internal_inflow += c.amount
-                internal_tx_count += 1
-        else:
-            cash_outflow += c.amount
-            if c.linked_transaction_id is not None or "NOP TIEN" in reason_up or "NỘP TIỀN" in reason_up:
-                cash_internal_outflow += c.amount
-                internal_tx_count += 1
-
-    cash_close = cash_open + cash_inflow - cash_outflow if all_cash else Decimal("0.00")
-    cash_net_chg = cash_close - cash_open
-    cash_net_pct: Optional[Decimal] = None
-    if cash_open != Decimal("0.00"):
-        cash_net_pct = ((cash_net_chg / abs(cash_open)) * Decimal("100.00")).quantize(Decimal("0.01"))
-
-    latest_cash_date = all_cash[-1].entry_date if all_cash else None
-
-    # Hợp nhất 3 Khối (Bank Khối 1 + Bank Khối 2 + Cash Khối 3)
-    opening_consolidated = opening_bank_total + cash_open
-    closing_consolidated = closing_bank_total + cash_close
+    # Hợp nhất Tồn quỹ chỉ tính từ hệ thống Tài khoản Ngân hàng (Khối 1 Doanh nghiệp + Khối 2 Ủy quyền CEO), không tính phần tiền mặt vào quỹ
+    opening_consolidated = opening_bank_total
+    closing_consolidated = closing_bank_total
     net_change_consolidated = closing_consolidated - opening_consolidated
     net_change_consolidated_pct: Optional[Decimal] = None
     if opening_consolidated != Decimal("0.00"):
@@ -293,10 +239,10 @@ async def _compute_cfo_liquidity_data(
             (net_change_consolidated / abs(opening_consolidated)) * Decimal("100.00")
         ).quantize(Decimal("0.01"))
 
-    gross_inflow = bank_gross_inflow + cash_inflow
-    gross_outflow = bank_gross_outflow + cash_outflow
-    total_internal_in = bank_internal_inflow + cash_internal_inflow
-    total_internal_out = bank_internal_outflow + cash_internal_outflow
+    gross_inflow = bank_gross_inflow
+    gross_outflow = bank_gross_outflow
+    total_internal_in = bank_internal_inflow
+    total_internal_out = bank_internal_outflow
 
     external_inflow = max(Decimal("0.00"), gross_inflow - total_internal_in)
     external_outflow = max(Decimal("0.00"), gross_outflow - total_internal_out)
@@ -304,33 +250,13 @@ async def _compute_cfo_liquidity_data(
     display_inflow = external_inflow if exclude_internal_transfers else gross_inflow
     display_outflow = external_outflow if exclude_internal_transfers else gross_outflow
 
-    # Cập nhật tỷ trọng % (share_pct) trên Tổng tồn quỹ hợp nhất cuối kỳ
+    # Cập nhật tỷ trọng % (share_pct) trên Tổng tồn quỹ ngân hàng hợp nhất cuối kỳ
     if closing_consolidated > Decimal("0.00"):
         for item in breakdown:
             if item.closing_balance > Decimal("0.00"):
                 item.share_pct = ((item.closing_balance / closing_consolidated) * Decimal("100.00")).quantize(
                     Decimal("0.01")
                 )
-        cash_share_pct = (
-            ((cash_close / closing_consolidated) * Decimal("100.00")).quantize(Decimal("0.01"))
-            if cash_close > Decimal("0.00")
-            else Decimal("0.00")
-        )
-    else:
-        cash_share_pct = Decimal("0.00")
-
-    cash_summary = CashFundSummary(
-        opening_balance=cash_open,
-        total_inflow=cash_inflow,
-        total_outflow=cash_outflow,
-        internal_inflow=cash_internal_inflow,
-        closing_balance=cash_close,
-        net_change=cash_net_chg,
-        net_change_pct=cash_net_pct,
-        share_pct=cash_share_pct,
-        period_entry_count=len(period_cash),
-        latest_entry_date=latest_cash_date,
-    )
 
     return CfoLiquidityResponse(
         report_date=p_end,
@@ -355,8 +281,8 @@ async def _compute_cfo_liquidity_data(
         total_bank_balance=closing_bank_total,
         corporate_bank_balance=corporate_bank_total,
         special_cash_bank_balance=special_cash_bank_total,
-        total_cash_on_hand=cash_close,
-        cash_summary=cash_summary,
+        total_cash_on_hand=Decimal("0.00"),
+        cash_summary=None,
         discrepancy_accounts_count=discrepancy_count,
         unanchored_accounts_count=unanchored_count,
         bank_breakdown=breakdown,
@@ -374,7 +300,7 @@ async def get_cfo_daily_liquidity(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Báo cáo CFO (Ông Trần Ngọc Tuấn trước 9h sáng) - Báo cáo Tồn quỹ Hợp nhất Đa kỳ (3 Khối nguồn tiền).
+    Báo cáo CFO (Ông Trần Ngọc Tuấn trước 9h sáng) - Báo cáo Tồn quỹ Hợp nhất Đa kỳ (Khối 1 TK Doanh nghiệp + Khối 2 TK Ủy quyền CEO).
     Bảo toàn tuyệt đối: Số dư đầu kỳ + Tổng Thu - Tổng Chi == Số dư cuối kỳ (Δ = 0.00).
     """
     return await _compute_cfo_liquidity_data(
@@ -400,8 +326,7 @@ async def export_cfo_liquidity_excel(
 ):
     """
     Xuất Báo cáo Tồn quỹ Hợp nhất CFO ra file Excel (.xlsx) chuẩn mực kế toán:
-    - Sheet 1: Bảng Tổng hợp Tồn quỹ 3 Khối (Đầu kỳ, Thu, Chi, Cuối kỳ, Biến động, Tỷ trọng %, Đối soát)
-    - Sheet 2: Sổ quỹ Tiền mặt đối ứng (cash_ledger)
+    - Bảng Tổng hợp Tồn quỹ Hợp nhất các Tài khoản Ngân hàng (Khối 1 + Khối 2)
     - Bảo vệ chống Formula Injection thông qua sanitize_excel_cell().
     """
     report = await _compute_cfo_liquidity_data(
@@ -440,7 +365,7 @@ async def export_cfo_liquidity_excel(
     headers = [
         "Khối / Phân nhóm",
         "Mã NH",
-        "Tên Ngân hàng / Nguồn quỹ",
+        "Tên Ngân hàng",
         "Số tài khoản",
         "Chủ tài khoản / Pháp nhân",
         "Số dư Đầu kỳ (VND)",
@@ -536,14 +461,14 @@ async def export_cfo_liquidity_excel(
     )
     curr_row += 1
 
-    # Khối 2: TK Ủy quyền Tiền mặt CEO
+    # Khối 2: TK Ủy quyền CEO
     for item in spec_items:
         _write_account_row(curr_row, "Khối 2: TK Ủy quyền CEO", item)
         curr_row += 1
 
     _write_subtotal_row(
         curr_row,
-        "TIỂU TỔNG KHỐI 2 (TÀI KHOẢN ỦY QUYỀN TIỀN MẶT CEO)",
+        "TIỂU TỔNG KHỐI 2 (TÀI KHOẢN ỦY QUYỀN CEO)",
         sum((i.opening_balance for i in spec_items), Decimal("0.00")),
         sum((i.total_inflow for i in spec_items), Decimal("0.00")),
         sum((i.total_outflow for i in spec_items), Decimal("0.00")),
@@ -553,27 +478,13 @@ async def export_cfo_liquidity_excel(
     )
     curr_row += 1
 
-    # Khối 3: Sổ quỹ Tiền mặt tại quỹ
-    cs = report.cash_summary or CashFundSummary()
-    _write_subtotal_row(
-        curr_row,
-        "KHỐI 3: QUỸ TIỀN MẶT TẠI QUỸ (CASH LEDGER)",
-        cs.opening_balance,
-        cs.total_inflow,
-        cs.total_outflow,
-        cs.closing_balance,
-        cs.net_change,
-        cs.share_pct,
-    )
-    curr_row += 1
-
-    # Dòng Tổng cộng Hợp nhất Toàn hệ thống
+    # Dòng Tổng cộng Hợp nhất Toàn hệ thống (Khối 1 + Khối 2)
     for col_i in range(1, 14):
         cell = ws.cell(row=curr_row, column=col_i)
         cell.fill = total_fill
         cell.font = total_font
         cell.border = thin_border
-    ws.cell(row=curr_row, column=1, value="TỔNG CỘNG TỒN QUỸ HỢP NHẤT (1 + 2 + 3)")
+    ws.cell(row=curr_row, column=1, value="TỔNG CỘNG TỒN QUỸ HỢP NHẤT (KHỐI 1 + KHỐI 2)")
     for col_i, val in [
         (6, report.opening_consolidated_liquidity),
         (7, report.total_inflow_consolidated),

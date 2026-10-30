@@ -235,8 +235,8 @@ cash_total AS (
     ) AS cash_on_hand_balance
 )
 SELECT 
-    (SELECT SUM(account_balance) FROM bank_totals) AS total_bank_balance,
-    (SELECT cash_on_hand_balance FROM cash_total) AS total_cash_on_hand,
-    ((SELECT SUM(account_balance) FROM bank_totals) + (SELECT cash_on_hand_balance FROM cash_total)) AS total_consolidated_liquidity,
+    COALESCE((SELECT SUM(account_balance) FROM bank_totals), 0.00) AS total_bank_balance,
+    0.00::DECIMAL(18, 2) AS total_cash_on_hand,
+    COALESCE((SELECT SUM(account_balance) FROM bank_totals), 0.00) AS total_consolidated_liquidity,
     CURRENT_DATE AS report_date;
 

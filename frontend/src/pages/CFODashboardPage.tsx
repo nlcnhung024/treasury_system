@@ -3,11 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   DollarSign,
   Building2,
-  Wallet,
   RefreshCw,
-  PlusCircle,
-  ArrowDownLeft,
-  ArrowUpRight,
   Download,
   Calendar,
   Filter,
@@ -23,12 +19,12 @@ import {
   ShieldCheck,
   PieChart,
   BarChart3,
+  UserCheck,
 } from 'lucide-react';
 import api from '../services/api';
 import {
   CFOLiquidityData,
   CFOBankBreakdownItem,
-  CashLedgerEntry,
   Transaction,
 } from '../types';
 
@@ -38,7 +34,6 @@ export const CFODashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [data, setData] = useState<CFOLiquidityData | null>(null);
-  const [cashEntries, setCashEntries] = useState<CashLedgerEntry[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [exporting, setExporting] = useState<boolean>(false);
 
@@ -57,18 +52,6 @@ export const CFODashboardPage: React.FC = () => {
   const [drilldownFlowFilter, setDrilldownFlowFilter] = useState<'ALL' | 'CREDIT' | 'DEBIT'>('ALL');
   const [drilldownSort, setDrilldownSort] = useState<'AMOUNT_DESC' | 'DATE_DESC'>('AMOUNT_DESC');
 
-  // Quản lý đóng/mở khu vực Sổ quỹ Tiền mặt chi tiết & Form lập phiếu
-  const [showCashLedgerSection, setShowCashLedgerSection] = useState<boolean>(false);
-  const [showCashEntryForm, setShowCashEntryForm] = useState<boolean>(false);
-
-  // Form thêm phiếu thu/chi tiền mặt trực tiếp
-  const [entryType, setEntryType] = useState<'INFLOW' | 'OUTFLOW'>('INFLOW');
-  const [entryDate, setEntryDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [amount, setAmount] = useState<string>('');
-  const [receiverPayer, setReceiverPayer] = useState<string>('NGUYEN THI LAN ANH');
-  const [reason, setReason] = useState<string>('');
-  const [submittingCash, setSubmittingCash] = useState<boolean>(false);
-
   useEffect(() => {
     if (timeframe !== 'CUSTOM') {
       fetchAllData();
@@ -81,19 +64,15 @@ export const CFODashboardPage: React.FC = () => {
       const fDate = customFrom !== undefined ? customFrom : fromDate;
       const tDate = customTo !== undefined ? customTo : toDate;
 
-      const [liqRes, cashRes] = await Promise.all([
-        api.get('/reports/cfo/daily-liquidity', {
-          params: {
-            timeframe,
-            from_date: fDate || undefined,
-            to_date: tDate || undefined,
-            exclude_internal_transfers: excludeInternal,
-          },
-        }),
-        api.get('/cash-ledger', { params: { limit: 50 } }),
-      ]);
+      const liqRes = await api.get('/reports/cfo/daily-liquidity', {
+        params: {
+          timeframe,
+          from_date: fDate || undefined,
+          to_date: tDate || undefined,
+          exclude_internal_transfers: excludeInternal,
+        },
+      });
       setData(liqRes.data);
-      setCashEntries(cashRes.data.data || []);
 
       // Nếu đang mở drill-down của 1 tài khoản, làm mới luôn danh sách giao dịch kỳ đó
       if (expandedAccountId !== null) {
@@ -177,33 +156,6 @@ export const CFODashboardPage: React.FC = () => {
     }
   };
 
-  const handleAddCashEntry = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const numAmt = Number(amount.replace(/,/g, ''));
-    if (!numAmt || numAmt <= 0 || !reason.trim()) {
-      alert('Vui lòng nhập số tiền hợp lệ (> 0) và lý do thu/chi tiền mặt.');
-      return;
-    }
-    setSubmittingCash(true);
-    try {
-      await api.post('/cash-ledger', {
-        entry_date: entryDate,
-        entry_type: entryType,
-        amount: numAmt,
-        receiver_payer: receiverPayer.trim() || null,
-        reason: reason.trim(),
-      });
-      setAmount('');
-      setReason('');
-      setShowCashEntryForm(false);
-      await fetchAllData();
-    } catch (err: any) {
-      alert(`Lỗi ghi sổ quỹ tiền mặt: ${err.response?.data?.detail || err.message}`);
-    } finally {
-      setSubmittingCash(false);
-    }
-  };
-
   // Danh sách Ngân hàng và Chủ TK/Pháp nhân phục vụ lọc nhanh trên bảng
   const availableBanks = useMemo(() => {
     const codes = new Set<string>();
@@ -227,7 +179,7 @@ export const CFODashboardPage: React.FC = () => {
     });
   }, [data, selectedBankCode, selectedHolder]);
 
-  // Tách Khối 1 (TK Doanh nghiệp) và Khối 2 (TK Ủy quyền Tiền mặt CEO)
+  // Tách Khối 1 (TK Doanh nghiệp) và Khối 2 (TK Ủy quyền CEO)
   const corporateAccounts = useMemo(
     () => filteredBankItems.filter((b) => b.account_type !== 'SPECIAL_CASH'),
     [filteredBankItems]
@@ -252,20 +204,8 @@ export const CFODashboardPage: React.FC = () => {
 
   const corpSub = useMemo(() => calcSubtotal(corporateAccounts), [corporateAccounts]);
   const specSub = useMemo(() => calcSubtotal(specialCashAccounts), [specialCashAccounts]);
-  const cashSummary = data?.cash_summary || {
-    opening_balance: 0,
-    total_inflow: 0,
-    total_outflow: 0,
-    internal_inflow: 0,
-    closing_balance: Number(data?.total_cash_on_hand || 0),
-    net_change: 0,
-    net_change_pct: null,
-    share_pct: 0,
-    period_entry_count: 0,
-    latest_entry_date: null,
-  };
 
-  // Dữ liệu Biểu đồ 1: Phân bổ Tồn quỹ theo Ngân hàng (gom theo bank_code + Quỹ TM)
+  // Dữ liệu Biểu đồ 1: Phân bổ Tồn quỹ theo Ngân hàng (chỉ tính các Tài khoản Ngân hàng)
   const bankAllocationChart = useMemo(() => {
     const map = new Map<string, { label: string; balance: number; color: string }>();
     const palette: Record<string, string> = {
@@ -287,20 +227,13 @@ export const CFODashboardPage: React.FC = () => {
       curr.balance += Number(b.closing_balance ?? b.balance ?? 0);
       map.set(b.bank_code, curr);
     });
-    if (Number(cashSummary.closing_balance) > 0) {
-      map.set('CASH', {
-        label: 'Quỹ Tiền mặt',
-        balance: Number(cashSummary.closing_balance),
-        color: '#10B981',
-      });
-    }
     const arr = Array.from(map.values()).sort((a, b) => b.balance - a.balance);
     const totalPos = arr.reduce((s, x) => s + Math.max(0, x.balance), 0);
     return arr.map((x) => ({
       ...x,
       pct: totalPos > 0 && x.balance > 0 ? (x.balance / totalPos) * 100 : 0,
     }));
-  }, [filteredBankItems, cashSummary]);
+  }, [filteredBankItems]);
 
   // Dữ liệu giao dịch trong Drill-down đã lọc và sắp xếp
   const displayedDrilldownTxs = useMemo(() => {
@@ -685,7 +618,7 @@ export const CFODashboardPage: React.FC = () => {
             </span>
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Theo dõi biến động Đầu kỳ → Thu → Chi → Cuối kỳ hợp nhất 3 Khối nguồn tiền (Độ chính xác tuyệt đối Δ = 0 VND)
+            Theo dõi biến động Đầu kỳ → Thu → Chi → Cuối kỳ hợp nhất hệ thống Tài khoản Ngân hàng (Khối 1 Doanh nghiệp & Khối 2 Ủy quyền CEO — Độ chính xác tuyệt đối Δ = 0 VND)
           </p>
         </div>
 
@@ -963,74 +896,64 @@ export const CFODashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* KPI 3: Tồn Tiền Gửi Ngân Hàng (Khối 1 + Khối 2) */}
+        {/* KPI 3: Khối 1 - Tài Khoản Thanh Toán Doanh Nghiệp */}
         <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-slate-500 mb-1.5">
               <span className="text-[11px] uppercase font-bold tracking-wider">
-                3. Tổng Tồn Các TK Ngân Hàng
+                3. Khối 1: TK Doanh Nghiệp
               </span>
               <Building2 className="w-4 h-4 text-blue-600" />
             </div>
             <div className="text-xl font-bold font-mono text-slate-900">
-              {formatMoney(data?.total_bank_balance)}{' '}
+              {formatMoney(data?.corporate_bank_balance)}{' '}
               <span className="text-xs font-normal text-slate-500">VND</span>
             </div>
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1 text-xs">
             <div className="flex items-center justify-between text-slate-600">
-              <span>• Khối 1 (TK Doanh nghiệp):</span>
-              <span className="font-mono font-semibold text-slate-800">
-                {formatMoney(data?.corporate_bank_balance)}
+              <span>• Số lượng tài khoản:</span>
+              <span className="font-semibold text-slate-800">
+                {corporateAccounts.length} tài khoản
               </span>
             </div>
             <div className="flex items-center justify-between text-slate-600">
-              <span>• Khối 2 (TK Ủy quyền CEO):</span>
-              <span className="font-mono font-semibold text-amber-700">
-                {formatMoney(data?.special_cash_bank_balance)}
+              <span>• Tỷ trọng trên tổng quỹ:</span>
+              <span className="font-mono font-semibold text-blue-700">
+                {corpSub.share.toFixed(1)}%
               </span>
             </div>
           </div>
         </div>
 
-        {/* KPI 4: Tồn Quỹ Tiền Mặt Tại Quỹ (Khối 3) */}
+        {/* KPI 4: Khối 2 - Tài Khoản Ủy Quyền CEO (Bà Nguyễn Thị Lan Anh) */}
         <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between text-slate-500 mb-1.5">
               <span className="text-[11px] uppercase font-bold tracking-wider">
-                4. Tồn Quỹ Tiền Mặt Tại Quỹ
+                4. Khối 2: TK Ủy Quyền CEO
               </span>
-              <Wallet className="w-4 h-4 text-emerald-600" />
+              <UserCheck className="w-4 h-4 text-amber-600" />
             </div>
-            <div className="text-xl font-bold font-mono text-emerald-700">
-              {formatMoney(data?.total_cash_on_hand)}{' '}
+            <div className="text-xl font-bold font-mono text-amber-800">
+              {formatMoney(data?.special_cash_bank_balance)}{' '}
               <span className="text-xs font-normal text-slate-500">VND</span>
             </div>
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-slate-100 space-y-1 text-xs">
             <div className="flex items-center justify-between text-slate-600">
-              <span>Nhập / Xuất quỹ trong kỳ:</span>
-              <span className="font-mono">
-                <span className="text-emerald-700 font-semibold">
-                  +{formatMoney(cashSummary.total_inflow)}
-                </span>{' '}
-                /{' '}
-                <span className="text-rose-600 font-semibold">
-                  -{formatMoney(cashSummary.total_outflow)}
-                </span>
+              <span>• Chủ TK (Ủy quyền):</span>
+              <span className="font-semibold text-slate-800 truncate max-w-[140px]">
+                Bà Nguyễn Thị Lan Anh
               </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Tỷ trọng tiền mặt:</span>
-              <button
-                type="button"
-                onClick={() => setShowCashLedgerSection((prev) => !prev)}
-                className="text-blue-600 hover:underline font-semibold"
-              >
-                {Number(cashSummary.share_pct || 0).toFixed(1)}% • Mở Sổ quỹ
-              </button>
+            <div className="flex items-center justify-between text-slate-600">
+              <span>• Tỷ trọng trên tổng quỹ:</span>
+              <span className="font-mono font-semibold text-amber-700">
+                {specSub.share.toFixed(1)}% ({specialCashAccounts.length} TK)
+              </span>
             </div>
           </div>
         </div>
@@ -1038,13 +961,13 @@ export const CFODashboardPage: React.FC = () => {
 
       {/* 5. Khu Vực Biểu Đồ Trực Quan Hóa Cơ Cấu Nguồn Tiền & Thu/Chi Theo Tài Khoản */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Biểu đồ 1: Cơ cấu Phân bổ Tồn quỹ theo Ngân hàng & Khối */}
+        {/* Biểu đồ 1: Cơ cấu Phân bổ Tồn quỹ theo Ngân hàng */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <PieChart className="w-4 h-4 text-blue-600" />
               <h2 className="text-sm font-bold text-slate-900">
-                Cơ Cấu Phân Bổ Tồn Quỹ Theo Ngân Hàng & Quỹ Tiền Mặt
+                Cơ Cấu Phân Bổ Tồn Quỹ Theo Ngân Hàng
               </h2>
             </div>
             <span className="text-[11px] text-slate-400">Tỷ trọng trên Tổng số dư dương</span>
@@ -1166,12 +1089,12 @@ export const CFODashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 6. BẢNG TỔNG HỢP TỒN QUỸ HỢP NHẤT 3 KHỐI NGUỒN TIỀN */}
+      {/* 6. BẢNG TỔNG HỢP TỒN QUỸ HỢP NHẤT CÁC TÀI KHOẢN NGÂN HÀNG (KHỐI 1 & KHỐI 2) */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <h2 className="text-base font-bold text-slate-900">
-              Bảng Tổng Hợp Tồn Quỹ Hợp Nhất Theo 3 Khối Nguồn Tiền
+              Bảng Tổng Hợp Tồn Quỹ Hợp Nhất Hệ Thống Tài Khoản Ngân Hàng
             </h2>
             <p className="text-xs text-slate-500">
               Bấm trực tiếp vào bất kỳ dòng Tài khoản nào để mở rộng (Drill-down) xem danh sách các giao dịch phát sinh trong kỳ
@@ -1186,7 +1109,7 @@ export const CFODashboardPage: React.FC = () => {
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-800 text-white uppercase text-[11px] font-semibold">
               <tr>
-                <th className="px-4 py-3">Tài khoản / Nguồn quỹ</th>
+                <th className="px-4 py-3">Tài khoản Ngân hàng</th>
                 <th className="px-3 py-3 text-right">Số dư Đầu kỳ</th>
                 <th className="px-3 py-3 text-right">Tổng Thu (Tiền vào)</th>
                 <th className="px-3 py-3 text-right">Tổng Chi (Tiền ra)</th>
@@ -1245,17 +1168,17 @@ export const CFODashboardPage: React.FC = () => {
                 </td>
               </tr>
 
-              {/* ================= KHỐI 2: TÀI KHOẢN ỦY QUYỀN TIỀN MẶT CEO ================= */}
+              {/* ================= KHỐI 2: TÀI KHOẢN ỦY QUYỀN CEO ================= */}
               <tr className="bg-amber-50/80 border-y border-amber-200">
                 <td colSpan={8} className="px-4 py-2 font-bold text-amber-900 text-xs uppercase tracking-wider">
-                  Khối 2: Tài khoản Ủy quyền Tiền mặt CEO — Bà Nguyễn Thị Lan Anh ({specialCashAccounts.length} tài khoản)
+                  Khối 2: Tài khoản Ủy quyền CEO — Bà Nguyễn Thị Lan Anh ({specialCashAccounts.length} tài khoản)
                 </td>
               </tr>
 
               {specialCashAccounts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-4 text-center text-slate-400 italic">
-                    Chưa có tài khoản ủy quyền tiền mặt CEO.
+                    Chưa có tài khoản ủy quyền CEO.
                   </td>
                 </tr>
               ) : (
@@ -1265,7 +1188,7 @@ export const CFODashboardPage: React.FC = () => {
               {/* Dòng Tiểu tổng Khối 2 */}
               <tr className="bg-slate-100/90 font-bold text-slate-900 border-t border-slate-300">
                 <td className="px-4 py-2.5 text-slate-800">
-                  Tiểu tổng Khối 2 (TK Ủy quyền Tiền mặt CEO)
+                  Tiểu tổng Khối 2 (TK Ủy quyền CEO)
                 </td>
                 <td className="px-3 py-2.5 text-right font-mono">{formatMoney(specSub.open)}</td>
                 <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
@@ -1292,91 +1215,10 @@ export const CFODashboardPage: React.FC = () => {
                 </td>
               </tr>
 
-              {/* ================= KHỐI 3: SỔ QUỸ TIỀN MẶT TẠI QUỸ ================= */}
-              <tr className="bg-emerald-50/80 border-y border-emerald-200">
-                <td colSpan={8} className="px-4 py-2 font-bold text-emerald-900 text-xs uppercase tracking-wider">
-                  Khối 3: Quỹ Tiền Mặt Tại Quỹ Công Ty (Sổ quỹ `cash_ledger` đối ứng)
-                </td>
-              </tr>
-
-              <tr
-                onClick={() => setShowCashLedgerSection((prev) => !prev)}
-                className="hover:bg-emerald-50/40 cursor-pointer transition-colors"
-              >
-                <td className="px-4 py-3">
-                  <div className="flex items-start gap-2">
-                    <button
-                      type="button"
-                      className="mt-0.5 p-0.5 rounded hover:bg-slate-200 text-slate-500"
-                    >
-                      {showCashLedgerSection ? (
-                        <ChevronDown className="w-4 h-4 text-emerald-600" />
-                      ) : (
-                        <ChevronRight className="w-4 h-4" />
-                      )}
-                    </button>
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[11px]">
-                          CASH
-                        </span>
-                        <span className="font-bold text-slate-900 text-xs">
-                          Sổ Quỹ Tiền Mặt Tại Quỹ
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 mt-0.5">
-                        Tự động tính bằng: Rút tiền mặt (&quot;RUT TIEN&quot; → Nhập quỹ +) trừ Nộp tiền mặt vào NH (&quot;NOP TIEN&quot; → Xuất quỹ -)
-                      </div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-3 py-3 text-right font-mono text-slate-700">
-                  {formatMoney(cashSummary.opening_balance)}
-                </td>
-                <td className="px-3 py-3 text-right font-mono font-semibold text-emerald-700">
-                  +{formatMoney(cashSummary.total_inflow)}
-                </td>
-                <td className="px-3 py-3 text-right font-mono font-semibold text-rose-600">
-                  -{formatMoney(cashSummary.total_outflow)}
-                </td>
-                <td className="px-3 py-3 text-right font-mono font-bold text-emerald-800 text-xs">
-                  {formatMoney(cashSummary.closing_balance)}
-                </td>
-                <td
-                  className={`px-3 py-3 text-right font-mono font-semibold ${
-                    Number(cashSummary.net_change) >= 0 ? 'text-emerald-700' : 'text-rose-600'
-                  }`}
-                >
-                  {formatSignedMoney(cashSummary.net_change)}
-                </td>
-                <td className="px-3 py-3 w-28">
-                  <div className="text-right font-mono text-xs font-semibold text-slate-700">
-                    {Number(cashSummary.share_pct || 0).toFixed(1)}%
-                  </div>
-                  <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
-                    <div
-                      className="h-full bg-emerald-600 rounded-full"
-                      style={{
-                        width: `${Math.min(100, Math.max(0, Number(cashSummary.share_pct || 0)))}%`,
-                      }}
-                    />
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                    <CheckCircle2 className="w-3 h-3" />
-                    Sổ quỹ khớp
-                  </span>
-                  <div className="text-[10px] text-slate-400 mt-1">
-                    {cashSummary.latest_entry_date || '—'} ({cashSummary.period_entry_count} bút toán)
-                  </div>
-                </td>
-              </tr>
-
               {/* ================= DÒNG TỔNG CỘNG TỒN QUỸ HỢP NHẤT TOÀN HỆ THỐNG ================= */}
               <tr className="bg-slate-900 text-white font-bold text-xs">
                 <td className="px-4 py-4">
-                  <div>TỔNG CỘNG TỒN QUỸ HỢP NHẤT (KHỐI 1 + KHỐI 2 + KHỐI 3)</div>
+                  <div>TỔNG CỘNG TỒN QUỸ HỢP NHẤT (KHỐI 1 + KHỐI 2)</div>
                   <div className="text-[11px] font-normal text-slate-300 mt-0.5">
                     {excludeInternal
                       ? 'Cột Thu/Chi hợp nhất đã loại trừ giao dịch luân chuyển nội bộ'
@@ -1412,195 +1254,6 @@ export const CFODashboardPage: React.FC = () => {
             </tbody>
           </table>
         </div>
-      </div>
-
-      {/* 7. Khu Vực Sổ Quỹ Tiền Mặt Chi Tiết & Lập Phiếu Thu/Chi (Thu Gọn Tinh Tế) */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div
-          onClick={() => setShowCashLedgerSection((prev) => !prev)}
-          className="px-6 py-4 flex items-center justify-between cursor-pointer hover:bg-slate-50 transition-colors"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-emerald-100 text-emerald-700">
-              <Wallet className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-sm font-bold text-slate-900">
-                Nhật Ký Sổ Quỹ Tiền Mặt Đối Ứng (`cash_ledger`) & Lập Phiếu Thu/Chi
-              </h2>
-              <p className="text-xs text-slate-500">
-                Hiện có {cashEntries.length} bút toán tiền mặt gần nhất • Bấm để{' '}
-                {showCashLedgerSection ? 'thu gọn' : 'mở rộng chi tiết & lập phiếu'}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowCashLedgerSection(true);
-                setShowCashEntryForm((prev) => !prev);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold transition-colors"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Lập Phiếu Thu / Chi Tiền Mặt</span>
-            </button>
-            {showCashLedgerSection ? (
-              <ChevronDown className="w-5 h-5 text-slate-500" />
-            ) : (
-              <ChevronRight className="w-5 h-5 text-slate-500" />
-            )}
-          </div>
-        </div>
-
-        {showCashLedgerSection && (
-          <div className="px-6 pb-6 pt-2 border-t border-slate-100 space-y-4">
-            {/* Form lập phiếu Thu/Chi tiền mặt (Chỉ hiện khi bấm nút Lập phiếu) */}
-            {showCashEntryForm && (
-              <form
-                onSubmit={handleAddCashEntry}
-                className="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 bg-emerald-50/60 border border-emerald-200 rounded-lg text-xs"
-              >
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Loại phiếu</label>
-                  <select
-                    value={entryType}
-                    onChange={(e) => setEntryType(e.target.value as 'INFLOW' | 'OUTFLOW')}
-                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 font-medium"
-                  >
-                    <option value="INFLOW">➕ Nhập quỹ (INFLOW)</option>
-                    <option value="OUTFLOW">➖ Xuất quỹ (OUTFLOW)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Ngày ghi sổ</label>
-                  <input
-                    type="date"
-                    value={entryDate}
-                    onChange={(e) => setEntryDate(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Số tiền (VND)</label>
-                  <input
-                    type="number"
-                    min="1"
-                    step="any"
-                    placeholder="VD: 50000000"
-                    value={amount}
-                    onChange={(e) => setAmount(e.target.value)}
-                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5 font-mono"
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Người nộp / nhận
-                  </label>
-                  <input
-                    type="text"
-                    value={receiverPayer}
-                    onChange={(e) => setReceiverPayer(e.target.value)}
-                    placeholder="Tên người giao dịch..."
-                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Lý do thu / chi tiền mặt
-                  </label>
-                  <input
-                    type="text"
-                    value={reason}
-                    onChange={(e) => setReason(e.target.value)}
-                    placeholder="VD: Chi tiền mặt công tác phí..."
-                    className="w-full bg-white border border-slate-300 rounded px-2.5 py-1.5"
-                    required
-                  />
-                </div>
-                <div className="flex items-end gap-2">
-                  <button
-                    type="submit"
-                    disabled={submittingCash}
-                    className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded font-semibold transition-colors"
-                  >
-                    <PlusCircle className="w-4 h-4" />
-                    <span>Ghi Sổ</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowCashEntryForm(false)}
-                    className="px-2.5 py-1.5 bg-white border border-slate-300 hover:bg-slate-100 text-slate-600 rounded font-medium"
-                  >
-                    Đóng
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {/* Bảng Sổ Quỹ Tiền Mặt */}
-            <div className="overflow-x-auto border border-slate-200 rounded-lg">
-              <table className="w-full text-left text-xs text-slate-600">
-                <thead className="bg-slate-100 uppercase font-semibold text-slate-700 border-b border-slate-200">
-                  <tr>
-                    <th className="px-3 py-2.5">Ngày ghi sổ</th>
-                    <th className="px-3 py-2.5">Loại bút toán</th>
-                    <th className="px-3 py-2.5">Người nhận / nộp</th>
-                    <th className="px-3 py-2.5">Lý do / Diễn giải</th>
-                    <th className="px-3 py-2.5 text-right">Số tiền phát sinh</th>
-                    <th className="px-3 py-2.5 text-right">Tồn quỹ lũy kế</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {cashEntries.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-slate-400">
-                        Chưa có bút toán tiền mặt nào trong sổ quỹ.
-                      </td>
-                    </tr>
-                  ) : (
-                    cashEntries.map((ce) => (
-                      <tr key={ce.cash_entry_id} className="hover:bg-slate-50">
-                        <td className="px-3 py-2.5 font-mono">{ce.entry_date}</td>
-                        <td className="px-3 py-2.5">
-                          {ce.entry_type === 'INFLOW' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold">
-                              <ArrowDownLeft className="w-3 h-3" /> NHẬP QUỸ
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-100 text-red-800 font-semibold">
-                              <ArrowUpRight className="w-3 h-3" /> XUẤT QUỸ
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 font-medium text-slate-800">
-                          {ce.receiver_payer || '—'}
-                        </td>
-                        <td className="px-3 py-2.5">{ce.reason}</td>
-                        <td
-                          className={`px-3 py-2.5 text-right font-mono font-bold ${
-                            ce.entry_type === 'INFLOW' ? 'text-emerald-700' : 'text-red-600'
-                          }`}
-                        >
-                          {ce.entry_type === 'INFLOW' ? '+' : '-'}
-                          {Number(ce.amount).toLocaleString('vi-VN')} VND
-                        </td>
-                        <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-900">
-                          {Number(ce.running_cash_balance).toLocaleString('vi-VN')} VND
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

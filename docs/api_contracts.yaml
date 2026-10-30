@@ -1045,7 +1045,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Dữ liệu tồn quỹ hợp nhất 3 Khối nguồn tiền kèm đủ 5 cột biến động (ĐK, Thu, Chi, CK, Chênh lệch)
+          description: Dữ liệu tồn quỹ hợp nhất hệ thống Tài khoản Ngân hàng (Khối 1 + Khối 2, không tính phần tiền mặt vào quỹ) kèm đủ 5 cột biến động (ĐK, Thu, Chi, CK, Chênh lệch)
           content:
             application/json:
               schema:
@@ -1055,7 +1055,7 @@ paths:
     get:
       tags:
         - Reports
-      summary: Xuất Báo cáo Tồn quỹ Hợp nhất CFO (3 Khối nguồn tiền) ra file Excel (.xlsx) chuẩn mực kế toán
+      summary: Xuất Báo cáo Tồn quỹ Hợp nhất CFO (Khối 1 + Khối 2) ra file Excel (.xlsx) chuẩn mực kế toán
       operationId: exportCfoLiquidityExcel
       parameters:
         - name: timeframe
