@@ -625,7 +625,7 @@ paths:
     patch:
       tags:
         - Transactions
-      summary: Cập nhật danh mục thủ công (Inline Tagging) hoặc Ghi chú nội bộ (Internal Note)
+      summary: Cập nhật danh mục thủ công (Inline Tagging), Ghi chú nội bộ (Internal Note) hoặc Điểm neo Số dư Lũy kế (Anchor Running Balance)
       operationId: updateTransaction
       parameters:
         - name: transaction_id
@@ -645,11 +645,25 @@ paths:
                   nullable: true
                   description: ID danh mục muốn gán bằng tay
                   example: 12
+                clear_category:
+                  type: boolean
+                  description: Đặt true để xóa nhãn phân loại về trạng thái Chưa phân loại
+                  example: false
                 internal_note:
                   type: string
                   nullable: true
                   description: Ghi chú nội bộ do chị Cẩm Nhung nhập
                   example: "Hóa đơn số 00459 - Chị Lan Anh duyệt miệng"
+                is_manual_override:
+                  type: boolean
+                  description: Bật/tắt cờ khóa bảo vệ chống ghi đè tự động
+                  example: true
+                running_balance:
+                  type: number
+                  format: decimal
+                  nullable: true
+                  description: Số dư lũy kế thực tế tại dòng này dùng làm mốc căn cứ để hệ thống tự động tính lại toàn bộ chuỗi running_balance (xuôi & ngược) của tài khoản
+                  example: 50000000.00
       responses:
         '200':
           description: Cập nhật thành công, hệ thống tự động gắn cờ is_manual_override = true và ghi nhận Audit Log
