@@ -223,3 +223,4 @@ def generate_dedup_hash(
 
     canonical_payload = f"{acc_clean}|{dt_iso}|{debit_str}|{credit_str}|{ref_clean}|{bal_str}"
     return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
+
