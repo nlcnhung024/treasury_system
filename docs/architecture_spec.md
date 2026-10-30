@@ -29,8 +29,8 @@ flowchart TD
     end
 
     subgraph StorageQueue["TẦNG LƯU TRỮ NHỊ PHÂN & HÀNG ĐỢI"]
-        Obj_Store[("Object Storage (MinIO / S3)<br/>Lưu file gốc bất biến")]
-        Msg_Queue[("Message Queue (RabbitMQ / Redis Streams)<br/>Hàng đợi Job bóc tách ngầm")]
+        Obj_Store[("Hybrid Object Storage<br/>MinIO On-Premise (Primary) & GCS (Backup)")]
+        Msg_Queue[("Message Queue (Redis 7.0+ Streams)<br/>Hàng đợi Job bóc tách ngầm")]
         DLQ[("Dead Letter Queue (DLQ)<br/>Xử lý Retry & Lưu vết lỗi")]
     end
 
@@ -90,6 +90,10 @@ Tuân thủ nghiêm ngặt nguyên tắc **Stateless & Tách biệt Hoàn toàn 
 3. **Chính sách Truy cập An toàn (Security Policy):**
    - Bucket ở chế độ `Private`, không mở public.
    - Khi người dùng cần tải lại file gốc để đối chiếu, API Gateway sinh **Pre-signed URL** với thời gian sống (TTL) tối đa **15 phút**.
+
+4. **Chiến lược Sao lưu Dự phòng Hybrid (MinIO Primary -> GCS Off-site Backup):**
+   - **Kho lưu trữ chính (Primary On-Premise):** Cài đặt cụm MinIO nội bộ trong mạng LAN công ty, đảm bảo tốc độ đọc/ghi tối đa và cách ly dữ liệu nhạy cảm.
+   - **Sao lưu ngoại vi (Disaster Recovery):** Tích hợp tiến trình đồng bộ tự động sao chép toàn bộ file sang Google Cloud Storage (GCS) gói Coldline/Archive. File trước khi đẩy lên GCS được mã hóa Client-side (AES-256), đảm bảo an toàn tuyệt đối ngay cả khi máy chủ nội bộ gặp sự cố hỏng hóc hoặc thảm họa.
 
 ---
 
@@ -199,7 +203,8 @@ Cơ sở dữ liệu được tổ chức theo chuẩn **PostgreSQL 15+**, tuân
 
 ## 6. Kế hoạch Kiểm định Kiến trúc & Bàn giao Kỹ thuật (Technical Sign-off)
 
-1. **Hợp đồng API:** Đã ban hành toàn bộ tại [`docs/api_contracts.yaml`](./api_contracts.yaml).
-2. **Cơ sở Dữ liệu:** Đã biên soạn mã DDL tại [`database/schema.sql`](../database/schema.sql).
-3. **Sẵn sàng chuyển giao:** Toàn bộ bản thiết kế đã đáp ứng trọn vẹn $100\%$ các User Stories trong [`docs/BRD.md`](./BRD.md), sẵn sàng để **Data Parser Engineer (`@DataParserEngineer`)** xây dựng động cơ bóc tách và **Fullstack Developer (`@FullstackDeveloper`)** triển khai giao diện.
+1. **Hợp đồng API:** Đã ban hành toàn bộ tại [`docs/api_contracts.yaml`](./api_contracts.yaml) (OpenAPI 3.0.3 Specification).
+2. **Kiến trúc Bảo mật & Đánh giá Rủi ro:** Đã ban hành chi tiết tại [`docs/security_threat_modeling.md`](./security_threat_modeling.md) (STRIDE Threat Model & Defense-in-Depth).
+3. **Cơ sở Dữ liệu:** Đã biên soạn mã DDL tại [`database/schema.sql`](../database/schema.sql).
+4. **Sẵn sàng chuyển giao:** Toàn bộ bản thiết kế đã đáp ứng trọn vẹn $100\%$ các User Stories trong [`docs/BRD.md`](./BRD.md), sẵn sàng để **Data Parser Engineer (`@DataParserEngineer`)** xây dựng động cơ bóc tách và **Fullstack Developer (`@FullstackDeveloper`)** triển khai giao diện.
 

@@ -5,7 +5,7 @@
 > **Phiên bản:** 1.0.0  
 > **Tiêu chuẩn kiến trúc:** IEEE 1471 / ISO/IEC/IEEE 42010 (Mô hình Kruchten 4+1 Views)  
 > **Chủ trì (Lead System & Data Architect):** Đội ngũ Kiến trúc sư Hệ thống (`@SystemArchitect`)  
-> **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md), [`database/schema.sql`](../database/schema.sql), [`docs/api_contracts.yaml`](./api_contracts.yaml), [`agent/common_rules.md`](../agent/common_rules.md), [`Software Development Life Cycle (SDLC)`](../Software%20Developmemt%20Life%20Cycle%20SDLC/SDLC.md)
+> **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md), [`database/schema.sql`](../database/schema.sql), [`docs/api_contracts.yaml`](./api_contracts.yaml), [`docs/security_threat_modeling.md`](./security_threat_modeling.md), [`agent/common_rules.md`](../agent/common_rules.md), [`Software Development Life Cycle (SDLC)`](../Software%20Developmemt%20Life%20Cycle%20SDLC/SDLC.md)
 
 ---
 
@@ -16,6 +16,9 @@
 | **0.1.0** | 2026-10-27 | `@SystemArchitect` | Khởi thảo kiến trúc hệ thống sơ bộ (Draft Architecture Baseline) |
 | **1.0.0** | 2026-10-29 | `@SystemArchitect` | Hoàn thiện tài liệu SAD chuẩn mực theo mô hình 4+1 Views: Tích hợp đầy đủ các bài toán nghiệp vụ thực tế từ BRD (7+ ngân hàng, tài khoản MBBank cá nhân, Tồn quỹ kép, Quy tắc nâng cao, Khóa ghi đè, Báo cáo CFO < 9h sáng, Biểu đồ Waterfall CEO và Xuất Excel an toàn) |
 | **1.1.0** | 2026-10-29 | `@SystemArchitect` | Đồng bộ với `docs/Bank_Mapping_Matrix.md`: Chuẩn hóa Universal Config-Driven Stream Parser (`bank_templates_config.yaml`), 5 chế độ đối soát (`MODE_1`..`MODE_5`), cô lập dữ liệu Đa Pháp nhân (Multi-Entity Isolation qua `tax_code`/`account_holder`), và đồng nhất cấu trúc API Waterfall |
+| **1.2.0** | 2026-10-30 | `@SystemArchitect` | Cập nhật cấu hình Hạ tầng Lưu trữ: Chuẩn hóa kiến trúc Hybrid Cloud Object Storage với MinIO On-Premise làm kho chính nội bộ (Primary) và tự động đồng bộ Backup lên Google Cloud Storage (GCS) phục vụ Disaster Recovery |
+| **1.3.0** | 2026-10-30 | `@SystemArchitect` | Chuẩn hóa Hàng đợi Thông điệp: Lựa chọn dứt khoát Redis 7.0+ Streams làm Message Broker chính nhằm tinh gọn hạ tầng, tối ưu tài nguyên và chia sẻ chung cụm Redis với tầng Cache |
+| **1.4.0** | 2026-10-30 | `@SystemArchitect` | Đồng bộ hoàn thiện Hợp đồng API chuẩn OpenAPI 3.0.3 (`docs/api_contracts.yaml`) và Tài liệu Đánh giá Rủi ro & Kiến trúc Bảo mật Đa tầng (`docs/security_threat_modeling.md`) tuân thủ nghiêm ngặt Giai đoạn 2 SDLC |
 
 ---
 
@@ -31,8 +34,8 @@
 ### 2.2. Ràng buộc Kỹ thuật Bắt buộc (Architectural Constraints)
 - **Hệ điều hành & Nền tảng:** Đóng gói Container hóa chuẩn Docker / OCI.
 - **Cơ sở dữ liệu:** PostgreSQL 15+ (Hỗ trợ chuẩn 3NF, kiểu `DECIMAL(18, 2)`, JSONB và GIN Indexing).
-- **Lưu trữ Blob:** Object Storage tương thích S3 API (MinIO hoặc AWS S3).
-- **Hàng đợi Thông điệp:** RabbitMQ 3.12+ hoặc Redis 7.0+ Streams.
+- **Lưu trữ Blob & Sao lưu (Hybrid Object Storage):** Sử dụng MinIO On-Premise (chuẩn S3 API) làm kho lưu trữ chính nội bộ (Primary Storage), tích hợp tiến trình tự động đồng bộ sao lưu dự phòng sang Google Cloud Storage (GCS Coldline/Archive) phục vụ phòng chống thảm họa (Disaster Recovery).
+- **Hàng đợi Thông điệp:** Redis 7.0+ Streams (Tối ưu hóa tài nguyên RAM/CPU, thống nhất hạ tầng hàng đợi và cache, hỗ trợ Consumer Groups cho tác vụ bóc tách ngầm).
 - **Backend Stack:** Python 3.11+ (FastAPI / Celery) hoặc Node.js 20+ (NestJS / BullMQ).
 - **Frontend Stack:** Single Page Application (React 18+ / TypeScript / Vite / Tailwind CSS).
 
@@ -94,7 +97,7 @@ flowchart TD
     end
 
     subgraph L4["TẦNG XỬ LÝ NỀN BẤT ĐỒNG BỘ (ASYNC WORKER ENGINE)"]
-        QueueBroker["Message Broker (RabbitMQ / Redis)"]
+        QueueBroker["Message Broker (Redis 7.0+ Streams)"]
         WorkerPool["Distributed Worker Pool (Celery / BullMQ)"]
         StreamParser["Chunking Stream Parser (openpyxl / exceljs)"]
         ReconEngine["Reconciliation & Discrepancy Engine"]
@@ -133,8 +136,8 @@ sequenceDiagram
     actor User as Chuyên viên Tài chính (Chị Nhung)
     participant UI as Web Frontend (React)
     participant API as Ingestion API Gateway
-    participant MinIO as Object Storage (MinIO/S3)
-    participant Queue as Task Queue (RabbitMQ)
+    participant MinIO as Object Storage (MinIO On-Premise)
+    participant Queue as Task Queue (Redis Streams)
     participant Worker as Background Parser Worker
     participant DB as PostgreSQL 15+
     participant DLQ as Dead Letter Queue (DLQ)
@@ -271,8 +274,12 @@ flowchart LR
 
     subgraph InfraCluster["VÙNG HẠ TẦNG LƯU TRỮ NỘI BỘ (ISOLATED)"]
         PostgresPod[("PostgreSQL 15 Cluster<br/>Primary-Replica (Port 5432)")]
-        RedisPod[("Redis Sentinel / RabbitMQ<br/>Message Broker (Port 6379/5672)")]
-        MinIOPod[("MinIO Cluster (Object Storage)<br/>Encrypted S3 Storage (Port 9000)")]
+        RedisPod[("Redis 7.0+ Sentinel<br/>Streams Broker & Cache (Port 6379)")]
+        MinIOPod[("MinIO Cluster (Primary Object Storage)<br/>Encrypted On-Premise (Port 9000)")]
+    end
+
+    subgraph CloudDR["VÙNG ĐÁM MÂY DỰ PHÒNG THẢM HỌA (OFF-SITE BACKUP)"]
+        GCSBackup[("Google Cloud Storage (GCS)<br/>Coldline/Archive Bucket (Encrypted)")]
     end
 
     ClientBrowser -->|HTTPS 443| NginxProxy
@@ -284,6 +291,7 @@ flowchart LR
     WorkerNodes <--> RedisPod
     WorkerNodes <--> PostgresPod
     WorkerNodes <--> MinIOPod
+    MinIOPod -.->|Đồng bộ sao lưu ngầm tự động (Replication/Cron)| GCSBackup
 ```
 
 ---
@@ -510,5 +518,7 @@ erDiagram
 ## 7. Kế hoạch Dự phòng & Phục hồi Thảm họa (Disaster Recovery & Backup)
 
 - **Cơ sở dữ liệu (PostgreSQL):** Cấu hình cơ chế sao lưu liên tục Write-Ahead Logging (WAL-G / Barman) kết hợp bản Snapshot hằng ngày vào lúc 01h00 sáng. Đảm bảo RPO $\le 15$ phút và RTO $\le 30$ phút.
-- **Hạ tầng File Gốc (Object Storage):** Kích hoạt tính năng **Object Versioning** và thiết lập chính sách lưu trữ bất biến (WORM - Write Once, Read Many). File gốc sau khi nạp không thể bị xóa hoặc sửa đổi bởi bất kỳ người dùng nào, đảm bảo bằng chứng pháp lý khi cơ quan Thuế / Kiểm toán nhà nước yêu cầu đối chiếu.
+- **Hạ tầng File Gốc (Hybrid Object Storage Replication):**
+  - **Kho chính nội bộ (Primary MinIO):** Kích hoạt tính năng **Object Versioning** và thiết lập chính sách lưu trữ bất biến (WORM - Write Once, Read Many). File gốc sau khi nạp không thể bị xóa hoặc sửa đổi bởi bất kỳ người dùng nào, đảm bảo bằng chứng pháp lý khi cơ quan Thuế / Kiểm toán nhà nước yêu cầu đối chiếu.
+  - **Sao lưu đám mây ngoại vi (Off-site GCS Backup):** Thiết lập tiến trình đồng bộ bất đồng bộ tự động (sử dụng MinIO Bucket Replication hoặc Rclone cronjob) đẩy toàn bộ file gốc đã mã hóa sang Google Cloud Storage (GCS Coldline/Archive). Đảm bảo nếu trung tâm dữ liệu nội bộ gặp thảm họa (cháy nổ, hỏng ổ cứng, ransomware), toàn bộ kho dữ liệu sao kê gốc vẫn được khôi phục nguyên vẹn 100%.
 

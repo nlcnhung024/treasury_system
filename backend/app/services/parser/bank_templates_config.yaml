@@ -1,0 +1,329 @@
+version: "1.0.0"
+schema_type: "dynamic_bank_statement_mapping"
+
+# 1. Từ điển Đồng nghĩa Cột Tự động (Hybrid Column Auto-Discovery)
+# Giúp tự động nhận diện cột cho các mẫu ngân hàng mới (VCB, TCB, BIDV, ACB...)
+canonical_header_aliases:
+  transaction_date:
+    - "NGÀY GIAO DỊCH"
+    - "Ngày giao dịch"
+    - "Transaction Date"
+    - "Thời gian giao dịch"
+    - "Trans.Time"
+    - "Ngày phát sinh giao dịch"
+  value_date:
+    - "NGÀY HẠCH TOÁN"
+    - "Ngày hạch toán"
+    - "Ngày giá trị"
+    - "Value Date"
+    - "Accounting date"
+    - "Ngày hiệu lực"
+  debit_amount:
+    - "PHÁT SINH NỢ"
+    - "Phát sinh nợ"
+    - "Debit"
+    - "Số tiền ghi nợ"
+    - "Debit Amount"
+    - "Ghi nợ"
+    - "Nợ/ Debit"
+    - "GHI NỢ"
+  credit_amount:
+    - "PHÁT SINH CÓ"
+    - "Phát sinh có"
+    - "Credit"
+    - "Số tiền ghi có"
+    - "Credit Amount"
+    - "Ghi có"
+    - "Có / Credit"
+    - "GHI CÓ"
+  running_balance:
+    - "SỐ DƯ"
+    - "Số dư"
+    - "Balance"
+    - "Số dư tham chiếu"
+    - "Running.Balance"
+    - "Số dư TK"
+    - "Account Balance"
+  reference_number:
+    - "BÚT TOÁN"
+    - "Số bút toán"
+    - "Transaction No"
+    - "Trans.ID"
+    - "Mã giao dịch"
+    - "Transaction code"
+    - "Số giao dịch"
+    - "SỐ THAM CHIẾU"
+    - "Số CT"
+  description:
+    - "NỘI DUNG"
+    - "Nội dung"
+    - "Details"
+    - "Nội dung giao dịch"
+    - "Trans.Detail"
+    - "Diễn giải"
+    - "Contents"
+    - "Mô tả giao dịch"
+    - "DIỄN GIẢI"
+
+# 2. Danh sách 7 Mẫu Thực tế Đang Vận hành
+templates:
+  MBB_PERSONAL_XLSX:
+    bank_code: "MBB"
+    bank_name: "Ngân hàng TMCP Quân Đội (Sổ phụ Cá nhân)"
+    file_format: "XLSX"
+    reconciliation_mode: "MODE_4_TOTAL_FLOW_ONLY"
+    number_format: "US_COMMA_DECIMAL"
+    date_format: "DD/MM/YYYY HH:mm"
+    skip_empty_rows: true
+    detection_rules:
+      - cell: "H3"
+        contains: "SỔ PHỤ CHI TIẾT KIÊM BÁO NỢ/BÁO CÓ"
+      - cell: "O3"
+        contains: "NGÂN HÀNG TMCP QUÂN ĐỘI"
+    metadata_extractors:
+      account_number: { cell: "B8", regex: "Account No:\\s*([A-Z0-9]+)" }
+      account_holder: { cell: "B10", regex: "Account name:\\s*(.+)$" }
+      currency:       { cell: "B12", regex: "Currency:\\s*([A-Z]{3})" }
+      period_start:   { cell: "B13", regex: "From:\\s*(\\d{2}/\\d{2}/\\d{4})" }
+      period_end:     { cell: "B13", regex: "To:\\s*(\\d{2}/\\d{2}/\\d{4})" }
+      total_debit:    { row_anchor: "TOTAL_ROW", col: "J" }
+      total_credit:   { row_anchor: "TOTAL_ROW", col: "K" }
+    grid_boundaries:
+      header_row: 19
+      data_start_row: 20
+      stop_condition: { col: "E", contains: "Tổng phát sinh trong kỳ" }
+    column_mappings:
+      stt: "B"
+      transaction_date: "E"
+      reference_number: "G"
+      debit_amount: "J"
+      credit_amount: "K"
+      description: "L"
+      counterparty_name: "P"
+      counterparty_account: "R"
+      counterparty_bank: "V"
+
+  MBB_CORP_XLSX:
+    bank_code: "MBB"
+    bank_name: "Ngân hàng TMCP Quân Đội (Doanh nghiệp)"
+    file_format: "XLSX"
+    reconciliation_mode: "MODE_1_FULL_HEADER_FOOTER"
+    number_format: "RAW_OR_US_COMMA"
+    date_format: "DD/MM/YYYY HH:mm:ss"
+    detection_rules:
+      - cell: "C1"
+        contains: "SAO KÊ CHI TIẾT TÀI KHOẢN"
+      - cell: "H1"
+        contains: "NGÂN HÀNG TMCP QUÂN ĐỘI"
+    metadata_extractors:
+      account_number:  { cell: "H4", regex: "Account No:\\s*([A-Z0-9]+)" }
+      account_holder:  { cell: "A4", regex: "Customer name:\\s*([^\\n\\r]+)" }
+      tax_code:        { cell: "H4", regex: "Tax code:\\s*([0-9-]+)" }
+      currency:        { cell: "H4", regex: "Currency:\\s*([A-Z]{3})" }
+      period_start:    { cell: "C2", regex: "From:\\s*(\\d{2}/\\d{2}/\\d{4})" }
+      period_end:      { cell: "C2", regex: "To:\\s*(\\d{2}/\\d{2}/\\d{4})" }
+      opening_balance: { cell: "A6", regex: "Opening Balance:\\s*([\\d,\\.]+)" }
+      closing_balance: { row_anchor: "AFTER_TOTAL_ROW", col: "A", regex: "Closing Balance:\\s*([\\d,\\.]+)" }
+      total_debit:     { row_anchor: "TOTAL_ROW", col: "D" }
+      total_credit:    { row_anchor: "TOTAL_ROW", col: "E" }
+    grid_boundaries:
+      header_row: 7
+      data_start_row: 8
+      stop_condition: { col: "C", equals: "TỔNG TIỀN" }
+    column_mappings:
+      stt: "A"
+      transaction_date: "B"
+      value_date: "C"
+      debit_amount: "D"
+      credit_amount: "E"
+      running_balance: "F"
+      counterparty_name: "G"
+      description: "H"
+      reference_number: "I"
+
+  MBV_CORP_XLSX:
+    bank_code: "MBV"
+    bank_name: "Ngân hàng TNHH MTV Việt Nam Hiện Đại (MBV Business)"
+    file_format: "XLSX"
+    reconciliation_mode: "MODE_2_INFERRED_OPENING_CLOSING"
+    number_format: "US_COMMA_INTEGER"
+    date_format: "DD/MM/YYYY HH:mm:ss"
+    detection_rules:
+      - cell: "F1"
+        contains: "SAO KÊ CHI TIẾT TÀI KHOẢN"
+      - cell: "O1"
+        contains: "VIỆT NAM HIỆN ĐẠI"
+    metadata_extractors:
+      account_number: { cell: "Q4", regex: "Account No:\\s*([A-Z0-9]+)" }
+      account_holder: { cell: "A4", regex: "Customer name:\\s*([^\\n\\r]+?)(?:\\s+Mã khách hàng|$)" }
+      tax_code:       { cell: "Q4", regex: "Tax code:\\s*([0-9-]+)" }
+      currency:       { cell: "Q4", regex: "Currency:\\s*([A-Z]{3})" }
+      period_start:   { cell: "F2", regex: "From:\\s*(\\d{2}/\\d{2}/\\d{4})" }
+      period_end:     { cell: "F2", regex: "To:\\s*(\\d{2}/\\d{2}/\\d{4})" }
+      total_debit:    { row_anchor: "TOTAL_ROW", col: "H" }
+      total_credit:   { row_anchor: "TOTAL_ROW", col: "I" }
+    grid_boundaries:
+      header_row: 7
+      data_start_row: 8
+      stop_condition: { col: "G", equals: "TỔNG TIỀN" }
+    column_mappings:
+      stt: "A"
+      transaction_date: "D"
+      value_date: "G"
+      debit_amount: "H"
+      credit_amount: "I"
+      running_balance: "J"
+      counterparty_name: "K"
+      counterparty_bank: "L"
+      description: "M"
+      reference_number: "R"
+
+  VPB_CORP_XLSX:
+    bank_code: "VPB"
+    bank_name: "Ngân hàng TMCP Việt Nam Thịnh Vượng (VPBank)"
+    file_format: "XLSX"
+    target_sheet_index: 0
+    reconciliation_mode: "MODE_5_CUTOFF_INTEREST_INCLUDED"
+    number_format: "SPACE_TAB_SEPARATED"
+    date_format: "DD/MM/YYYY HH:mm"
+    detection_rules:
+      - cell: "A1"
+        contains: "VPBANK"
+      - cell: "D18"
+        equals: "Số tiền ghi có"
+    metadata_extractors:
+      account_number:  { cell: "A6", regex: "Account number:\\s*([A-Z0-9]+)" }
+      account_holder:  { cell: "F7", regex: "Account Name:\\s*(.+)$" }
+      tax_code:        { cell: "F9", regex: "number:\\s*([0-9-]+)" }
+      currency:        { cell: "A15", regex: "([A-Z]{3})\\s*$" }
+      period_start:    { cell: "A5", regex: "\\[(\\d{2}/\\d{2}/\\d{4})-" }
+      period_end:      { cell: "A5", regex: "-(\\d{2}/\\d{2}/\\d{4})\\]" }
+      opening_balance: { cell: "A15", regex: "Opening balance:\\s*([\\d\\s]+)" }
+      closing_balance: { cell: "A16", regex: "Closing balance:\\s*([\\d\\s]+)" }
+      total_credit:    { row_anchor: "TOTAL_ROW", col: "D" }
+      total_debit:     { row_anchor: "TOTAL_ROW", col: "E" }
+    grid_boundaries:
+      header_row: 18
+      subheader_row: 19
+      data_start_row: 20
+      stop_condition: { col: "A", contains: "Tổng số tiền" }
+    column_mappings:
+      stt: "A"
+      reference_number: "B"
+      value_date: "C"
+      credit_amount: "D"
+      debit_amount: "E"
+      description: "F"
+      running_balance: "G"
+      transaction_date: "H"
+      virtual_account: "I"
+
+  TPB_CORP_XLSX:
+    bank_code: "TPB"
+    bank_name: "Ngân hàng TMCP Tiên Phong (TPBank)"
+    file_format: "XLSX"
+    reconciliation_mode: "MODE_1_FULL_HEADER_FOOTER"
+    number_format: "RAW_NUMERIC"
+    date_format: "DD/MM/YYYY HH:mm:ss"
+    detection_rules:
+      - cell: "A3"
+        contains: "CURRENT ACCOUNT TRANSACTION STATEMENT"
+      - cell: "A7"
+        contains: "Tài khoản giao dịch"
+    metadata_extractors:
+      account_number:  { cell: "C7", regex: "^([A-Z0-9]+)$" }
+      account_holder:  { cell: "C6", regex: "^(.+)$" }
+      currency:        { cell: "C8", regex: "^([A-Z]{3})$" }
+      period_start:    { cell: "C5", regex: "^(\\d{2}/\\d{2}/\\d{4})" }
+      period_end:      { cell: "C5", regex: "-\\s*(\\d{2}/\\d{2}/\\d{4})$" }
+      opening_balance: { row_label_col: "A", label_contains: "Beginning balance", value_col: "C" }
+      total_credit:    { row_label_col: "A", label_contains: "Total credit", value_col: "C" }
+      total_debit:     { row_label_col: "A", label_contains: "Total debit", value_col: "C" }
+      closing_balance: { row_label_col: "A", label_contains: "Ending balance", value_col: "C" }
+    grid_boundaries:
+      header_row: 10
+      data_start_row: 11
+      stop_condition: { col: "A", empty_or_contains: "Số dư đầu kỳ" }
+    column_mappings:
+      transaction_date: "A"
+      value_date: "B"
+      description: "C"
+      debit_amount: "D"
+      credit_amount: "E"
+      running_balance: "F"
+      counterparty_account: "G"
+      counterparty_name: "H"
+      reference_number: "I"
+
+  CTG_EFAST_XLS:
+    bank_code: "CTG"
+    bank_name: "Ngân hàng TMCP Công Thương Việt Nam (VietinBank eFAST)"
+    file_format: "XLS"
+    reconciliation_mode: "MODE_1_FULL_HEADER_FOOTER"
+    number_format: "VN_DOT_COMMA"
+    date_format: "DD-MM-YYYY HH:mm:ss"
+    detection_rules:
+      - cell: "B3"
+        contains: "VIETINBANK"
+      - cell: "A25"
+        equals: "STT/No."
+    metadata_extractors:
+      account_holder:  { cell: "C11", regex: "^(.+)$" }
+      account_number:  { cell: "C12", regex: "^([A-Z0-9]+)$" }
+      currency:        { cell: "C14", regex: "^([A-Z]{3})$" }
+      opening_balance: { cell: "C17", regex: "^([\\d\\.,]+)$" }
+      closing_balance: { cell: "C18", regex: "^([\\d\\.,]+)$" }
+      period_start:    { cell: "C19", regex: "^(\\d{4}-\\d{2}-\\d{2})" }
+      period_end:      { cell: "C19", regex: "-\\s*(\\d{4}-\\d{2}-\\d{2})$" }
+      total_credit:    { cell: "C20", regex: "^([\\d\\.,]+)$" }
+      total_debit:     { cell: "E20", regex: "^([\\d\\.,]+)$" }
+    grid_boundaries:
+      header_row: 25
+      data_start_row: 26
+      stop_condition: { col: "A", not_regex: "^\\d+$" }
+    column_mappings:
+      stt: "A"
+      value_date: "B"
+      description: "C"
+      debit_amount: "D"
+      credit_amount: "E"
+      running_balance: "F"
+      reference_number: "G"
+      counterparty_account: "H"
+      counterparty_name: "I"
+      transaction_date: "L"
+
+  SHB_CORP_XLS:
+    bank_code: "SHB"
+    bank_name: "Ngân hàng TMCP Sài Gòn - Hà Nội (SHB)"
+    file_format: "XLS"
+    reconciliation_mode: "MODE_3_DERIVED_RUNNING_BALANCE"
+    number_format: "BIFF8_NUMERIC_OR_VN_DOT"
+    date_format: "DD/MM/YYYY HH:mm"
+    detection_rules:
+      - cell: "F2"
+        contains: "SÀI GÒN"
+      - cell: "B23"
+        equals: "STT"
+    metadata_extractors:
+      period_start:    { cell: "E11", regex: "(\\d{2}/\\d{2}/\\d{4})" }
+      period_end:      { cell: "G11", regex: "(\\d{2}/\\d{2}/\\d{4})" }
+      account_holder:  { cell: "D14", regex: "\\(Full name\\):\\s*(.+)$" }
+      account_number:  { cell: "D15", regex: "\\(Account number\\):\\s*([A-Z0-9]+)" }
+      currency:        { cell: "D16", regex: "\\(Currency\\):\\s*([A-Z]{3})" }
+      opening_balance: { cell: "D18", regex: ":\\s*([\\d,\\.]+)" }
+      closing_balance: { cell: "D19", regex: ":\\s*([\\d,\\.]+)" }
+      total_debit:     { cell: "D20", regex: ":\\s*([\\d,\\.]+)" }
+      total_credit:    { cell: "D21", regex: ":\\s*([\\d,\\.]+)" }
+    grid_boundaries:
+      header_row: 23
+      data_start_row: 24
+      stop_condition: { col: "B", not_regex: "^\\d+$" }
+    column_mappings:
+      stt: "B"
+      reference_number: "C"
+      transaction_date: "D"
+      value_date: "E"
+      debit_amount: "F"
+      credit_amount: "G"
+      description: "H"

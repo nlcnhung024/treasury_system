@@ -21,12 +21,14 @@
   - Đảm bảo khả năng mở rộng dùng chung một mẫu cấu hình để quét và phân tách dữ liệu độc lập cho nhiều doanh nghiệp khác nhau mà không làm rò rỉ hay trộn lẫn số liệu.
 
 ## 2. Tiêu chuẩn Hạ tầng Lưu trữ File (Storage Architecture Standards)
+- **Mô hình Hybrid Object Storage (Primary On-Premise & Off-site Cloud):** Sử dụng MinIO On-Premise làm kho lưu trữ chính trong mạng nội bộ, kết hợp đồng bộ sao lưu tự động sang Google Cloud Storage (GCS Coldline/Archive) phục vụ Disaster Recovery.
 - **Phân vùng đường dẫn (Deterministic Path Partitioning):** Đường dẫn file trên Object Storage phải tuân thủ cấu trúc phân cấp thời gian:
   `{storage_bucket}/statements/{bank_code}/{YYYY}/{MM}/{file_uuid}_{sanitized_name}.xlsx`
 - **Mã băm toàn vẹn (Integrity Hash):** Bắt buộc lưu trữ trường `file_sha256 CHAR(64)` trong bảng quản lý file để kiểm tra tính toàn vẹn (integrity check) và chống trùng lặp dữ liệu.
 - **Chính sách truy cập an toàn:** Không bao giờ mở public bucket; truy xuất file thông qua Pre-signed URL có thời hạn sống (TTL tối đa 15 phút).
 
 ## 3. Tiêu chuẩn Hàng đợi & Xử lý Bất đồng bộ (Queue & Worker Standards)
+- **Công nghệ Chuẩn hóa (Message Broker):** Sử dụng Redis 7.0+ Streams với cơ chế Consumer Groups để điều phối tác vụ bóc tách sao kê ngầm, chia sẻ hạ tầng cụm Redis với tầng Cache và tối ưu hóa tài nguyên máy chủ.
 - **Quy tắc phân luồng:** Tác vụ có thời gian thực thi dự kiến $> 500\text{ms}$ hoặc dung lượng file $> 2\text{MB}$ phải chuyển sang Background Worker.
 - **Tính Idempotent:** Worker Job phải đảm bảo tính Idempotent bằng cách kiểm tra trạng thái file trong DB trước khi tiến hành parse.
 - **Dead Letter Queue (DLQ):** Cấu hình cơ chế Retry tối đa 3 lần với Exponential Backoff. Nếu thất bại sau 3 lần, tự động chuyển job vào DLQ và ghi nhận lỗi kỹ thuật vào `audit_logs`.

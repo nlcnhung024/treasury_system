@@ -2,28 +2,143 @@ openapi: 3.0.3
 info:
   title: Bank Statement Processing & Financial Reporting API
   description: >
-    Hợp đồng giao tiếp API chuẩn mực phục vụ Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động.
-    Thiết kế bởi Lead System & Data Architect (@SystemArchitect).
-  version: 1.0.0
+    Hợp đồng giao tiếp API chuẩn mực phục vụ Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động (BSP-2026).
+    Đặc tả toàn bộ giao tiếp giữa Frontend SPA, API Gateway, Background Worker và hệ thống báo cáo tài chính.
+    Tuân thủ nghiêm ngặt chuẩn RESTful, OpenAPI 3.0.3, độ chính xác số học cao (DECIMAL 18,2) và kiến trúc đa tầng phòng vệ (Defense-in-Depth).
+    Thiết kế và ban hành bởi Lead System & Data Architect (@SystemArchitect).
+  version: 1.2.0
   contact:
     name: System Architecture Team
+    email: architect@enterprise.internal
+
 servers:
   - url: /api/v1
     description: Production API Server Gateway
 
+security:
+  - BearerAuth: []
+
 tags:
+  - name: Authentication
+    description: Xác thực người dùng, cấp phát token JWT và quản lý phiên làm việc RBAC
   - name: Statements
-    description: Tiếp nhận file sao kê, bóc tách và đối soát số dư
+    description: Tiếp nhận file sao kê đa ngân hàng, bóc tách ngầm và đối soát số dư tự động
+  - name: Accounts
+    description: Quản lý danh mục tài khoản ngân hàng và tài khoản tiền mặt đặc thù
   - name: Transactions
     description: Quản lý giao dịch, tìm kiếm đa chiều, phân loại thủ công & ghi chú nội bộ
+  - name: Cash Ledger
+    description: Quản lý sổ quỹ tiền mặt đối ứng và luồng tiền rút từ tài khoản MBBank cá nhân
   - name: Rule Management
-    description: Tự quản lý danh mục và thiết lập quy tắc nhận diện từ khóa nâng cao
+    description: Tự quản lý danh mục và thiết lập quy tắc nhận diện từ khóa kết hợp nâng cao
   - name: Reports
-    description: Báo cáo CFO (Tồn quỹ tức thì), Báo cáo CEO (Waterfall chart) & Xuất Excel chuẩn
+    description: Báo cáo CFO (Tồn quỹ tức thì < 9h sáng), Báo cáo CEO (Waterfall chart WTD/MTD) & Xuất Excel an toàn
+  - name: Templates
+    description: Tra cứu danh mục mẫu sao kê động của các ngân hàng thương mại
+  - name: Audit Logs
+    description: Truy vết nhật ký kiểm toán bất biến phục vụ an toàn thông tin và kiểm toán kế toán
 
 paths:
   # ===========================================================================
-  # 1. TIẾP NHẬN FILE SAO KÊ
+  # 1. XÁC THỰC & PHÂN QUYỀN (AUTHENTICATION & SESSION)
+  # ===========================================================================
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Đăng nhập hệ thống và nhận Bearer JWT Token
+      operationId: loginUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Đăng nhập thành công, trả về Access Token, Refresh Token và thông tin phân quyền
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '400':
+          description: Dữ liệu đăng nhập không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Sai tên đăng nhập hoặc mật khẩu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: Cấp mới Access Token thông qua Refresh Token xoay vòng (Token Rotation)
+      operationId: refreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refresh_token
+              properties:
+                refresh_token:
+                  type: string
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: Cấp phát Token mới thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                  token_type:
+                    type: string
+                    example: "bearer"
+                  expires_in:
+                    type: integer
+                    example: 900
+        '401':
+          description: Refresh Token đã hết hạn hoặc không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Lấy thông tin tài khoản đang đăng nhập và quyền hạn RBAC
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Thông tin người dùng hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileResponse'
+        '401':
+          description: Chưa xác thực hoặc Token không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  # ===========================================================================
+  # 2. TIẾP NHẬN FILE SAO KÊ & BÓC TÁCH NGẦM (STATEMENTS INGESTION)
   # ===========================================================================
   /statements/upload:
     post:
@@ -75,24 +190,143 @@ paths:
                     example: "MBB_CORP_XLSX"
                   status:
                     type: string
+                    enum: [QUEUED]
                     example: "QUEUED"
                   message:
                     type: string
                     example: "File đã được đưa vào hàng đợi bóc tách ngầm."
         '400':
-          description: File không đúng định dạng cho phép hoặc vượt quá giới hạn 25MB
+          description: File không đúng định dạng cho phép (vi phạm Magic Bytes) hoặc vượt quá 25MB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '409':
           description: File sao kê trùng lặp hoàn toàn (Trùng mã băm SHA-256)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: File đúng định dạng nhưng không thể nhận diện mẫu ngân hàng hoặc thiếu Header cốt lõi
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /statements:
+    get:
+      tags:
+        - Statements
+      summary: Lấy danh sách các file sao kê đã tải lên hệ thống
+      operationId: listStatementFiles
+      parameters:
+        - name: bank_code
+          in: query
+          schema:
+            type: string
+          example: "MBB"
+        - name: processing_status
+          in: query
+          schema:
+            type: string
+            enum: [UPLOADED, QUEUED, PARSING, RECONCILING, COMPLETED, FAILED]
+        - name: reconciliation_status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, BALANCED, DISCREPANCY]
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Danh sách file sao kê phân trang
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StatementFileItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /statements/{file_id}:
+    get:
+      tags:
+        - Statements
+      summary: Lấy thông tin chi tiết một file sao kê kèm kết quả đối soát
+      operationId: getStatementDetail
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Chi tiết file sao kê
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatementFileDetail'
+        '404':
+          description: Không tìm thấy file sao kê
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags:
+        - Statements
+      summary: Hủy hoặc xóa file sao kê và các giao dịch liên quan (chỉ cho phép khi file bị FAILED hoặc DISCREPANCY)
+      operationId: deleteStatementFile
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Đã xóa file và rollback toàn bộ giao dịch liên quan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  file_id:
+                    type: integer
+                  message:
+                    type: string
+                    example: "File và các giao dịch liên quan đã được xóa an toàn."
 
   /statements/{file_id}/status:
     get:
       tags:
         - Statements
-      summary: Kiểm tra tiến trình bóc tách và đối soát của file theo thời gian thực
+      summary: Kiểm tra tiến trình bóc tách và đối soát của file theo thời gian thực (Polling endpoint)
+      operationId: getStatementStatus
       parameters:
         - name: file_id
           in: path
@@ -105,49 +339,177 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/StatementStatusResponse'
+        '404':
+          description: Không tìm thấy file sao kê
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /statements/{file_id}/events:
+    get:
+      tags:
+        - Statements
+      summary: Kết nối Server-Sent Events (SSE) theo dõi luồng bóc tách thời gian thực
+      operationId: streamStatementEvents
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Luồng sự kiện SSE phát ra các trạng thái UPLOADED, PARSING (kèm % hoàn thành), RECONCILING, COMPLETED hoặc FAILED
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: "event: progress\ndata: {\"file_id\": 1045, \"status\": \"PARSING\", \"progress\": 75, \"processed_rows\": 750}\n\n"
+
+  /statements/{file_id}/download:
+    get:
+      tags:
+        - Statements
+      summary: Lấy Pre-signed URL an toàn (TTL 15 phút) để tải file sao kê gốc từ Object Storage
+      operationId: downloadOriginalStatement
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Pre-signed URL hợp lệ
+          content:
+            application/json:
+              schema:
                 type: object
                 properties:
-                  file_id:
+                  download_url:
+                    type: string
+                    example: "https://minio.enterprise.internal/statements/MBB/2026/10/3fa85f64.xlsx?X-Amz-Expires=900..."
+                  expires_in_seconds:
                     type: integer
-                  template_code:
-                    type: string
-                    example: "MBB_CORP_XLSX"
-                  reconciliation_mode:
-                    type: string
-                    enum:
-                      - MODE_1_FULL_HEADER_FOOTER
-                      - MODE_2_INFERRED_OPENING_CLOSING
-                      - MODE_3_DERIVED_RUNNING_BALANCE
-                      - MODE_4_TOTAL_FLOW_ONLY
-                      - MODE_5_CUTOFF_INTEREST_INCLUDED
-                    example: "MODE_1_FULL_HEADER_FOOTER"
-                  processing_status:
-                    type: string
-                    enum: [UPLOADED, QUEUED, PARSING, RECONCILING, COMPLETED, FAILED]
-                    example: "COMPLETED"
-                  reconciliation_status:
-                    type: string
-                    enum: [PENDING, BALANCED, DISCREPANCY]
-                    example: "BALANCED"
-                  total_transactions:
-                    type: integer
-                    example: 125
-                  discrepancy_amount:
-                    type: number
-                    description: Số tiền chênh lệch đối soát chính xác (DECIMAL(18,2))
-                    example: 0.00
-                  error_message:
-                    type: string
-                    nullable: true
+                    example: 900
 
   # ===========================================================================
-  # 2. TRUY VẤN GIAO DỊCH & PHÂN LOẠI THỦ CÔNG
+  # 3. QUẢN LÝ TÀI KHOẢN NGÂN HÀNG & PHÁP NHÂN (ACCOUNTS & MULTI-ENTITY)
+  # ===========================================================================
+  /accounts:
+    get:
+      tags:
+        - Accounts
+      summary: Lấy danh sách tài khoản ngân hàng và tài khoản tiền mặt đặc thù
+      operationId: listBankAccounts
+      parameters:
+        - name: bank_code
+          in: query
+          schema:
+            type: string
+          example: "MBB"
+        - name: account_type
+          in: query
+          schema:
+            type: string
+            enum: [CORPORATE, SPECIAL_CASH]
+        - name: tax_code
+          in: query
+          description: Lọc theo Mã số thuế Doanh nghiệp (Multi-Entity Isolation)
+          schema:
+            type: string
+          example: "0109730501"
+      responses:
+        '200':
+          description: Danh sách tài khoản
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BankAccountItem'
+    post:
+      tags:
+        - Accounts
+      summary: Tạo mới cấu hình tài khoản ngân hàng vào hệ thống
+      operationId: createBankAccount
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccountPayload'
+      responses:
+        '201':
+          description: Tạo tài khoản thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankAccountItem'
+
+  /accounts/{account_id}:
+    get:
+      tags:
+        - Accounts
+      summary: Lấy thông tin chi tiết một tài khoản ngân hàng
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankAccountItem'
+    patch:
+      tags:
+        - Accounts
+      summary: Cập nhật thông tin tài khoản (số dư khởi tạo, trạng thái kích hoạt)
+      parameters:
+        - name: account_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                bank_name:
+                  type: string
+                account_holder:
+                  type: string
+                tax_code:
+                  type: string
+                opening_balance:
+                  type: number
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BankAccountItem'
+
+  # ===========================================================================
+  # 4. TRUY VẤN GIAO DỊCH, PHÂN LOẠI THỦ CÔNG & GHI CHÚ NỘI BỘ (TRANSACTIONS)
   # ===========================================================================
   /transactions:
     get:
       tags:
         - Transactions
-      summary: Tìm kiếm và lọc giao dịch đa tiêu chí
+      summary: Tìm kiếm và lọc giao dịch đa tiêu chí với Full-Text Search
+      operationId: listTransactions
       parameters:
         - name: from_date
           in: query
@@ -204,9 +566,15 @@ paths:
             type: number
         - name: keyword
           in: query
-          description: Tìm kiếm từ khóa trong Nội dung giao dịch hoặc Ghi chú nội bộ
+          description: Tìm kiếm toàn văn trong Nội dung giao dịch hoặc Ghi chú nội bộ (GIN Index < 200ms)
           schema:
             type: string
+          example: "HOA PHAT"
+        - name: is_manual_override
+          in: query
+          description: Lọc các giao dịch đã bị can thiệp phân loại thủ công
+          schema:
+            type: boolean
         - name: page
           in: query
           schema:
@@ -233,10 +601,32 @@ paths:
                     $ref: '#/components/schemas/PaginationMeta'
 
   /transactions/{transaction_id}:
+    get:
+      tags:
+        - Transactions
+      summary: Lấy chi tiết một giao dịch
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionItem'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
     patch:
       tags:
         - Transactions
       summary: Cập nhật danh mục thủ công (Inline Tagging) hoặc Ghi chú nội bộ (Internal Note)
+      operationId: updateTransaction
       parameters:
         - name: transaction_id
           in: path
@@ -252,94 +642,235 @@ paths:
               properties:
                 category_id:
                   type: integer
+                  nullable: true
                   description: ID danh mục muốn gán bằng tay
                   example: 12
                 internal_note:
                   type: string
+                  nullable: true
                   description: Ghi chú nội bộ do chị Cẩm Nhung nhập
                   example: "Hóa đơn số 00459 - Chị Lan Anh duyệt miệng"
       responses:
         '200':
-          description: Cập nhật thành công, hệ thống tự động gắn cờ is_manual_override = true
+          description: Cập nhật thành công, hệ thống tự động gắn cờ is_manual_override = true và ghi nhận Audit Log
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/TransactionItem'
+        '404':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /transactions/bulk-tag:
     post:
       tags:
         - Transactions
       summary: Gán danh mục thủ công hàng loạt cho nhiều dòng giao dịch đã chọn
+      operationId: bulkTagTransactions
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - transaction_ids
-                - category_id
-              properties:
-                transaction_ids:
-                  type: array
-                  items:
-                    type: integer
-                  example: [101, 102, 105, 110]
-                category_id:
-                  type: integer
-                  example: 5
+              $ref: '#/components/schemas/BulkTagPayload'
       responses:
         '200':
-          description: Gán danh mục hàng loạt thành công và kích hoạt khóa bảo vệ
+          description: Gán danh mục hàng loạt thành công và kích hoạt khóa bảo vệ chống ghi đè
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkTagResponse'
 
   # ===========================================================================
-  # 3. QUẢN LÝ QUY TẮC PHÂN LOẠI & DANH MỤC (SELF-SERVICE RULE BUILDER)
+  # 5. SỔ QUỸ TIỀN MẶT ĐỐI ỨNG (CASH LEDGER)
+  # ===========================================================================
+  /cash-ledger:
+    get:
+      tags:
+        - Cash Ledger
+      summary: Lấy danh sách các bút toán sổ quỹ tiền mặt đối ứng
+      operationId: listCashLedgerEntries
+      parameters:
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: entry_type
+          in: query
+          schema:
+            type: string
+            enum: [INFLOW, OUTFLOW]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Danh sách bút toán sổ quỹ tiền mặt
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CashLedgerItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+    post:
+      tags:
+        - Cash Ledger
+      summary: Tạo mới bút toán nhập/xuất quỹ tiền mặt
+      operationId: createCashEntry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCashEntryPayload'
+      responses:
+        '201':
+          description: Tạo bút toán tiền mặt thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CashLedgerItem'
+
+  # ===========================================================================
+  # 6. QUẢN LÝ QUY TẮC PHÂN LOẠI & DANH MỤC (SELF-SERVICE RULE BUILDER)
   # ===========================================================================
   /categories:
     get:
       tags:
         - Rule Management
       summary: Lấy danh sách toàn bộ danh mục Thu và Chi
+      operationId: listCategories
+      parameters:
+        - name: category_type
+          in: query
+          schema:
+            type: string
+            enum: [INCOME, EXPENSE]
       responses:
         '200':
           description: Danh sách danh mục
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryItem'
     post:
       tags:
         - Rule Management
       summary: Tự tạo mới một danh mục Thu hoặc Chi
+      operationId: createCategory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCategoryPayload'
+      responses:
+        '201':
+          description: Tạo danh mục thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryItem'
+
+  /categories/{category_id}:
+    patch:
+      tags:
+        - Rule Management
+      summary: Cập nhật thông tin danh mục Thu/Chi
+      parameters:
+        - name: category_id
+          in: path
+          required: true
+          schema:
+            type: integer
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required:
-                - category_type
-                - category_name
               properties:
-                category_type:
-                  type: string
-                  enum: [INCOME, EXPENSE]
                 category_name:
                   type: string
-                  example: "Chi Nhà cung cấp Thép"
                 color_code:
                   type: string
-                  example: "#EF4444"
+                description:
+                  type: string
+                display_order:
+                  type: integer
+                is_active:
+                  type: boolean
       responses:
-        '201':
-          description: Tạo danh mục thành công
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CategoryItem'
+    delete:
+      tags:
+        - Rule Management
+      summary: Xóa danh mục Thu/Chi (Các giao dịch liên quan sẽ gán category_id = NULL)
+      parameters:
+        - name: category_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Xóa danh mục thành công
 
   /rules:
     get:
       tags:
         - Rule Management
       summary: Lấy danh sách các quy tắc nhận diện từ khóa nâng cao kèm thứ tự ưu tiên
+      operationId: listRules
+      parameters:
+        - name: category_id
+          in: query
+          schema:
+            type: integer
+        - name: is_active
+          in: query
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Danh sách quy tắc phân loại
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RuleItem'
     post:
       tags:
         - Rule Management
       summary: Tạo mới quy tắc nhận diện từ khóa kết hợp điều kiện nâng cao
+      operationId: createRule
       requestBody:
         required: true
         content:
@@ -349,96 +880,137 @@ paths:
       responses:
         '201':
           description: Tạo quy tắc thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleItem'
+
+  /rules/{rule_id}:
+    patch:
+      tags:
+        - Rule Management
+      summary: Cập nhật quy tắc phân loại từ khóa nâng cao
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rule_name:
+                  type: string
+                category_id:
+                  type: integer
+                priority:
+                  type: integer
+                keyword_patterns:
+                  type: string
+                match_type:
+                  type: string
+                  enum: [CONTAINS, EXACT, REGEX]
+                target_bank_code:
+                  type: string
+                  nullable: true
+                target_account_number:
+                  type: string
+                  nullable: true
+                min_amount:
+                  type: number
+                  nullable: true
+                max_amount:
+                  type: number
+                  nullable: true
+                applies_to_flow:
+                  type: string
+                  enum: [ALL, CREDIT, DEBIT]
+                is_active:
+                  type: boolean
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuleItem'
+    delete:
+      tags:
+        - Rule Management
+      summary: Xóa một quy tắc
+      parameters:
+        - name: rule_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Đã xóa quy tắc thành công
 
   /rules/re-apply:
     post:
       tags:
         - Rule Management
       summary: Chạy lại toàn bộ bộ quy tắc lên dữ liệu lịch sử (Bảo vệ tuyệt đối dòng is_manual_override = true)
+      operationId: reapplyRules
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from_date:
+                  type: string
+                  format: date
+                to_date:
+                  type: string
+                  format: date
+                bank_code:
+                  type: string
       responses:
         '200':
           description: Kết quả chạy lại quy tắc
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  total_processed:
-                    type: integer
-                    example: 3500
-                  tagged_count:
-                    type: integer
-                    example: 280
-                  skipped_manual_override_count:
-                    type: integer
-                    example: 45
-                  message:
-                    type: string
-                    example: "Đã áp dụng quy tắc thành công. 45 dòng phân loại thủ công được bảo toàn nguyên vẹn."
+                $ref: '#/components/schemas/ReapplyRulesResponse'
 
   # ===========================================================================
-  # 4. PHÂN HỆ BÁO CÁO (CFO, CEO & EXCEL EXPORT)
+  # 7. PHÂN HỆ BÁO CÁO (CFO, CEO & AN TOÀN XUẤT EXCEL)
   # ===========================================================================
   /reports/cfo/daily-liquidity:
     get:
       tags:
         - Reports
-      summary: Báo cáo CFO (Ông Trần Ngọc Tuấn) - Tổng tồn quỹ hợp nhất đầu ngày
+      summary: Báo cáo CFO (Ông Trần Ngọc Tuấn) - Tổng tồn quỹ hợp nhất đầu ngày (< 9h00 sáng)
+      operationId: getCfoDailyLiquidity
       parameters:
         - name: tax_code
           in: query
           required: false
           schema:
             type: string
-          description: Lọc tồn quỹ theo Mã số thuế Doanh nghiệp (bỏ trống để xem hợp nhất)
+          description: Lọc tồn quỹ theo Mã số thuế Doanh nghiệp (bỏ trống để xem hợp nhất toàn tập đoàn)
           example: "0109730501"
       responses:
         '200':
-          description: Dữ liệu tồn quỹ hợp nhất sẵn sàng trước 9h00 sáng
+          description: Dữ liệu tồn quỹ hợp nhất sẵn sàng trước 9h00 sáng (SLA truy vấn <= 100ms)
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  report_date:
-                    type: string
-                    format: date
-                    example: "2026-10-29"
-                  total_consolidated_liquidity:
-                    type: number
-                    example: 125450000000.00
-                  total_bank_balance:
-                    type: number
-                    example: 120250000000.00
-                  total_cash_on_hand:
-                    type: number
-                    example: 5200000000.00
-                  bank_breakdown:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        bank_code:
-                          type: string
-                          example: "MBB"
-                        bank_name:
-                          type: string
-                          example: "Ngân hàng TMCP Quân Đội"
-                        account_number:
-                          type: string
-                          example: "111386888"
-                        account_holder:
-                          type: string
-                          example: "CONG TY CO PHAN XI MANG SUNRISE"
-                        balance:
-                          type: number
-                          example: 147097279.00
+                $ref: '#/components/schemas/CfoLiquidityResponse'
 
   /reports/ceo/waterfall:
     get:
       tags:
         - Reports
-      summary: Báo cáo CEO (Bà Nguyễn Thị Lan Anh) - Biểu đồ Thác nước (Waterfall) Thu/Chi
+      summary: Báo cáo CEO (Bà Nguyễn Thị Lan Anh) - Biểu đồ Thác nước (Waterfall) Thu/Chi WTD/MTD
+      operationId: getCeoWaterfallReport
       parameters:
         - name: timeframe
           in: query
@@ -461,61 +1033,14 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  timeframe:
-                    type: string
-                    example: "MTD"
-                  opening_balance:
-                    type: number
-                    example: 110000000000.00
-                  income_components:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        category_name:
-                          type: string
-                          example: "Thu bán hàng & Đối tác"
-                        amount:
-                          type: number
-                          example: 65000000000.00
-                  expense_components:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        category_name:
-                          type: string
-                          example: "Chi Nhà cung cấp"
-                        amount:
-                          type: number
-                          example: 32000000000.00
-                  steps:
-                    type: array
-                    description: Mảng tuần tự các cột render trực tiếp lên biểu đồ Waterfall
-                    items:
-                      type: object
-                      properties:
-                        name:
-                          type: string
-                          example: "Số dư Đầu kỳ"
-                        type:
-                          type: string
-                          enum: [OPENING, INCOME, EXPENSE, CLOSING]
-                          example: "OPENING"
-                        value:
-                          type: number
-                          example: 110000000000.00
-                  closing_balance:
-                    type: number
-                    example: 125450000000.00
+                $ref: '#/components/schemas/WaterfallReportResponse'
 
   /reports/export/excel:
     get:
       tags:
         - Reports
-      summary: Xuất bảng giao dịch ra file Excel (.xlsx) định dạng kế toán chuẩn mực
+      summary: Xuất bảng giao dịch ra file Excel (.xlsx) định dạng kế toán chuẩn mực chống Formula Injection
+      operationId: exportTransactionsExcel
       parameters:
         - name: from_date
           in: query
@@ -531,33 +1056,418 @@ paths:
           in: query
           schema:
             type: string
+        - name: category_id
+          in: query
+          schema:
+            type: integer
+        - name: tax_code
+          in: query
+          schema:
+            type: string
       responses:
         '200':
-          description: File Excel nhị phân định dạng số tiền #,##0.00, ngày DD/MM/YYYY, có dòng Tổng cộng
+          description: File Excel nhị phân định dạng số tiền #,##0.00 căn phải, ngày DD/MM/YYYY, dòng Tổng cộng và đã sanitize tiền tố Formula
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+                example: "attachment; filename=\"Bao_cao_giao_dich_20261029.xlsx\""
           content:
             application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
               schema:
                 type: string
                 format: binary
 
+  # ===========================================================================
+  # 8. MẪU BÓC TÁCH NGÂN HÀNG (TEMPLATES)
+  # ===========================================================================
+  /templates:
+    get:
+      tags:
+        - Templates
+      summary: Danh sách các mẫu bóc tách và chế độ đối soát của >= 7 ngân hàng thương mại
+      operationId: listTemplates
+      responses:
+        '200':
+          description: Danh sách cấu hình mẫu bóc tách động
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/TemplateInfoItem'
+
+  # ===========================================================================
+  # 9. NHẬT KÝ KIỂM TOÁN AN NINH (AUDIT LOGS)
+  # ===========================================================================
+  /audit-logs:
+    get:
+      tags:
+        - Audit Logs
+      summary: Truy vấn nhật ký kiểm toán hệ thống bất biến (Audit Trail)
+      operationId: listAuditLogs
+      parameters:
+        - name: correlation_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+        - name: actor
+          in: query
+          schema:
+            type: string
+        - name: action
+          in: query
+          schema:
+            type: string
+            example: "MANUAL_TAG"
+        - name: target_entity
+          in: query
+          schema:
+            type: string
+            example: "TRANSACTION"
+        - name: from_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: to_date
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Danh sách bản ghi kiểm toán
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AuditLogItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+# =============================================================================
+# THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
+# =============================================================================
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Nhập JSON Web Token (JWT) được cấp sau khi đăng nhập thành công.
+
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API Key bảo mật dùng riêng cho Background Worker và giao tiếp giữa các vi dịch vụ nội bộ.
+
   schemas:
+    LoginRequest:
+      type: object
+      required:
+        - username
+        - password
+      properties:
+        username:
+          type: string
+          example: "nhung.nghiem@enterprise.internal"
+        password:
+          type: string
+          format: password
+          example: "P@ssw0rdSecure2026!"
+
+    LoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        token_type:
+          type: string
+          example: "bearer"
+        expires_in:
+          type: integer
+          example: 900
+          description: Thời hạn hiệu lực của Access Token (15 phút)
+        refresh_token:
+          type: string
+          example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
+        user:
+          $ref: '#/components/schemas/UserProfileResponse'
+
+    UserProfileResponse:
+      type: object
+      properties:
+        user_id:
+          type: integer
+          example: 101
+        username:
+          type: string
+          example: "nhung.nghiem"
+        full_name:
+          type: string
+          example: "Nghiêm Lê Cẩm Nhung"
+        role:
+          type: string
+          enum: [ACCOUNTANT, CFO, CEO, SYSTEM_ADMIN]
+          example: "ACCOUNTANT"
+        allowed_tax_codes:
+          type: array
+          items:
+            type: string
+          example: ["0109730501", "0109888999"]
+          description: Danh sách Mã số thuế Pháp nhân mà người dùng được phân quyền truy cập
+
+    BankAccountItem:
+      type: object
+      properties:
+        account_id:
+          type: integer
+          example: 1
+        bank_code:
+          type: string
+          example: "MBB"
+        bank_name:
+          type: string
+          example: "Ngân hàng TMCP Quân Đội"
+        account_number:
+          type: string
+          example: "111386888"
+        account_holder:
+          type: string
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
+        tax_code:
+          type: string
+          example: "0109730501"
+        account_type:
+          type: string
+          enum: [CORPORATE, SPECIAL_CASH]
+          example: "CORPORATE"
+        currency:
+          type: string
+          example: "VND"
+        opening_balance:
+          type: number
+          example: 0.00
+        current_balance:
+          type: number
+          example: 147097279.00
+        is_active:
+          type: boolean
+          example: true
+
+    CreateAccountPayload:
+      type: object
+      required:
+        - bank_code
+        - bank_name
+        - account_number
+        - account_holder
+      properties:
+        bank_code:
+          type: string
+          example: "MBB"
+        bank_name:
+          type: string
+          example: "Ngân hàng TMCP Quân Đội"
+        account_number:
+          type: string
+          example: "111386888"
+        account_holder:
+          type: string
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
+        tax_code:
+          type: string
+          example: "0109730501"
+        account_type:
+          type: string
+          enum: [CORPORATE, SPECIAL_CASH]
+          default: "CORPORATE"
+        currency:
+          type: string
+          default: "VND"
+        opening_balance:
+          type: number
+          default: 0.00
+
+    StatementFileItem:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          example: 1045
+        file_uuid:
+          type: string
+          format: uuid
+        bank_code:
+          type: string
+          example: "MBB"
+        account_number:
+          type: string
+          example: "111386888"
+        original_filename:
+          type: string
+          example: "Bang ket qua giao dich - 111386888 (2).xlsx"
+        file_size_bytes:
+          type: integer
+          example: 184520
+        statement_period_start:
+          type: string
+          format: date
+          example: "2026-10-01"
+        statement_period_end:
+          type: string
+          format: date
+          example: "2026-10-29"
+        total_transactions_count:
+          type: integer
+          example: 125
+        processing_status:
+          type: string
+          enum: [UPLOADED, QUEUED, PARSING, RECONCILING, COMPLETED, FAILED]
+          example: "COMPLETED"
+        reconciliation_status:
+          type: string
+          enum: [PENDING, BALANCED, DISCREPANCY]
+          example: "BALANCED"
+        discrepancy_amount:
+          type: number
+          example: 0.00
+        uploaded_by:
+          type: string
+          example: "Nghiêm Lê Cẩm Nhung"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-10-30T08:30:00+07:00"
+
+    StatementFileDetail:
+      allOf:
+        - $ref: '#/components/schemas/StatementFileItem'
+        - type: object
+          properties:
+            template_code:
+              type: string
+              example: "MBB_CORP_XLSX"
+            reconciliation_mode:
+              type: string
+              example: "MODE_1_FULL_HEADER_FOOTER"
+            header_opening_balance:
+              type: number
+              example: 54200000.00
+            header_closing_balance:
+              type: number
+              example: 147097279.00
+            calculated_closing_balance:
+              type: number
+              example: 147097279.00
+            total_credit_amount:
+              type: number
+              example: 125000000.00
+            total_debit_amount:
+              type: number
+              example: 32102721.00
+            storage_path:
+              type: string
+              example: "/statements/MBB/2026/10/3fa85f64_Bang_ket_qua_giao_dich.xlsx"
+            file_sha256:
+              type: string
+              example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+            error_message:
+              type: string
+              nullable: true
+
+    StatementStatusResponse:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          example: 1045
+        template_code:
+          type: string
+          example: "MBB_CORP_XLSX"
+        reconciliation_mode:
+          type: string
+          enum:
+            - MODE_1_FULL_HEADER_FOOTER
+            - MODE_2_INFERRED_OPENING_CLOSING
+            - MODE_3_DERIVED_RUNNING_BALANCE
+            - MODE_4_TOTAL_FLOW_ONLY
+            - MODE_5_CUTOFF_INTEREST_INCLUDED
+          example: "MODE_1_FULL_HEADER_FOOTER"
+        processing_status:
+          type: string
+          enum: [UPLOADED, QUEUED, PARSING, RECONCILING, COMPLETED, FAILED]
+          example: "COMPLETED"
+        reconciliation_status:
+          type: string
+          enum: [PENDING, BALANCED, DISCREPANCY]
+          example: "BALANCED"
+        total_transactions:
+          type: integer
+          example: 125
+        discrepancy_amount:
+          type: number
+          description: Số tiền chênh lệch đối soát chính xác (DECIMAL 18,2)
+          example: 0.00
+        error_message:
+          type: string
+          nullable: true
+
     TransactionItem:
       type: object
       properties:
         transaction_id:
           type: integer
           example: 8945
-        transaction_date:
-          type: string
-          format: date-time
-          example: "2026-10-29T08:15:30+07:00"
+        file_id:
+          type: integer
+          example: 1045
+        account_id:
+          type: integer
+          example: 1
         bank_code:
           type: string
           example: "VCB"
         account_number:
           type: string
           example: "0071000123456"
+        account_holder:
+          type: string
+          example: "CONG TY TNHH THEP HOANG GIA"
+        tax_code:
+          type: string
+          example: "0109730501"
+        transaction_date:
+          type: string
+          format: date-time
+          example: "2026-10-29T08:15:30+07:00"
+        value_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-10-29"
+        reference_number:
+          type: string
+          nullable: true
+          example: "FT26302888910"
         description:
           type: string
           example: "CTY TNHH TM THEP HOAP PHAT TT TIEN HANG HD 1102"
@@ -578,11 +1488,222 @@ components:
           type: string
           nullable: true
           example: "Chi Nhà cung cấp Thép"
+        category_type:
+          type: string
+          nullable: true
+          enum: [INCOME, EXPENSE]
+          example: "EXPENSE"
         internal_note:
           type: string
           nullable: true
           example: "Hóa đơn số 00459 - Chị Lan Anh duyệt miệng"
         is_manual_override:
+          type: boolean
+          example: true
+        applied_rule_id:
+          type: integer
+          nullable: true
+          example: 5
+        dedup_hash:
+          type: string
+          example: "a89c74f51bc79a29384759283749827394872938472938472938472938472938"
+
+    BulkTagPayload:
+      type: object
+      required:
+        - transaction_ids
+        - category_id
+      properties:
+        transaction_ids:
+          type: array
+          items:
+            type: integer
+          example: [101, 102, 105, 110]
+        category_id:
+          type: integer
+          example: 5
+
+    BulkTagResponse:
+      type: object
+      properties:
+        updated_count:
+          type: integer
+          example: 4
+        message:
+          type: string
+          example: "Đã gán nhãn thành công 4 giao dịch và kích hoạt khóa bảo vệ chống ghi đè."
+
+    CashLedgerItem:
+      type: object
+      properties:
+        cash_entry_id:
+          type: integer
+          example: 42
+        linked_transaction_id:
+          type: integer
+          nullable: true
+          example: 8945
+        entry_date:
+          type: string
+          format: date
+          example: "2026-10-29"
+        entry_type:
+          type: string
+          enum: [INFLOW, OUTFLOW]
+          example: "INFLOW"
+        amount:
+          type: number
+          example: 50000000.00
+        running_cash_balance:
+          type: number
+          example: 5200000000.00
+        receiver_payer:
+          type: string
+          example: "Nguyễn Thị Lan Anh"
+        reason:
+          type: string
+          example: "Rút tiền mặt từ tài khoản MBBank cá nhân nhập quỹ phục vụ chi lương thời vụ"
+        internal_note:
+          type: string
+          nullable: true
+          example: "Đã ký phiếu thu số PT-2026-10-098"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-10-29T10:00:00+07:00"
+
+    CreateCashEntryPayload:
+      type: object
+      required:
+        - entry_date
+        - entry_type
+        - amount
+        - reason
+      properties:
+        entry_date:
+          type: string
+          format: date
+          example: "2026-10-29"
+        entry_type:
+          type: string
+          enum: [INFLOW, OUTFLOW]
+          example: "INFLOW"
+        amount:
+          type: number
+          example: 50000000.00
+        linked_transaction_id:
+          type: integer
+          nullable: true
+          example: 8945
+        receiver_payer:
+          type: string
+          example: "Nguyễn Thị Lan Anh"
+        reason:
+          type: string
+          example: "Rút tiền mặt từ tài khoản MBBank cá nhân nhập quỹ"
+        internal_note:
+          type: string
+          example: "Phiếu thu số PT-2026-10-098"
+
+    CategoryItem:
+      type: object
+      properties:
+        category_id:
+          type: integer
+          example: 3
+        category_type:
+          type: string
+          enum: [INCOME, EXPENSE]
+          example: "EXPENSE"
+        category_name:
+          type: string
+          example: "Chi Nhà cung cấp Thép"
+        color_code:
+          type: string
+          example: "#EF4444"
+        description:
+          type: string
+          nullable: true
+          example: "Các khoản chuyển khoản thanh toán mua nguyên vật liệu thép"
+        display_order:
+          type: integer
+          example: 1
+        is_active:
+          type: boolean
+          example: true
+
+    CreateCategoryPayload:
+      type: object
+      required:
+        - category_type
+        - category_name
+      properties:
+        category_type:
+          type: string
+          enum: [INCOME, EXPENSE]
+          example: "EXPENSE"
+        category_name:
+          type: string
+          example: "Chi Nhà cung cấp Thép"
+        color_code:
+          type: string
+          default: "#3B82F6"
+          example: "#EF4444"
+        description:
+          type: string
+          example: "Thanh toán cho nhà cung cấp"
+        display_order:
+          type: integer
+          default: 0
+
+    RuleItem:
+      type: object
+      properties:
+        rule_id:
+          type: integer
+          example: 5
+        category_id:
+          type: integer
+          example: 3
+        category_name:
+          type: string
+          example: "Chi Nhà cung cấp Thép"
+        category_type:
+          type: string
+          enum: [INCOME, EXPENSE]
+          example: "EXPENSE"
+        rule_name:
+          type: string
+          example: "Quy tắc Chi NCC Thép Hòa Phát"
+        priority:
+          type: integer
+          example: 10
+        keyword_patterns:
+          type: string
+          example: "thep hoa phat, hoa phat, hp steel"
+        match_type:
+          type: string
+          enum: [CONTAINS, EXACT, REGEX]
+          example: "CONTAINS"
+        target_bank_code:
+          type: string
+          nullable: true
+          example: "VCB"
+        target_account_number:
+          type: string
+          nullable: true
+        min_amount:
+          type: number
+          nullable: true
+          example: 10000000.00
+        max_amount:
+          type: number
+          nullable: true
+        applies_to_flow:
+          type: string
+          enum: [ALL, CREDIT, DEBIT]
+          example: "DEBIT"
+        is_active:
           type: boolean
           example: true
 
@@ -605,18 +1726,199 @@ components:
         keyword_patterns:
           type: string
           example: "thep hoa phat, hoa phat, hp steel"
+        match_type:
+          type: string
+          enum: [CONTAINS, EXACT, REGEX]
+          default: "CONTAINS"
         target_bank_code:
           type: string
           nullable: true
           example: "VCB"
+        target_account_number:
+          type: string
+          nullable: true
         min_amount:
           type: number
           nullable: true
           example: 10000000.00
+        max_amount:
+          type: number
+          nullable: true
         applies_to_flow:
           type: string
           enum: [ALL, CREDIT, DEBIT]
-          default: DEBIT
+          default: "DEBIT"
+
+    ReapplyRulesResponse:
+      type: object
+      properties:
+        total_processed:
+          type: integer
+          description: Tổng số lượng dòng giao dịch đã quét
+          example: 3500
+        tagged_count:
+          type: integer
+          description: Số dòng giao dịch được gán hoặc đổi danh mục tự động
+          example: 280
+        skipped_manual_override_count:
+          type: integer
+          description: Số dòng giao dịch được bảo vệ tuyệt đối không ghi đè do có cờ is_manual_override = true
+          example: 45
+        message:
+          type: string
+          example: "Đã áp dụng quy tắc thành công. 45 dòng phân loại thủ công được bảo toàn nguyên vẹn."
+
+    CfoLiquidityResponse:
+      type: object
+      properties:
+        report_date:
+          type: string
+          format: date
+          example: "2026-10-30"
+        total_consolidated_liquidity:
+          type: number
+          description: Tổng tiền tồn quỹ hợp nhất (DECIMAL 18,2) = Tổng ngân hàng + Tổng tồn quỹ tiền mặt
+          example: 125450000000.00
+        total_bank_balance:
+          type: number
+          example: 120250000000.00
+        total_cash_on_hand:
+          type: number
+          example: 5200000000.00
+        bank_breakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              bank_code:
+                type: string
+                example: "MBB"
+              bank_name:
+                type: string
+                example: "Ngân hàng TMCP Quân Đội"
+              account_number:
+                type: string
+                example: "111386888"
+              account_holder:
+                type: string
+                example: "CONG TY CO PHAN XI MANG SUNRISE"
+              balance:
+                type: number
+                example: 147097279.00
+
+    WaterfallReportResponse:
+      type: object
+      properties:
+        timeframe:
+          type: string
+          enum: [WTD, MTD]
+          example: "MTD"
+        opening_balance:
+          type: number
+          example: 110000000000.00
+        income_components:
+          type: array
+          items:
+            type: object
+            properties:
+              category_name:
+                type: string
+                example: "Thu bán hàng & Đối tác"
+              amount:
+                type: number
+                example: 65000000000.00
+        expense_components:
+          type: array
+          items:
+            type: object
+            properties:
+              category_name:
+                type: string
+                example: "Chi Nhà cung cấp"
+              amount:
+                type: number
+                example: 32000000000.00
+        steps:
+          type: array
+          description: Mảng tuần tự các cột render trực tiếp lên biểu đồ Waterfall của CEO
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: "Số dư Đầu kỳ"
+              type:
+                type: string
+                enum: [OPENING, INCOME, EXPENSE, CLOSING]
+                example: "OPENING"
+              value:
+                type: number
+                example: 110000000000.00
+        closing_balance:
+          type: number
+          example: 143000000000.00
+
+    TemplateInfoItem:
+      type: object
+      properties:
+        bank_code:
+          type: string
+          example: "MBB"
+        bank_name:
+          type: string
+          example: "Ngân hàng TMCP Quân Đội"
+        template_code:
+          type: string
+          example: "MBB_CORP_XLSX"
+        reconciliation_mode:
+          type: string
+          example: "MODE_1_FULL_HEADER_FOOTER"
+        file_extension:
+          type: string
+          example: ".xlsx"
+        header_row_index:
+          type: integer
+          example: 14
+        description:
+          type: string
+          example: "Mẫu sao kê khách hàng doanh nghiệp MBBank định dạng OOXML"
+
+    AuditLogItem:
+      type: object
+      properties:
+        log_id:
+          type: integer
+          example: 9912
+        correlation_id:
+          type: string
+          format: uuid
+          example: "7b4c9102-45a8-4bb9-b827-31a89c892837"
+        actor:
+          type: string
+          example: "Nghiêm Lê Cẩm Nhung"
+        action:
+          type: string
+          example: "MANUAL_TAG"
+        target_entity:
+          type: string
+          example: "TRANSACTION"
+        target_id:
+          type: string
+          example: "8945"
+        details:
+          type: object
+          description: Dữ liệu biến đổi Before / After lưu dạng JSONB
+          example:
+            before_category_id: null
+            after_category_id: 3
+            is_manual_override: true
+        ip_address:
+          type: string
+          example: "192.168.1.45"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-10-30T08:45:12+07:00"
 
     PaginationMeta:
       type: object
@@ -636,6 +1938,9 @@ components:
 
     ErrorResponse:
       type: object
+      required:
+        - error_code
+        - message
       properties:
         error_code:
           type: string
@@ -646,4 +1951,11 @@ components:
         correlation_id:
           type: string
           format: uuid
-
+          example: "7b4c9102-45a8-4bb9-b827-31a89c892837"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2026-10-30T08:45:12+07:00"
+        details:
+          type: object
+          nullable: true

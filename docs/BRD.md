@@ -90,7 +90,7 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 ├───────────────────────────────────────┬─────────────────────────────────────────┤
 │ [MUST HAVE - Bắt buộc hoàn thành]     │ [SHOULD HAVE - Khuyến nghị thực hiện]   │
 │ - Upload kéo thả (.xlsx, .xls, .csv)  │ - Tự động nhận diện ngân hàng bằng AI   │
-│ - Lưu trữ file gốc an toàn trên MinIO/S3│ - Cảnh báo giao dịch bất thường        │
+│ - Lưu MinIO nội bộ + GCS backup       │ - Cảnh báo giao dịch bất thường        │
 │ - Parser đọc động theo mẫu ngân hàng   │ - Xuất báo cáo PDF đồ họa chuyên nghiệp │
 │ - Làm sạch ngày (ISO), tiền (Decimal)  │ - Tích hợp webhook thông báo qua Slack  │
 │ - Đối soát số dư: ĐK + Thu - Chi = CK  ├─────────────────────────────────────────┤
@@ -112,8 +112,8 @@ sequenceDiagram
     actor User as Chuyên viên Kế toán
     participant Web as Giao diện Web (Frontend)
     participant API as Ingestion Service (Backend)
-    participant Storage as Object Storage (MinIO/S3)
-    participant Queue as Async Queue (RabbitMQ/Redis)
+    participant Storage as Object Storage (MinIO / GCS Backup)
+    participant Queue as Async Queue (Redis Streams)
     participant Worker as Data Parser & ETL Engine
     participant DB as CSDL Quan hệ (PostgreSQL)
     

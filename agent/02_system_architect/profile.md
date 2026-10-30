@@ -27,5 +27,6 @@ NHIỆM VỤ CHÍNH:
 
 ## 3. Sản phẩm Bàn giao (Deliverables)
 - `database/schema.sql`: Mã DDL khởi tạo bảng, quan hệ và chỉ mục tối ưu.
-- `docs/architecture_spec.md`: Tài liệu thiết kế kiến trúc toàn hệ thống.
-- `docs/api_contracts.yaml`: Đặc tả OpenAPI 3.0 cho Frontend & Backend.
+- `docs/SAD.md` & `docs/architecture_spec.md`: Tài liệu thiết kế kiến trúc toàn hệ thống (HLD/SAD 4+1 Views).
+- `docs/api_contracts.yaml`: Đặc tả OpenAPI 3.0.3 cho Frontend & Backend.
+- `docs/security_threat_modeling.md`: Tài liệu Đánh giá Rủi ro và Kiến trúc Bảo mật Đa tầng (STRIDE Threat Model, CVSS v3.1 & Defense-in-Depth).

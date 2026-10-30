@@ -50,7 +50,7 @@ Tự động hóa toàn bộ quy trình từ tiếp nhận file sao kê ngân h�
 - **Phản hồi người dùng:** Hiển thị thanh tiến trình xử lý thời gian thực (Uploading $\rightarrow$ Parsing $\rightarrow$ Cleansing $\rightarrow$ Completed).
 
 ### Phân hệ 2: Lưu trữ File Gốc (Raw File Archiving)
-- File Excel gốc phải được lưu trữ nguyên bản trên hệ thống lưu trữ độc lập (Object Storage / MinIO / S3 / File Server).
+- File Excel gốc phải được lưu trữ nguyên bản trên hệ thống Object Storage độc lập: Kho chính nội bộ bằng MinIO On-Premise và tiến trình sao lưu tự động sang Google Cloud Storage (GCS) để phòng chống thảm họa.
 - Đặt tên file theo cấu trúc phân tầng thời gian kèm UUID để tránh ghi đè.
 - Tính toán và lưu mã băm SHA-256 của file để ngăn chặn người dùng upload trùng lặp cùng một file.
 
