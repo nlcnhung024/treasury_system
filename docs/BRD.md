@@ -17,7 +17,8 @@
 | **1.0.0** | 2026-10-29 | `@BusinessAnalyst` | Chuẩn hóa toàn bộ nội dung từ `PRODUCT_SPEC.md` sang tài liệu BRD theo chuẩn Agile: Bổ sung Tầm nhìn, Epics, User Stories, Gherkin AC, Quy tắc đối soát và Release Roadmap |
 | **1.1.0** | 2026-10-29 | `@BusinessAnalyst` | Đồng bộ với `docs/Bank_Mapping_Matrix.md`: Cập nhật 7 mẫu sao kê thực tế (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`), 5 chế độ đối soát (`MODE_1`..`MODE_5`), công thức `dedup_hash` 6 thành phần, trạng thái `BALANCED`/`DISCREPANCY`, và cơ chế Mở rộng Đa Doanh nghiệp (Multi-Entity Isolation) |
 | **1.2.0** | 2026-10-30 | `@BusinessAnalyst` | Bổ sung `US-04.9`: Cho phép chỉnh sửa trực tiếp Số dư Lũy kế (`running_balance`) tại một dòng giao dịch bất kỳ trên Bảng Giao dịch làm mốc chuẩn (Anchor Balance) để tự động tính toán lan truyền 2 chiều (xuôi & ngược) cho toàn bộ chuỗi giao dịch của tài khoản đó, giải quyết triệt để bài toán Sổ phụ Cá nhân MBBank (`MODE_4_TOTAL_FLOW_ONLY`) không in số dư trên file |
-| **1.3.0** | 2026-10-30 | `@BusinessAnalyst` | Nâng cấp toàn diện `US-06.2` (Báo cáo Tồn quỹ & Điều hành Thanh khoản CFO): Hỗ trợ đa kỳ (`TODAY`, `YESTERDAY`, `WTD`, `MTD`, `ALL`, `CUSTOM`) với 5 cột biến động (`opening_balance`, `total_inflow`, `total_outflow`, `closing_balance`, `net_change`), phân cấp 3 Khối nguồn tiền (`CORPORATE`, `SPECIAL_CASH`, `CASH_LEDGER`), loại trừ luân chuyển nội bộ trên KPI hợp nhất, bộ 3 chỉ số quản trị (Tỷ trọng %, Trạng thái Đối soát, Độ tươi dữ liệu), Biểu đồ phân bổ, Drill-down giao dịch tại chỗ và Xuất Excel Báo cáo Tồn quỹ (`/reports/cfo/export-excel`) |
+| **1.3.0** | 2026-10-30 | `@BusinessAnalyst` | Nâng cấp toàn diện `US-06.2` (Báo cáo Tồn quỹ & Điều hành Thanh khoản CFO): Hỗ trợ đa kỳ (`TODAY`, `YESTERDAY`, `WTD`, `MTD`, `ALL`, `CUSTOM`) với 5 cột biến động (`opening_balance`, `total_inflow`, `total_outflow`, `closing_balance`, `net_change`), phân cấp 2 Khối nguồn tiền (`CORPORATE`, `SPECIAL_CASH`, loại bỏ quỹ tiền mặt khỏi tổng tồn quỹ), loại trừ luân chuyển nội bộ trên KPI hợp nhất, bộ 3 chỉ số quản trị (Tỷ trọng %, Trạng thái Đối soát, Độ tươi dữ liệu), Biểu đồ phân bổ, Drill-down giao dịch tại chỗ và Xuất Excel Báo cáo Tồn quỹ (`/reports/cfo/export-excel`) |
+| **1.4.0** | 2026-10-31 | `@BusinessAnalyst` | Đồng bộ toàn diện theo sản phẩm thực tế: Chuẩn hóa 2 Khối nguồn tiền tồn quỹ CFO, bổ sung đầy đủ EPIC-07 (Quản lý & Đối soát Sao kê Khoản vay Tín dụng `CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`), hoàn thiện US-07.1..US-07.3 và tích hợp chỉ số Thanh khoản Ròng (Net Liquidity) trước 9h sáng |
 
 ---
 
@@ -53,9 +54,9 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 | Vai trò | Đại diện Thực tế | Kỳ vọng & Trách nhiệm chính trong dự án | Mức độ ảnh hưởng |
 | :--- | :--- | :--- | :---: |
 | **Tổng Giám đốc (CEO)** | **Bà Nguyễn Thị Lan Anh** | - Nhận báo cáo phân tích tỷ trọng, cơ cấu khoản thu và khoản chi hàng ngày.<br>- Cung cấp dữ liệu sao kê tài khoản cá nhân MBBank (dùng cho luồng rút/nhập quỹ tiền mặt công ty). | Quyết định cao nhất |
-| **Giám đốc Tài chính (CFO)** | **Ông Trần Ngọc Tuấn** | - Theo dõi tức thời tổng số tiền tồn quỹ hôm nay (Tồn quỹ ngân hàng + Tồn quỹ tiền mặt).<br>- Giám sát an toàn thanh khoản và đối soát công nợ. | Rất cao |
-| **Chuyên viên Tài chính (Primary End-User)** | **Chị Nghiêm Lê Cẩm Nhung** | - Người trực tiếp tải file sao kê từ $\ge 7$ ngân hàng mỗi ngày.<br>- Cần tự động hóa làm sạch, đối chiếu số dư, phân loại thu/chi, theo dõi luồng tiền mặt qua TK cá nhân MBBank và tự động sinh biểu đồ báo cáo cho 2 sếp. | Trọng tâm phục vụ |
-| **Development & Architecture Team** | Multi-Agent System | - Xây dựng hệ thống tự động bóc tách $\ge 7$ mẫu ngân hàng, xử lý bóc tách tài khoản cá nhân MBBank, tự động tính tồn quỹ kép (Bank + Cash) và xuất dashboard. | Thực thi kỹ thuật |
+| **Giám đốc Tài chính (CFO)** | **Ông Trần Ngọc Tuấn** | - Theo dõi tức thời tổng số tiền tồn quỹ hôm nay (Khối 1: TK Doanh nghiệp + Khối 2: TK Ủy quyền CEO, không tính quỹ tiền mặt).<br>- Giám sát an toàn thanh khoản, nghĩa vụ nợ tín dụng đến hạn và thanh khoản ròng. | Rất cao |
+| **Chuyên viên Tài chính (Primary End-User)** | **Chị Nghiêm Lê Cẩm Nhung** | - Người trực tiếp tải file sao kê từ $\ge 7$ ngân hàng mỗi ngày và các file sao kê khoản vay tín dụng.<br>- Cần tự động hóa làm sạch, đối chiếu số dư, phân loại thu/chi, theo dõi luồng tiền rút từ TK cá nhân MBBank, đối soát nợ vay và tự động sinh biểu đồ báo cáo cho 2 sếp. | Trọng tâm phục vụ |
+| **Development & Architecture Team** | Multi-Agent System | - Xây dựng hệ thống tự động bóc tách $\ge 7$ mẫu sao kê tài khoản và các mẫu sao kê tín dụng (VietinBank, BIDV), xử lý bóc tách tài khoản cá nhân MBBank, tự động tính tồn quỹ 2 khối ngân hàng, giám sát nghĩa vụ nợ và xuất dashboard. | Thực thi kỹ thuật |
 
 ### 3.2. Chân dung Người dùng Thực tế (User Personas)
 
@@ -64,18 +65,21 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 - **Khối lượng công việc:** Hàng ngày phải truy cập hơn 7 ngân hàng thương mại để tải file sao kê; theo dõi thêm biến động số dư tài khoản cá nhân tại MBBank của Tổng Giám đốc Nguyễn Thị Lan Anh (dùng để rút tiền mặt về quỹ).
 - **Mục tiêu:**
   - Tự động hóa khâu gom file, làm sạch và chuẩn hóa dữ liệu từ $\ge 7$ ngân hàng thành bảng dữ liệu tập trung.
-  - Tự động đối chiếu số dư từng tài khoản, tính tổng tồn quỹ tài khoản ngân hàng và tổng tồn quỹ tiền mặt.
+  - Tự động đối chiếu số dư từng tài khoản, tự động bóc tách và đối soát sao kê khoản vay tín dụng (VietinBank, BIDV).
+  - Tự động tính tổng tồn quỹ hợp nhất theo 2 khối tài khoản ngân hàng (Doanh nghiệp & Ủy quyền CEO, không tính tiền mặt).
   - Tự động phân loại dòng tiền theo mục đích thu/chi.
   - Tự động vẽ biểu đồ trực quan hóa để gửi báo cáo đúng giờ cho CFO Trần Ngọc Tuấn và CEO Nguyễn Thị Lan Anh.
 - **Nỗi đau (Pain Points):**
-  - Mất hàng giờ copy/paste, chỉnh sửa định dạng thủ công giữa các mẫu ngân hàng khác nhau.
-  - Dễ sót hoặc nhầm lẫn khi đối soát số dư giữa tài khoản công ty, tài khoản cá nhân MBBank rút tiền mặt và sổ quỹ tiền mặt thực tế.
+  - Mất hàng giờ copy/paste, chỉnh sửa định dạng thủ công giữa các mẫu ngân hàng khác nhau và các báo cáo khoản vay tín dụng.
+  - Dễ sót hoặc nhầm lẫn khi đối soát số dư giữa tài khoản công ty, tài khoản cá nhân MBBank rút tiền mặt và các khế ước vay.
   - Mất thêm thời gian vẽ biểu đồ thủ công trên Excel trước khi gửi báo cáo cho cấp quản lý.
 
 #### Persona 2: Ông Trần Ngọc Tuấn - Giám đốc Tài chính (CFO)
 - **Thời hạn báo cáo (SLA / Deadline):** Báo cáo sẵn sàng **trước 9h00 sáng mỗi ngày**.
-- **Chỉ số quan tâm số 1:** Tổng số tiền tồn quỹ khả dụng hôm nay = **Tổng tồn quỹ các tài khoản ngân hàng + Tổng tồn quỹ tiền mặt**.
-- **Mức độ chi tiết yêu cầu:** Cần nhìn thấy **cả con số tổng tồn quỹ hợp nhất lẫn bảng chi tiết số dư từng tài khoản** trong toàn bộ $\ge 7$ ngân hàng.
+- **Chỉ số quan tâm số 1:** 
+  1. Tổng số tiền tồn quỹ khả dụng hôm nay = **Khối 1 (Tài khoản Doanh nghiệp) + Khối 2 (Tài khoản Ủy quyền CEO)** (loại bỏ phần quỹ tiền mặt khỏi tổng tồn quỹ).
+  2. Thanh khoản Ròng (Net Liquidity) = **Tổng tồn quỹ khả dụng - Nghĩa vụ nợ gốc & lãi vay đến hạn kỳ tới**.
+- **Mức độ chi tiết yêu cầu:** Cần nhìn thấy **cả con số tổng tồn quỹ hợp nhất, bảng chi tiết số dư từng tài khoản** trong toàn bộ $\ge 7$ ngân hàng, và **tổng quan nghĩa vụ nợ tín dụng theo từng ngân hàng**.
 
 #### Persona 3: Bà Nguyễn Thị Lan Anh - Tổng Giám đốc (CEO)
 - **Đặc thù tài khoản cá nhân MBBank:** Toàn bộ $100\%$ giao dịch phát sinh trên tài khoản cá nhân MBBank đều là chi phí phục vụ hoạt động của công ty (không có chi tiêu cá nhân), dùng làm kênh rút tiền mặt/tạm ứng công ty.
@@ -94,11 +98,15 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 │ - Upload kéo thả (.xlsx, .xls, .csv)  │ - Tự động nhận diện ngân hàng bằng AI   │
 │ - Lưu MinIO nội bộ + GCS backup       │ - Cảnh báo giao dịch bất thường        │
 │ - Parser đọc động theo mẫu ngân hàng   │ - Xuất báo cáo PDF đồ họa chuyên nghiệp │
-│ - Làm sạch ngày (ISO), tiền (Decimal)  │ - Tích hợp webhook thông báo qua Slack  │
-│ - Đối soát số dư: ĐK + Thu - Chi = CK  ├─────────────────────────────────────────┤
-│ - Băm SHA-256 chống trùng lặp          │ [COULD / WON'T HAVE - Tương lai / Ngoài]│
-│ - Báo cáo, lọc đa chiều, xuất Excel   │ - Kết nối trực tiếp Open Banking API    │
-│ - Lưu trữ DB với Decimal(18,2)        │ - Tự động ký số báo cáo thuế điện tử    │
+│ - Bóc tách sao kê tín dụng & khoản vay│ - Tích hợp webhook thông báo qua Slack  │
+│ - Làm sạch ngày (ISO), tiền (Decimal) ├─────────────────────────────────────────┤
+│ - Đối soát số dư: ĐK + Thu - Chi = CK │ [COULD / WON'T HAVE - Tương lai / Ngoài]│
+│ - Đối soát tổng dư nợ khế ước vay LD  │ - Kết nối trực tiếp Open Banking API    │
+│ - Băm SHA-256 chống trùng file & dòng │ - Tự động ký số báo cáo thuế điện tử    │
+│ - Báo cáo tồn quỹ CFO (2 khối NH)     │                                         │
+│ - Giám sát nghĩa vụ nợ & Net Liquidity│                                         │
+│ - Waterfall CEO, Rule UI, xuất Excel  │                                         │
+│ - Lưu trữ DB với Decimal(18,2)        │                                         │
 └───────────────────────────────────────┴─────────────────────────────────────────┘
 ```
 
@@ -106,7 +114,7 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 
 ## 5. Luồng Nghiệp vụ Đầu-Cuối (End-to-End Business Workflow)
 
-Quy trình nghiệp vụ thực tế diễn ra qua 7 giai đoạn được chuẩn hóa:
+Quy trình nghiệp vụ thực tế diễn ra qua các giai đoạn được chuẩn hóa:
 
 ```mermaid
 sequenceDiagram
@@ -119,7 +127,7 @@ sequenceDiagram
     participant Worker as Data Parser & ETL Engine
     participant DB as CSDL Quan hệ (PostgreSQL)
     
-    User->>Web: Kéo thả file sao kê (.xlsx/.xls/.csv) & chọn Ngân hàng
+    User->>Web: Kéo thả file sao kê tài khoản hoặc sao kê tín dụng (.xlsx/.xls)
     Web->>API: Gửi file qua multipart/form-data
     API->>Storage: Lưu trữ file gốc (Phân tầng thời gian + UUID)
     API->>DB: Ghi nhận Metadata file & mã băm SHA-256 (kiểm tra trùng lặp)
@@ -128,24 +136,24 @@ sequenceDiagram
     
     Queue->>Worker: Nhận Job phân tích
     Worker->>Storage: Đọc file gốc dạng Stream/Chunk
-    Worker->>Worker: Tra cứu Template cấu hình mẫu ngân hàng
+    Worker->>Worker: Tra cứu Template cấu hình (Tài khoản thanh toán / Tín dụng)
     Worker->>Worker: Parse dữ liệu & Chuẩn hóa (Ngày ISO, Tiền tệ Decimal)
-    Worker->>Worker: Thực hiện đối soát kế toán cân bằng số dư
-    Worker->>Worker: Tạo mã Hash chống trùng từng dòng giao dịch
-    Worker->>DB: Bulk Insert giao dịch & Ghi nhận kết quả đối soát
+    Worker->>Worker: Thực hiện đối soát kế toán cân bằng số dư hoặc tổng dư nợ khế ước
+    Worker->>Worker: Tạo mã Hash chống trùng dòng (giao dịch / khế ước)
+    Worker->>DB: Bulk Insert / Upsert (bank_transactions / credit_facilities)
     Worker-->>Web: Phát thông báo hoàn tất qua SSE/WebSocket
     
-    User->>Web: Xem bảng giao dịch, lọc tìm kiếm & Xuất báo cáo
-    Web->>API: Yêu cầu truy vấn / Xuất file Excel/PDF
-    API->>DB: Truy vấn Aggregation tối ưu
-    API-->>User: Tải xuống Báo cáo tổng hợp chuẩn định dạng
+    User->>Web: Xem Bảng giao dịch, Tồn quỹ CFO (<9h), Sao kê tín dụng & Waterfall CEO
+    Web->>API: Yêu cầu truy vấn / Xuất file Excel Báo cáo
+    API->>DB: Truy vấn Aggregation tối ưu & View CFO
+    API-->>User: Tải xuống Báo cáo tổng hợp chuẩn định dạng kế toán
 ```
 
 ---
 
 ## 6. Cấu trúc Epics & Yêu cầu Chi tiết (Agile Epic & User Story Breakdown)
 
-Hệ thống được tổ chức thành **6 Epics nghiệp vụ cốt lõi**:
+Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
 
 ### EPIC-01: Tiếp nhận & Tải File Sao kê (Web Ingestion & File Upload)
 * **Mục tiêu:** Cung cấp trải nghiệm tải file đơn giản, an toàn và tức thời cho kế toán.
@@ -281,6 +289,12 @@ Hệ thống được tổ chức thành **6 Epics nghiệp vụ cốt lõi**:
     Given File sao kê có chênh lệch delta > 0.00
     When Hệ thống hoàn thành tính toán
     Then Trạng thái đối soát của file (reconciliation_status) là "DISCREPANCY", bật cờ cảnh báo màu đỏ, lưu giá trị discrepancy_amount = delta để kế toán rà soát
+
+  Scenario: Phát hiện khoảng trống dữ liệu sao kê (Data Gap / Lệch số dư ĐK - CK)
+    Given Tài khoản có số dư cuối kỳ của file sao kê trước khác số dư đầu kỳ của file sao kê sau, hoặc số dư sau giao dịch chốt kỳ trước khác số dư mở đầu kỳ hiện tại
+    When Hệ thống tính toán Báo cáo Tồn quỹ Hợp nhất
+    Then Hệ thống tự động căn chỉnh Số dư đầu kỳ theo số dư mở sổ của sao kê thực tế để số dư cuối kỳ khớp chính xác 100% với ngân hàng
+    And Bật cờ cảnh báo has_data_gap ("Lệch số dư ĐK/CK") kèm mô tả chi tiết số tiền chênh lệch giữa hai mốc kỳ sao kê
   ```
 
 #### US-04.4: Lọc Trùng lặp Giao dịch (Transaction Deduplication - 6-Tuple Hash)
@@ -442,6 +456,19 @@ Hệ thống được tổ chức thành **6 Epics nghiệp vụ cốt lõi**:
     Then Hệ thống hiển thị tổng dư nợ gốc hợp nhất
     And Hiển thị danh sách các khoản vay có ngày trả gốc/lãi gần nhất
     And Cho phép lọc theo ngân hàng, nhóm nợ và khoảng thời gian đáo hạn
+  ```
+
+#### US-07.3: Tích hợp Nghĩa vụ Nợ Tín dụng vào Báo cáo Thanh khoản Ròng CFO (Net Liquidity)
+* **User Story:** Là *Giám đốc Tài chính (Ông Trần Ngọc Tuấn)*, tôi muốn *Dashboard CFO tự động tích hợp số liệu dư nợ vay và nghĩa vụ nợ đến hạn từ phân hệ Sao kê Tín dụng*, để *giám sát chỉ số Thanh khoản Ròng (Net Liquidity = Tổng tồn quỹ hợp nhất - Nghĩa vụ nợ gốc & lãi đến hạn)*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-003] Giám sát Thanh khoản Ròng trên CFO Dashboard
+    Given CFO đã truy cập màn hình Tồn Quỹ CFO (<9h)
+    When Hệ thống tải số liệu Tồn quỹ ngân hàng hợp nhất và Tóm tắt Nghĩa vụ Nợ từ API "/loans/summary"
+    Then Dashboard hiển thị thẻ KPI Dư nợ gốc hiện tại, Nghĩa vụ nợ đến hạn trong 7 ngày và 30 ngày
+    And Hiển thị Chỉ số Thanh khoản Ròng = Tổng tồn quỹ hợp nhất - Nghĩa vụ nợ đến hạn kỳ tới
+    And Cho phép bấm liên kết chuyển nhanh sang màn hình "Sao Kê Tín Dụng" để tra cứu chi tiết khế ước
   ```
 
 ---

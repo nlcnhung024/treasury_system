@@ -4,9 +4,10 @@ info:
   description: >
     Hợp đồng giao tiếp API chuẩn mực phục vụ Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động (BSP-2026).
     Đặc tả toàn bộ giao tiếp giữa Frontend SPA, API Gateway, Background Worker và hệ thống báo cáo tài chính.
+    Bao gồm phân hệ Sao kê Tài khoản Thanh toán và phân hệ Sao kê Tín dụng & Danh mục Khoản vay Doanh nghiệp.
     Tuân thủ nghiêm ngặt chuẩn RESTful, OpenAPI 3.0.3, độ chính xác số học cao (DECIMAL 18,2) và kiến trúc đa tầng phòng vệ (Defense-in-Depth).
     Thiết kế và ban hành bởi Lead System & Data Architect (@SystemArchitect).
-  version: 1.2.0
+  version: 1.3.0
   contact:
     name: System Architecture Team
     email: architect@enterprise.internal
@@ -37,6 +38,8 @@ tags:
     description: Tra cứu danh mục mẫu sao kê động của các ngân hàng thương mại
   - name: Audit Logs
     description: Truy vết nhật ký kiểm toán bất biến phục vụ an toàn thông tin và kiểm toán kế toán
+  - name: Credit Statements & Loans
+    description: Tiếp nhận file sao kê tín dụng, bóc tách khế ước LD, đối soát dư nợ và quản trị lịch trả nợ vay
 
 paths:
   # ===========================================================================
@@ -1254,10 +1257,12 @@ paths:
 
   /credit-statements/upload:
     post:
-      summary: "Upload file sao kê tín dụng / danh sách khoản vay (VietinBank eFAST, BIDV Vay/LD)"
-      description: "Tiếp nhận file .xlsx hoặc .xls, kiểm tra Magic Bytes, mã băm SHA-256 chống trùng, bóc tách và đối soát cân bằng số dư."
+      summary: Upload và xử lý file sao kê tín dụng / danh sách khoản vay
+      description: >
+        Tiếp nhận file .xlsx hoặc .xls (BIFF8 OLE2), kiểm tra Magic Bytes, mã băm SHA-256 chống trùng lặp,
+        bóc tách danh sách khế ước/hợp đồng vay, đối soát tổng dư nợ tự động và cập nhật danh mục khoản vay.
       tags:
-        - "Credit Statements"
+        - Credit Statements & Loans
       requestBody:
         required: true
         content:
@@ -1270,41 +1275,202 @@ paths:
                 file:
                   type: string
                   format: binary
-                bank_code:
+                  description: File Excel sao kê tín dụng (.xlsx hoặc .xls, dung lượng tối đa 25MB)
+                uploaded_by:
                   type: string
-                  example: "CTG"
+                  default: "Chị Cẩm Nhung"
+                  description: Danh tính người tải lên
       responses:
-        "200":
-          description: "Upload và xử lý thành công"
-        "409":
-          description: "File bị trùng lặp mã băm SHA-256"
+        '201':
+          description: Upload và bóc tách sao kê tín dụng thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditUploadResponse'
+        '400':
+          description: Dung lượng file vượt quá giới hạn 25MB hoặc Magic Bytes không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: File bị trùng lặp mã băm SHA-256 đã tải lên trước đó
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Không nhận diện được mẫu sao kê hoặc dữ liệu không hợp lệ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Lỗi máy chủ nội bộ trong quá trình bóc tách
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /credit-statements:
     get:
-      summary: "Lấy danh sách các file sao kê tín dụng đã upload"
+      summary: Lấy danh sách các file sao kê tín dụng đã upload (phân trang)
       tags:
-        - "Credit Statements"
+        - Credit Statements & Loans
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
       responses:
-        "200":
-          description: "Thành công"
+        '200':
+          description: Danh sách file sao kê tín dụng kèm thông tin phân trang
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CreditStatementFileItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
+
+  /credit-statements/{file_id}:
+    get:
+      summary: Lấy chi tiết file sao kê tín dụng kèm danh sách từng khoản vay đã bóc tách
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Thông tin chi tiết file và danh sách khoản vay bóc tách
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditStatementFileDetail'
+        '404':
+          description: Không tìm thấy file sao kê tín dụng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Xóa file sao kê tín dụng và các dòng chi tiết liên quan
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: file_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Xóa thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã xóa thành công file sao kê tín dụng ID #201."
+        '404':
+          description: Không tìm thấy file sao kê tín dụng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /loans:
     get:
-      summary: "Lấy danh sách các khoản vay và khế ước LD hiện hành"
+      summary: Lấy danh sách các khoản vay và khế ước LD hiện hành (phân trang & lọc đa chiều)
       tags:
-        - "Credit Facilities"
+        - Credit Statements & Loans
+      parameters:
+        - name: bank_code
+          in: query
+          schema:
+            type: string
+          description: Lọc theo mã ngân hàng (CTG, BIDV...)
+        - name: debt_group
+          in: query
+          schema:
+            type: string
+          description: Lọc theo nhóm nợ (1, 2, 3...)
+        - name: status_filter
+          in: query
+          schema:
+            type: string
+            default: "ACTIVE"
+          description: Lọc theo trạng thái (ACTIVE, SETTLED, OVERDUE)
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Tìm kiếm theo số khế ước, mục đích vay hoặc tên đơn vị vay
+        - name: due_within_days
+          in: query
+          schema:
+            type: integer
+          description: Lọc các khoản vay có ngày trả nợ tiếp theo trong vòng N ngày
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
       responses:
-        "200":
-          description: "Thành công"
+        '200':
+          description: Danh sách khoản vay hiện hành kèm thông tin phân trang
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/CreditFacilityItem'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationMeta'
 
   /loans/summary:
     get:
-      summary: "Lấy tổng hợp KPI dư nợ tín dụng và lịch trả nợ sắp tới"
+      summary: Lấy tổng hợp KPI dư nợ tín dụng, nghĩa vụ nợ đến hạn và cơ cấu theo ngân hàng
       tags:
-        - "Credit Facilities"
+        - Credit Statements & Loans
       responses:
-        "200":
-          description: "Thành công"
+        '200':
+          description: Tổng hợp KPI dư nợ tín dụng phục vụ CFO
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditFacilitySummary'
 
 # =============================================================================
 # THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
@@ -1985,6 +2151,10 @@ components:
         unanchored_accounts_count:
           type: integer
           example: 0
+        data_gap_accounts_count:
+          type: integer
+          description: "Số lượng tài khoản phát hiện khoảng trống/gián đoạn dữ liệu sao kê chưa liên tục"
+          example: 0
         bank_breakdown:
           type: array
           items:
@@ -2037,6 +2207,15 @@ components:
                 type: string
                 enum: [BALANCED, DISCREPANCY, UNANCHORED, NO_STATEMENT]
                 example: "BALANCED"
+              has_data_gap:
+                type: boolean
+                description: "Cờ cảnh báo phát hiện lệch số dư cuối kỳ trước và đầu kỳ sau (Data Gap)"
+                example: false
+              data_gap_desc:
+                type: string
+                nullable: true
+                description: "Mô tả chi tiết số tiền lệch giữa số dư cuối kỳ trước và đầu kỳ sau"
+                example: "Lệch số dư giữa 2 kỳ sao kê: cuối kỳ trước (28/02/2026: 429,085,923 VND) ≠ đầu kỳ sau (01/03/2026: 911,688,761 VND), chênh lệch 482,602,838 VND"
 
     WaterfallReportResponse:
       type: object
@@ -2191,3 +2370,372 @@ components:
         details:
           type: object
           nullable: true
+
+    CreditUploadResponse:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          example: 201
+        file_uuid:
+          type: string
+          format: uuid
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        bank_code:
+          type: string
+          example: "CTG"
+        template_code:
+          type: string
+          example: "CTG_LOAN_XLS"
+        original_filename:
+          type: string
+          example: "danh-sach-tai-khoan-tien-vay.xls"
+        total_principal_amount:
+          type: number
+          format: decimal
+          example: 30355015000.00
+        calculated_principal_amount:
+          type: number
+          format: decimal
+          example: 30355015000.00
+        reconciliation_status:
+          type: string
+          example: "BALANCED"
+        discrepancy_amount:
+          type: number
+          format: decimal
+          example: 0.00
+        total_contracts_count:
+          type: integer
+          example: 19
+        message:
+          type: string
+          example: "Upload và bóc tách thành công 19 khoản vay. Trạng thái đối soát: BALANCED"
+
+    CreditStatementFileItem:
+      type: object
+      properties:
+        file_id:
+          type: integer
+          example: 201
+        file_uuid:
+          type: string
+          format: uuid
+          example: "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+        bank_code:
+          type: string
+          example: "CTG"
+        template_code:
+          type: string
+          example: "CTG_LOAN_XLS"
+        original_filename:
+          type: string
+          example: "danh-sach-tai-khoan-tien-vay.xls"
+        file_size_bytes:
+          type: integer
+          example: 45056
+        statement_date:
+          type: string
+          format: date
+          example: "2026-10-31"
+        total_principal_amount:
+          type: number
+          format: decimal
+          example: 30355015000.00
+        total_interest_amount:
+          type: number
+          format: decimal
+          example: 181954751.63
+        total_payable_amount:
+          type: number
+          format: decimal
+          example: 218131280.00
+        calculated_principal_amount:
+          type: number
+          format: decimal
+          example: 30355015000.00
+        total_contracts_count:
+          type: integer
+          example: 19
+        processing_status:
+          type: string
+          example: "COMPLETED"
+        reconciliation_status:
+          type: string
+          example: "BALANCED"
+        discrepancy_amount:
+          type: number
+          format: decimal
+          example: 0.00
+        error_message:
+          type: string
+          nullable: true
+        uploaded_by:
+          type: string
+          example: "Chị Cẩm Nhung"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-10-31T08:54:00+07:00"
+
+    CreditStatementItemResponse:
+      type: object
+      properties:
+        item_id:
+          type: integer
+          example: 1001
+        file_id:
+          type: integer
+          example: 201
+        loan_id:
+          type: integer
+          nullable: true
+          example: 1
+        contract_number:
+          type: string
+          example: "108003668812"
+        disbursement_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-06-25"
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-11-25"
+        term:
+          type: string
+          nullable: true
+          example: "4M"
+        interest_rate:
+          type: number
+          format: decimal
+          example: 0.0870
+        debt_group:
+          type: string
+          example: "1"
+        loan_purpose:
+          type: string
+          nullable: true
+          example: "Thanh toán tiền hàng xi măng"
+        principal_balance:
+          type: number
+          format: decimal
+          example: 1850000000.00
+        principal_balance_vnd:
+          type: number
+          format: decimal
+          example: 1850000000.00
+        accrued_interest:
+          type: number
+          format: decimal
+          example: 11250000.00
+        next_principal_due_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-11-10"
+        next_principal_amount:
+          type: number
+          format: decimal
+          example: 500000000.00
+        next_interest_due_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-11-10"
+        next_interest_amount:
+          type: number
+          format: decimal
+          example: 13425000.00
+        total_due_amount:
+          type: number
+          format: decimal
+          example: 513425000.00
+        currency:
+          type: string
+          example: "VND"
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-10-31T08:54:00+07:00"
+
+    CreditStatementFileDetail:
+      allOf:
+        - $ref: '#/components/schemas/CreditStatementFileItem'
+        - type: object
+          properties:
+            storage_path:
+              type: string
+              example: "/credit_statements/CTG/2026/uuid.xls"
+            file_sha256:
+              type: string
+              example: "7d793037a0760186574b..."
+            items:
+              type: array
+              items:
+                $ref: '#/components/schemas/CreditStatementItemResponse'
+
+    CreditFacilityItem:
+      type: object
+      properties:
+        loan_id:
+          type: integer
+          example: 1
+        bank_code:
+          type: string
+          example: "CTG"
+        bank_name:
+          type: string
+          example: "Ngân hàng TMCP Công Thương Việt Nam"
+        contract_number:
+          type: string
+          example: "108003668812"
+        borrower_name:
+          type: string
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
+        cif_number:
+          type: string
+          nullable: true
+          example: "80145293"
+        loan_purpose:
+          type: string
+          nullable: true
+          example: "Thanh toán tiền hàng xi măng"
+        currency:
+          type: string
+          example: "VND"
+        disbursement_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-06-25"
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-11-25"
+        term:
+          type: string
+          nullable: true
+          example: "4M"
+        interest_rate:
+          type: number
+          format: decimal
+          example: 0.0870
+        debt_group:
+          type: string
+          example: "1"
+        loan_type:
+          type: string
+          example: "SHORT_TERM"
+        current_principal_balance:
+          type: number
+          format: decimal
+          example: 1850000000.00
+        accrued_interest:
+          type: number
+          format: decimal
+          example: 11250000.00
+        next_repayment_date:
+          type: string
+          format: date
+          nullable: true
+          example: "2026-11-10"
+        next_principal_amount:
+          type: number
+          format: decimal
+          example: 500000000.00
+        next_interest_amount:
+          type: number
+          format: decimal
+          example: 13425000.00
+        total_repayment_amount:
+          type: number
+          format: decimal
+          example: 513425000.00
+        status:
+          type: string
+          example: "ACTIVE"
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BankDebtSummary:
+      type: object
+      properties:
+        bank_code:
+          type: string
+          example: "CTG"
+        bank_name:
+          type: string
+          example: "Ngân hàng TMCP Công Thương Việt Nam"
+        loans_count:
+          type: integer
+          example: 19
+        total_principal_balance:
+          type: number
+          format: decimal
+          example: 30355015000.00
+        total_accrued_interest:
+          type: number
+          format: decimal
+          example: 181954751.63
+        upcoming_principal_due:
+          type: number
+          format: decimal
+          example: 5000000000.00
+        upcoming_interest_due:
+          type: number
+          format: decimal
+          example: 218131280.00
+        weighted_avg_interest_rate:
+          type: number
+          format: decimal
+          example: 0.0870
+
+    CreditFacilitySummary:
+      type: object
+      properties:
+        total_active_loans:
+          type: integer
+          example: 35
+        total_principal_balance:
+          type: number
+          format: decimal
+          example: 79160540000.00
+        total_accrued_interest:
+          type: number
+          format: decimal
+          example: 580399348.63
+        total_upcoming_principal_due:
+          type: number
+          format: decimal
+          example: 53805525000.00
+        total_upcoming_interest_due:
+          type: number
+          format: decimal
+          example: 616575877.00
+        total_upcoming_due_7days:
+          type: number
+          format: decimal
+          example: 15450000000.00
+        total_upcoming_due_30days:
+          type: number
+          format: decimal
+          example: 54422100877.00
+        weighted_avg_interest_rate:
+          type: number
+          format: decimal
+          example: 0.0905
+        by_bank:
+          type: array
+          items:
+            $ref: '#/components/schemas/BankDebtSummary'

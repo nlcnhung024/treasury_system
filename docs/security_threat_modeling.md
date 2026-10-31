@@ -17,6 +17,7 @@
 | :---: | :---: | :---: | :---: | :--- |
 | **0.1.0** | 2026-10-28 | `@SystemArchitect` | Lead Architect | Khởi tạo khung đánh giá rủi ro sơ bộ và bề mặt tấn công |
 | **1.0.0** | 2026-10-30 | `@SystemArchitect` | Lead Architect | Ban hành chính thức Tài liệu Đánh giá Rủi ro và Kiến trúc Bảo mật Đa tầng: Mô hình hóa mối đe dọa STRIDE, Ma trận định lượng rủi ro CVSS v3.1, 10 chuyên đề kiểm soát an ninh triệt để (Formula Injection, Zip Bomb, XXE, OOM DoS, Multi-Entity Isolation, MinIO WORM, GCS DR, RBAC Matrix và Audit Trail) |
+| **1.1.0** | 2026-10-31 | `@SystemArchitect` | Lead Architect | Mở rộng phạm vi kiểm soát an ninh cho phân hệ Sao kê Tín dụng & Khoản vay Doanh nghiệp: Kiểm soát file nhị phân BIFF8/OOXML, ma trận RBAC cho dữ liệu tín dụng, cập nhật giám sát kiểm toán và đồng bộ toàn diện |
 
 ### Khung Tiêu chuẩn Tuân thủ (Compliance Frameworks)
 Tài liệu này được xây dựng bám sát các tiêu chuẩn an toàn thông tin quốc tế và quy định pháp lý chuyên ngành tài chính - ngân hàng tại Việt Nam:
@@ -353,6 +354,10 @@ $$\text{Mức độ Rủi ro (Risk Level)} = \text{Xác suất (Likelihood)} \ti
 | `GET /reports/cfo/daily-liquidity` | GET | **CHO PHÉP** | **CHO PHÉP** | **CHO PHÉP** | TỪ CHỐI |
 | `GET /reports/ceo/waterfall` | GET | TỪ CHỐI | **CHO PHÉP** | **CHO PHÉP** | TỪ CHỐI |
 | `GET /reports/export/excel` | GET | **CHO PHÉP** | **CHO PHÉP** | **CHO PHÉP** | TỪ CHỐI |
+| `POST /credit-statements/upload` | POST | **CHO PHÉP** | TỪ CHỐI | TỪ CHỐI | TỪ CHỐI |
+| `GET /credit-statements/*` | GET | **CHO PHÉP** | **CHO PHÉP** | **CHO PHÉP** | **CHO PHÉP** |
+| `DELETE /credit-statements/{id}` | DELETE | **CHO PHÉP** (Chỉ file lỗi) | TỪ CHỐI | TỪ CHỐI | **CHO PHÉP** |
+| `GET /loans`, `GET /loans/summary` | GET | **CHO PHÉP** | **CHO PHÉP** | **CHO PHÉP** | TỪ CHỐI |
 | `GET /audit-logs` | GET | TỪ CHỐI | **CHO PHÉP** | **CHO PHÉP** | **CHO PHÉP** |
 
 ### 6.9. Chuyên đề 9: Bảo mật Hạ tầng Hàng đợi Bất đồng bộ (Redis Streams & Celery Sandboxing)
@@ -522,8 +527,8 @@ flowchart LR
 ## 10. Cam kết Kiến trúc & Bảng Đối chiếu Đồng bộ (Cross-Document Verification)
 
 Theo nguyên tắc kỷ luật đồng bộ liên tài liệu (Ripple-Effect Consistency Rule) trong `AGENTS.md` và `common_rules.md`, toàn bộ các định nghĩa trong tài liệu này hoàn toàn khớp nối 100% với:
-- **`database/schema.sql`:** Tên 7 bảng (`bank_accounts`, `bank_statement_files`, `categories`, `classification_rules`, `bank_transactions`, `cash_ledger`, `audit_logs`), kiểu `DECIMAL(18, 2)`, cờ `is_manual_override`, 6-tuple `dedup_hash` và View `v_cfo_daily_liquidity`.
-- **`docs/api_contracts.yaml`:** Toàn bộ 11 nhóm endpoint, các mã lỗi HTTP chuẩn mực (200, 201, 202, 400, 401, 403, 404, 409, 422, 500), cơ chế bảo mật Bearer JWT, cấu trúc payload và header xuất Excel `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
-- **`docs/Bank_Mapping_Matrix.md`:** 5 chế độ đối soát (`MODE_1_FULL_HEADER_FOOTER` .. `MODE_5_CUTOFF_INTEREST_INCLUDED`) và cấu hình cô lập Đa Pháp nhân (`tax_code`).
+- **`database/schema.sql`:** Tên các bảng và view quan hệ (`bank_accounts`, `bank_statement_files`, `categories`, `classification_rules`, `bank_transactions`, `cash_ledger`, `audit_logs`, `credit_statement_files`, `credit_facilities`, `credit_statement_items`, `v_cfo_daily_liquidity`, `v_cfo_debt_obligations`), kiểu số thực `DECIMAL(18, 2)`, cờ `is_manual_override`, 6-tuple `dedup_hash`.
+- **`docs/api_contracts.yaml`:** Toàn bộ 12 nhóm endpoint (bao gồm Credit Statements & Loans `/credit-statements/*`, `/loans/*`), các mã lỗi HTTP chuẩn mực (200, 201, 202, 400, 401, 403, 404, 409, 422, 500), cơ chế bảo mật Bearer JWT, cấu trúc payload và header xuất Excel `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`.
+- **`docs/Bank_Mapping_Matrix.md`:** 5 chế độ đối soát (`MODE_1_FULL_HEADER_FOOTER` .. `MODE_5_CUTOFF_INTEREST_INCLUDED`), 2 mẫu sao kê tín dụng thực tế (`CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`) và cấu hình cô lập Đa Pháp nhân (`tax_code`).
 - **`docs/SAD.md`:** Mô hình Kruchten 4+1 Views, hạ tầng Hybrid Object Storage (MinIO On-Premise + GCS Off-site DR), Message Broker Redis 7.0+ Streams và chỉ tiêu SLA truy vấn $\le 100\text{ms}$.
 

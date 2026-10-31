@@ -39,6 +39,12 @@
 ├── database/                        # Cơ sở Dữ liệu & Quản lý Migration
 │   └── schema.sql                   # Bản DDL chuẩn hóa 3NF PostgreSQL 15+
 │
+├── .run/                            # Kịch bản Khởi chạy Nhanh & Cloudflare Quick Tunnel
+│   ├── start.bat                    # Bật Backend + Frontend + Cloudflare Quick Tunnel
+│   ├── stop.bat                     # Tắt toàn bộ dịch vụ và đóng Tunnel
+│   ├── setup_startup.bat            # Đăng ký tự động chạy cùng Windows
+│   └── remove_startup.bat           # Huỷ đăng ký khởi động cùng Windows
+│
 ├── docs/                            # Nguồn Chân lý Nghiệp vụ & Kỹ thuật Dự án
 │   ├── BRD.md                       # Business Requirements Document (Yêu cầu nghiệp vụ)
 │   ├── SAD.md                       # Software Architecture Document (Kiến trúc Kruchten 4+1 Views)
@@ -63,7 +69,18 @@
 
 ---
 
-## 3. Khởi chạy Cụm Môi trường Phát triển (Quickstart với Docker Compose)
+## 3. Khởi chạy Nhanh 1-Click với Cloudflare Quick Tunnel (.run)
+
+Nếu bạn muốn khởi chạy nhanh toàn bộ ứng dụng và phát hành qua Cloudflare Quick Tunnel (có đường link HTTPS công khai) bằng 1 cú nhấp chuột:
+
+- **Khởi chạy hệ thống + cấp link Cloudflare:** Nhấp đúp vào `.run/start.bat` (hoặc `run.bat` ở thư mục gốc).
+- **Tắt toàn bộ hệ thống:** Nhấp đúp vào `.run/stop.bat`.
+- **Đăng ký tự động chạy khi bật máy tính:** Nhấp đúp vào `.run/setup_startup.bat`.
+- **Huỷ đăng ký tự khởi động:** Nhấp đúp vào `.run/remove_startup.bat`.
+
+---
+
+## 4. Khởi chạy Cụm Môi trường Phát triển (Quickstart với Docker Compose)
 
 Đây là phương thức khuyến nghị để khởi chạy đầy đủ toàn bộ hệ sinh thái (PostgreSQL, Redis, MinIO, Backend, Worker, Frontend) chỉ với 1 lệnh duy nhất:
 
@@ -94,16 +111,16 @@ docker compose ps
 
 ---
 
-## 4. Khởi chạy Cục bộ cho Lập trình viên (Standalone Development)
+## 5. Khởi chạy Cục bộ cho Lập trình viên (Standalone Development)
 
 Nếu bạn muốn debug trực tiếp mã nguồn trên máy trạm mà không thông qua container:
 
-### 4.1. Khởi động các hạ tầng phụ trợ (PostgreSQL, Redis, MinIO)
+### 5.1. Khởi động các hạ tầng phụ trợ (PostgreSQL, Redis, MinIO)
 ```bash
 docker compose up -d postgres redis minio createbuckets
 ```
 
-### 4.2. Cài đặt & Khởi chạy Backend FastAPI
+### 5.2. Cài đặt & Khởi chạy Backend FastAPI
 ```bash
 cd backend
 python -m venv .venv
@@ -117,14 +134,14 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-### 4.3. Khởi chạy Celery Worker (Terminal riêng biệt)
+### 5.3. Khởi chạy Celery Worker (Terminal riêng biệt)
 ```bash
 cd backend
 # Trên Windows/Linux:
 celery -A workers.celery_app.celery worker --loglevel=info -P solo
 ```
 
-### 4.4. Cài đặt & Khởi chạy Frontend React
+### 5.4. Cài đặt & Khởi chạy Frontend React
 ```bash
 cd frontend
 npm install
@@ -133,7 +150,7 @@ npm run dev
 
 ---
 
-## 5. Chạy Kiểm thử Tự động (Testing & Verification)
+## 6. Chạy Kiểm thử Tự động (Testing & Verification)
 
 Hệ thống tuân thủ chỉ tiêu tỷ lệ bao phủ kiểm thử đơn vị $\ge 85\%$:
 
@@ -144,7 +161,7 @@ pytest -v
 
 ---
 
-## 6. Các Tiêu chuẩn Kỹ thuật Bắt buộc Cần Nhớ
+## 7. Các Tiêu chuẩn Kỹ thuật Bắt buộc Cần Nhớ
 
 - **Độ chính xác Tiền tệ:** Luôn sử dụng kiểu `Decimal` trong Python và `NUMERIC(18, 2)` trong PostgreSQL. Tuyệt đối không dùng kiểu `Float` hay `Double`.
 - **An toàn Xuất Excel:** Mọi trường Text khi xuất file Excel phải qua hàm `sanitize_excel_cell()` trong `app/core/security.py` để thoát ký tự `=`, `+`, `-`, `@`.

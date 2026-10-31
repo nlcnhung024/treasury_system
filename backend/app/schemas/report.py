@@ -29,6 +29,8 @@ class BankBreakdownItem(BaseModel):
     latest_tx_date: Optional[datetime] = None
     last_uploaded_at: Optional[datetime] = None
     latest_filename: Optional[str] = None
+    has_data_gap: bool = False
+    data_gap_desc: Optional[str] = None
 
 
 class CashFundSummary(BaseModel):
@@ -71,6 +73,7 @@ class CfoLiquidityResponse(BaseModel):
     cash_summary: Optional[CashFundSummary] = None
     discrepancy_accounts_count: int = 0
     unanchored_accounts_count: int = 0
+    data_gap_accounts_count: int = 0
     bank_breakdown: List[BankBreakdownItem] = []
 
 

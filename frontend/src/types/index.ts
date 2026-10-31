@@ -90,6 +90,8 @@ export interface CFOBankBreakdownItem {
   latest_tx_date?: string | null;
   last_uploaded_at?: string | null;
   latest_filename?: string | null;
+  has_data_gap?: boolean;
+  data_gap_desc?: string | null;
 }
 
 export interface CFOCashFundSummary {
@@ -132,6 +134,7 @@ export interface CFOLiquidityData {
   cash_summary?: CFOCashFundSummary | null;
   discrepancy_accounts_count: number;
   unanchored_accounts_count: number;
+  data_gap_accounts_count?: number;
   bank_breakdown: CFOBankBreakdownItem[];
 }
 

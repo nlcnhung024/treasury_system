@@ -19,6 +19,7 @@
 | **1.2.0** | 2026-10-30 | `@SystemArchitect` | Cập nhật cấu hình Hạ tầng Lưu trữ: Chuẩn hóa kiến trúc Hybrid Cloud Object Storage với MinIO On-Premise làm kho chính nội bộ (Primary) và tự động đồng bộ Backup lên Google Cloud Storage (GCS) phục vụ Disaster Recovery |
 | **1.3.0** | 2026-10-30 | `@SystemArchitect` | Chuẩn hóa Hàng đợi Thông điệp: Lựa chọn dứt khoát Redis 7.0+ Streams làm Message Broker chính nhằm tinh gọn hạ tầng, tối ưu tài nguyên và chia sẻ chung cụm Redis với tầng Cache |
 | **1.4.0** | 2026-10-30 | `@SystemArchitect` | Đồng bộ hoàn thiện Hợp đồng API chuẩn OpenAPI 3.0.3 (`docs/api_contracts.yaml`) và Tài liệu Đánh giá Rủi ro & Kiến trúc Bảo mật Đa tầng (`docs/security_threat_modeling.md`) tuân thủ nghiêm ngặt Giai đoạn 2 SDLC |
+| **1.5.0** | 2026-10-31 | `@SystemArchitect` | Đồng bộ toàn diện theo sản phẩm thực tế: Bổ sung phân hệ Sao kê Tín dụng Doanh nghiệp (`CreditStatementService`, `CreditStreamParser`, `credit_templates_config.yaml`), cập nhật mô hình CSDL (`credit_statement_files`, `credit_facilities`, `credit_statement_items`, `v_cfo_debt_obligations`), chuẩn hóa Tồn quỹ CFO theo 2 Khối ngân hàng và tích hợp chỉ số Thanh khoản Ròng (Net Liquidity) trước 9h sáng |
 
 ---
 
@@ -27,7 +28,7 @@
 ### 2.1. Mục tiêu Kiến trúc Cốt lõi (Core Architectural Goals)
 1. **Độ chính xác số học Tuyệt đối ($100\%$ Absolute Precision):** Triệt tiêu hoàn toàn sai số trôi dấu phẩy động nhị phân; $100\%$ dữ liệu tiền tệ lưu trữ và tính toán bằng kiểu số thực có độ chính xác cao `DECIMAL(18, 2)` / `NUMERIC(18, 2)`.
 2. **Hiệu năng & Khả năng chịu tải I/O (High-Throughput Streaming):** Xử lý đồng thời nhiều file sao kê dung lượng lớn từ $\ge 7$ ngân hàng thương mại với cơ chế đọc phân mảnh (Chunking Stream), giữ mức chiếm dụng bộ nhớ RAM luôn $\le 512\text{MB}$ chống tràn bộ nhớ (OOM).
-3. **Phản hồi Tức thì cho Quản trị (< 100ms Query SLA):** Cung cấp Dashboard tổng hợp Tồn quỹ hợp nhất (Ngân hàng + Tiền mặt) cho Giám đốc Tài chính (CFO) trước 9h00 sáng với thời gian truy vấn dưới $100\text{ms}$.
+3. **Phản hồi Tức thì cho Quản trị (< 100ms Query SLA):** Cung cấp Dashboard tổng hợp Tồn quỹ hợp nhất (2 khối tài khoản ngân hàng: Khối 1 Doanh nghiệp + Khối 2 Ủy quyền CEO, không tính quỹ tiền mặt) và Thanh khoản Ròng sau khi trừ nghĩa vụ nợ tín dụng đến hạn cho Giám đốc Tài chính (CFO) trước 9h00 sáng với thời gian truy vấn dưới $100\text{ms}$.
 4. **Kiến trúc Phi trạng thái & Tách biệt Ranh giới (Stateless & Loose Coupling):** Phân tách tuyệt đối giữa hạ tầng lưu trữ nhị phân (Object Storage) và CSDL quan hệ (RDBMS). Mọi tác vụ bóc tách nặng đều xử lý qua Hàng đợi thông điệp bất đồng bộ (Async Message Queue).
 5. **Bảo mật Đa tầng (Defense in Depth & DevSecOps):** Xác thực định dạng file qua Magic Bytes, chống SQL Injection, chống Cross-Site Scripting (XSS), và sanitize chống Formula/CSV Injection khi xuất Excel.
 
@@ -76,8 +77,9 @@ flowchart TD
     subgraph L1["TẦNG TRÌNH DIỄN (PRESENTATION LAYER - SPA)"]
         UI_Upload["Upload Module (Drag & Drop, Multi-file)"]
         UI_Table["Transaction Grid (Inline Tagging, Notes)"]
+        UI_Credit["Credit Statements & Loans UI (/credit-statements)"]
         UI_RuleBuilder["Rule Builder UI (Dynamic Category & Keywords)"]
-        UI_CFODash["CFO Dashboard (Daily Liquidity View)"]
+        UI_CFODash["CFO Dashboard (Daily Liquidity & Net Liquidity View)"]
         UI_CEOWaterfall["CEO Waterfall Chart (WTD / MTD View)"]
     end
 
@@ -90,36 +92,41 @@ flowchart TD
 
     subgraph L3["TẦNG DỊCH VỤ NGHIỆP VỤ (APPLICATION SERVICE LAYER)"]
         StmtService["Statement Ingestion Service"]
+        CreditService["Credit Ingestion Service"]
         TransService["Transaction Management Service"]
         RuleService["Classification Rule Service"]
-        ReportService["Reporting & Analytics Service"]
+        ReportService["Reporting & Analytics Service (CFO Liquidity & Net Liquidity)"]
         ExcelExportService["Safe Excel Generator Service"]
     end
 
     subgraph L4["TẦNG XỬ LÝ NỀN BẤT ĐỒNG BỘ (ASYNC WORKER ENGINE)"]
         QueueBroker["Message Broker (Redis 7.0+ Streams)"]
         WorkerPool["Distributed Worker Pool (Celery / BullMQ)"]
-        StreamParser["Chunking Stream Parser (openpyxl / exceljs)"]
+        StreamParser["Universal Bank Stream Parser (bank_templates_config.yaml)"]
+        CreditParser["Credit Stream Parser (credit_templates_config.yaml)"]
         ReconEngine["Reconciliation & Discrepancy Engine"]
         DedupEngine["Deduplication Hash Engine (SHA-256)"]
     end
 
     subgraph L5["TẦNG DỮ LIỆU & LƯU TRỮ (PERSISTENCE LAYER)"]
-        ObjStore[("Object Storage (S3 / MinIO)<br/>Immutable Raw Files")]
-        RDBMS[("PostgreSQL 15+ Cluster<br/>3NF, Decimal 18,2")]
+        ObjStore[("Object Storage (S3 / MinIO & GCS Backup)<br/>/statements/ & /credit_statements/")]
+        RDBMS[("PostgreSQL 15+ Cluster<br/>3NF, Decimal 18,2, Credit Tables & CFO Views")]
         CacheStore[("Redis Cache<br/>Liquidity Snapshot")]
     end
 
-    UI_Upload & UI_Table & UI_RuleBuilder & UI_CFODash & UI_CEOWaterfall -->|HTTPS / REST API / SSE| APIGateway
+    UI_Upload & UI_Table & UI_Credit & UI_RuleBuilder & UI_CFODash & UI_CEOWaterfall -->|HTTPS / REST API / SSE| APIGateway
     APIGateway --> AuthMiddleware --> RateLimiter --> FileValidator
-    FileValidator --> StmtService & TransService & RuleService & ReportService & ExcelExportService
+    FileValidator --> StmtService & CreditService & TransService & RuleService & ReportService & ExcelExportService
     
     StmtService -->|Lưu file gốc| ObjStore
+    CreditService -->|Lưu file gốc| ObjStore
     StmtService -->|Dispatch Parse Job| QueueBroker
+    CreditService -->|Dispatch/Execute Parse Job| CreditParser
     QueueBroker --> WorkerPool
     WorkerPool --> StreamParser --> DedupEngine --> ReconEngine --> RDBMS
+    CreditParser --> RDBMS
     
-    TransService & RuleService & ReportService <--> RDBMS
+    TransService & RuleService & ReportService & CreditService <--> RDBMS
     ReportService <--> CacheStore
     ExcelExportService <--> RDBMS
 ```
@@ -202,28 +209,34 @@ bank-statement-system/
 │   │   ├── api/                     # Tầng Giao tiếp API Endpoints
 │   │   │   ├── v1/
 │   │   │   │   ├── statements.py    # Ingestion & Upload APIs
+│   │   │   │   ├── credit_statements.py # Credit & Loan Statements APIs (/credit-statements, /loans)
 │   │   │   │   ├── transactions.py  # Grid, Inline Tag & Note APIs
 │   │   │   │   ├── rules.py         # Rule Builder & Categories APIs
 │   │   │   │   └── reports.py       # CFO Dashboard & CEO Waterfall APIs
 │   │   ├── core/                    # Cấu hình hệ thống, Bảo mật & Log
 │   │   │   ├── config.py
-│   │   │   ├── security.py          # JWT, CORS, Sanitizer
+│   │   │   ├── security.py          # JWT, CORS, Magic Bytes, Sanitizer
 │   │   │   └── database.py          # SQLAlchemy Session & Pool
 │   │   ├── models/                  # Định nghĩa ORM Entities (PostgreSQL)
 │   │   │   ├── account.py
 │   │   │   ├── statement_file.py
 │   │   │   ├── transaction.py
 │   │   │   ├── category_rule.py
-│   │   │   └── cash_ledger.py
+│   │   │   ├── cash_ledger.py
+│   │   │   └── credit.py            # CreditStatementFile, CreditFacility, CreditStatementItem
 │   │   ├── schemas/                 # Pydantic Schemas (Data Contracts)
+│   │   │   ├── account.py, transaction.py, statement.py, report.py
+│   │   │   └── credit.py            # CreditFacilityItem, Summary, Upload schemas
 │   │   └── services/                # Tầng Nghiệp vụ cốt lõi (Domain Logic)
-│   │       ├── parser/              # Động cơ Universal Config-Driven Stream Parser
-│   │       │   ├── bank_templates_config.yaml # Cấu hình 6 lớp cho 7 mẫu thực tế & mở rộng Zero-Code
-│   │       │   ├── template_detector.py       # Nhận diện Magic Bytes & Signature NH
-│   │       │   ├── universal_stream_parser.py # Đọc OOXML (.xlsx) & BIFF8 (.xls), Unmerge, Entity Resolver
-│   │       │   └── balance_inferencer.py      # Nội suy số dư cho 5 chế độ (MODE_1 .. MODE_5)
-│   │       ├── cleansing_service.py # Chuẩn hóa Date ISO & Decimal (Bảo toàn Scientific Notation E)
+│   │       ├── parser/              # Động cơ Bóc tách Mẫu Động (Bank & Credit)
+│   │       │   ├── bank_templates_config.yaml   # Cấu hình 6 lớp cho 7 mẫu tài khoản
+│   │       │   ├── credit_templates_config.yaml # Cấu hình mẫu tín dụng (CTG_LOAN_XLS, BIDV_LOAN_LD_XLSX)
+│   │       │   ├── template_detector.py         # Nhận diện Magic Bytes & Signature
+│   │       │   ├── universal_stream_parser.py   # Đọc OOXML & BIFF8, Unmerge, Entity Resolver
+│   │       │   └── credit_stream_parser.py      # Bóc tách khế ước LD & đối soát dư nợ
+│   │       ├── cleansing_service.py # Chuẩn hóa Date ISO & Decimal
 │   │       ├── reconciler.py        # Đối soát số dư 5 chế độ (MODE_1 .. MODE_5)
+│   │       ├── credit_ingestion_service.py # Xử lý pipeline nạp & đối soát tín dụng
 │   │       ├── rule_engine.py       # Bộ so khớp luật từ khóa nâng cao
 │   │       └── excel_exporter.py    # Xuất file Excel chuẩn kế toán an toàn
 │   └── workers/                     # Tác vụ Worker chạy nền (Celery / Bull)
@@ -232,6 +245,7 @@ bank-statement-system/
 ├── frontend/
 │   ├── src/
 │   │   ├── components/              # UI Components tái sử dụng
+│   │   │   ├── layout/              # Sidebar, TopHeader, Navbar
 │   │   │   ├── common/              # Button, Modal, Dropdown, Table
 │   │   │   ├── upload/              # DragDropZone, ProgressTracker
 │   │   │   ├── transactions/        # InlineTaggingRow, NoteEditor
@@ -240,13 +254,15 @@ bank-statement-system/
 │   │   ├── pages/                   # Màn hình chức năng chính
 │   │   │   ├── UploadPage.tsx
 │   │   │   ├── TransactionsPage.tsx
+│   │   │   ├── CreditStatementsPage.tsx # Màn hình Sao kê Tín dụng & Danh mục Nợ Vay
 │   │   │   ├── RuleManagementPage.tsx
-│   │   │   ├── CFODashboardPage.tsx # Báo cáo trước 9h sáng
+│   │   │   ├── CFODashboardPage.tsx # Báo cáo Tồn quỹ (<9h) & Thanh khoản Ròng
 │   │   │   └── CEOWaterfallPage.tsx # Biểu đồ Thác nước WTD/MTD
-│   │   └── services/                # Axios API Client & SSE Hooks
+│   │   ├── types/                   # TypeScript interfaces (credit.ts, index.ts)
+│   │   └── services/                # Axios API Client & Endpoints
 ├── database/
 │   ├── migrations/                  # Alembic / Flyway migration scripts
-│   └── schema.sql                   # Bản DDL chuẩn hóa 3NF
+│   └── schema.sql                   # Bản DDL chuẩn hóa 3NF (Accounts, Transactions, Credit & Views)
 └── docs/                            # Tài liệu dự án (BRD, SAD, API, Specs)
 ```
 
@@ -392,6 +408,14 @@ flowchart LR
   - Khi nạp file, `UniversalStreamParser` trích xuất động `(account_number, account_holder, tax_code)` từ Header sao kê để tự động phân vùng dữ liệu theo từng doanh nghiệp (`tax_code` / `account_holder`), cho phép dùng chung 1 mẫu sao kê để quét độc lập cho nhiều doanh nghiệp khác nhau.
 - **Mở rộng Ngân hàng Mới ($\le 15$ phút):** Khi phát sinh ngân hàng mới (VCB, TCB, BIDV, ACB...), quản trị viên chỉ cần thêm 1 block cấu hình vào `bank_templates_config.yaml` với 1 trong 5 chế độ đối soát (`MODE_1` $\rightarrow$ `MODE_5`) mà không cần sửa đổi mã nguồn.
 
+#### Kịch bản 5: Bóc tách Sao kê Tín dụng, Đối soát Dư nợ & Tích hợp Thanh khoản Ròng CFO (Net Liquidity)
+- **Tiếp nhận & Nhận diện Mẫu:** Kế toán nạp file sao kê khoản vay/khế ước nhận nợ LD (`.xls`, `.xlsx`). `CreditStreamParser` tự nhận diện mẫu qua Magic Bytes và signatures (`CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`).
+- **Bóc tách & Đối soát Cân bằng Dư nợ:** Bóc tách từng khế ước vay, số tiền giải ngân, ngày đáo hạn, lãi suất, dư nợ gốc và lịch trả nợ; thực hiện đối soát tự động:
+  $$\sum \text{Dư nợ gốc từng khoản vay} = \text{Tổng dư nợ ghi trên file} \quad (\Delta = 0.00\text{ VND})$$
+  Đánh dấu file `BALANCED` nếu khớp 100%, hoặc `DISCREPANCY` kèm chênh lệch.
+- **Đồng bộ Danh mục Khoản vay & Thanh khoản Ròng:** Tự động upsert dữ liệu vào `credit_facilities` và lưu snapshot vào `credit_statement_items`. CFO Dashboard tự động kết xuất chỉ số:
+  $$\text{Thanh khoản Ròng (Net Liquidity)} = \text{Tổng tồn quỹ hợp nhất (2 khối NH)} - \text{Nghĩa vụ nợ gốc \& lãi đến hạn kỳ tới}$$
+
 ---
 
 ## 4. Mô hình Thực thể - Quan hệ Chi tiết (Data Architecture & ERD)
@@ -405,6 +429,8 @@ erDiagram
     CATEGORIES ||--o{ BANK_TRANSACTIONS : "classified_as"
     CLASSIFICATION_RULES ||--o{ BANK_TRANSACTIONS : "applied_to"
     BANK_TRANSACTIONS ||--o| CASH_LEDGER : "counterparts"
+    CREDIT_STATEMENT_FILES ||--o{ CREDIT_STATEMENT_ITEMS : "contains"
+    CREDIT_FACILITIES ||--o{ CREDIT_STATEMENT_ITEMS : "snapshots"
 
     BANK_ACCOUNTS {
         bigint account_id PK
@@ -430,6 +456,47 @@ erDiagram
         varchar processing_status
         varchar reconciliation_status
         decimal discrepancy_amount
+    }
+
+    CREDIT_STATEMENT_FILES {
+        bigint file_id PK
+        uuid file_uuid UK
+        varchar bank_code
+        varchar template_code
+        varchar file_sha256 UK
+        varchar storage_path
+        date statement_date
+        decimal total_principal_amount
+        decimal calculated_principal_amount
+        int total_contracts_count
+        varchar processing_status
+        varchar reconciliation_status
+        decimal discrepancy_amount
+    }
+
+    CREDIT_FACILITIES {
+        bigint loan_id PK
+        varchar bank_code
+        varchar contract_number UK
+        varchar borrower_name
+        decimal current_principal_balance
+        decimal accrued_interest
+        date next_repayment_date
+        decimal next_principal_amount
+        decimal next_interest_amount
+        decimal interest_rate
+        varchar debt_group
+        varchar status
+    }
+
+    CREDIT_STATEMENT_ITEMS {
+        bigint item_id PK
+        bigint file_id FK
+        bigint loan_id FK
+        varchar contract_number
+        decimal principal_balance
+        decimal accrued_interest
+        decimal total_due_amount
     }
 
     CATEGORIES {
@@ -490,7 +557,7 @@ erDiagram
 | Thành phần | Kỹ thuật Tối ưu Hóa Áp dụng | Chỉ số Cam kết (SLA / Target) |
 | :--- | :--- | :--- |
 | **Stream Parser** | Kỹ thuật đọc chunk 500 dòng thông qua generator không tải cả file vào RAM | RAM $\le 512\text{MB}$; Xử lý file 50.000 dòng $\le 30\text{s}$ |
-| **CFO Daily Query** | View `v_cfo_daily_liquidity` truy vấn trực tiếp trên bảng `bank_accounts` và `cash_ledger` đã đánh index | Thời gian truy vấn API $\le 100\text{ms}$ |
+| **CFO Daily Query** | View `v_cfo_daily_liquidity` (2 khối NH) kết hợp `v_cfo_debt_obligations` truy vấn trực tiếp trên bảng đã đánh index | Thời gian truy vấn API $\le 100\text{ms}$ |
 | **Báo cáo Giao dịch** | Composite Index trên `(account_id, transaction_date DESC)` và Phân trang Cursor/Offset | Tải trang danh sách 50 dòng $\le 200\text{ms}$ |
 | **Full-text Search** | Chỉ mục GIN trên `to_tsvector('simple', description)` cho cột nội dung chuyển khoản | Tìm kiếm từ khóa tức thì trong hàng trăm ngàn dòng |
 | **Connection Pool** | Cấu hình PgBouncer / SQLAlchemy Pool (Pool Size: 20, Max Overflow: 10) | Hỗ trợ 200+ yêu cầu đồng thời không nghẽn kết nối |

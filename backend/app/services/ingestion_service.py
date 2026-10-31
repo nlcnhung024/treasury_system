@@ -2,7 +2,7 @@ import logging
 import re
 from decimal import Decimal
 from typing import Dict, Any, List
-from sqlalchemy import select, desc, delete
+from sqlalchemy import select, desc, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -186,7 +186,15 @@ async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, An
             if pkg.tax_code:
                 account.tax_code = pkg.tax_code
             account.account_type = pkg.account_type
-            account.current_balance = pkg.reconciliation.calculated_closing_balance
+            
+            # Chỉ cập nhật current_balance nếu file mới nạp có kỳ kết thúc lớn hơn hoặc bằng các file đã có
+            latest_end_stmt = select(func.max(BankStatementFile.statement_period_end)).where(
+                BankStatementFile.account_id == account.account_id,
+                BankStatementFile.file_id != stmt_file.file_id,
+            )
+            max_existing_end = (await db.execute(latest_end_stmt)).scalar()
+            if max_existing_end is None or (pkg.period_end and pkg.period_end >= max_existing_end):
+                account.current_balance = pkg.reconciliation.calculated_closing_balance
             await db.flush()
 
         # Tải danh sách ClassificationRule đang hoạt động

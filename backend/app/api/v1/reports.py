@@ -79,7 +79,11 @@ async def _compute_cfo_liquidity_data(
         file_query = (
             select(BankStatementFile)
             .where(BankStatementFile.account_id.in_(account_ids))
-            .order_by(BankStatementFile.created_at.desc(), BankStatementFile.file_id.desc())
+            .order_by(
+                BankStatementFile.statement_period_end.desc().nullslast(),
+                BankStatementFile.created_at.desc(),
+                BankStatementFile.file_id.desc(),
+            )
         )
         for sf in (await db.execute(file_query)).scalars().all():
             if sf.account_id is not None:
@@ -129,19 +133,78 @@ async def _compute_cfo_liquidity_data(
     internal_tx_count = 0
     discrepancy_count = 0
     unanchored_count = 0
+    data_gap_count = 0
 
     for acc in accounts:
         acc_txs = txs_by_acc.get(acc.account_id, [])
+        acc_files = files_by_acc.get(acc.account_id, [])
+        latest_file = acc_files[0] if acc_files else None
+
         before_txs = [t for t in acc_txs if t.transaction_date < start_dt]
         period_txs = [t for t in acc_txs if start_dt <= t.transaction_date <= end_dt]
 
-        if before_txs:
+        has_data_gap = False
+        data_gap_desc: Optional[str] = None
+
+        # 1. Kiểm tra không khớp giữa Số dư cuối kỳ trước và Số dư đầu kỳ sau của các file sao kê
+        # Bật cảnh báo thuần túy dựa trên việc Số dư cuối kỳ trước ≠ Số dư đầu kỳ sau, không dựa vào khoảng cách ngày/thời gian
+        valid_files = [
+            f
+            for f in acc_files
+            if f.statement_period_start
+            and f.statement_period_end
+            and f.reconciliation_mode not in ("MODE_4_TOTAL_FLOW_ONLY", "MODE_2_INFERRED_OPENING_CLOSING")
+        ]
+        valid_files.sort(key=lambda x: (x.statement_period_start, x.statement_period_end))
+
+        for i in range(len(valid_files) - 1):
+            f_prev = valid_files[i]
+            f_next = valid_files[i + 1]
+            if f_prev.statement_period_end <= f_next.statement_period_start:
+                f_prev_close = (
+                    f_prev.header_closing_balance
+                    if f_prev.header_closing_balance is not None
+                    else f_prev.calculated_closing_balance
+                )
+                f_next_open = f_next.header_opening_balance
+                if f_prev_close is not None and f_next_open is not None and f_prev_close != f_next_open:
+                    has_data_gap = True
+                    diff = abs(f_next_open - f_prev_close)
+                    p_end_str = f_prev.statement_period_end.strftime("%d/%m/%Y")
+                    n_start_str = f_next.statement_period_start.strftime("%d/%m/%Y")
+                    data_gap_desc = (
+                        f"Lệch số dư giữa 2 kỳ sao kê: cuối kỳ trước ({p_end_str}: {f_prev_close:,.0f} VND) "
+                        f"≠ đầu kỳ sau ({n_start_str}: {f_next_open:,.0f} VND), chênh lệch {diff:,.0f} VND"
+                    )
+                    break
+
+        # 2. Kiểm tra khớp số dư giữa giao dịch chốt kỳ trước và mở kỳ hiện tại
+        if period_txs:
+            first_p_tx = period_txs[0]
+            expected_period_open = first_p_tx.running_balance - first_p_tx.credit_amount + first_p_tx.debit_amount
+            if before_txs:
+                before_close = before_txs[-1].running_balance
+                if before_close != expected_period_open:
+                    has_data_gap = True
+                    gap_amt = abs(expected_period_open - before_close)
+                    b_date_str = before_txs[-1].transaction_date.strftime("%d/%m/%Y")
+                    p_date_str = first_p_tx.transaction_date.strftime("%d/%m/%Y")
+                    data_gap_desc = (
+                        f"Số dư cuối kỳ trước ({b_date_str}: {before_close:,.0f} VND) "
+                        f"≠ đầu kỳ này ({p_date_str}: {expected_period_open:,.0f} VND), chênh lệch {gap_amt:,.0f} VND"
+                    )
+                    acc_open = expected_period_open
+                else:
+                    acc_open = before_close
+            else:
+                acc_open = expected_period_open
+        elif before_txs:
             acc_open = before_txs[-1].running_balance
-        elif acc_txs:
-            first_tx = acc_txs[0]
-            acc_open = first_tx.running_balance - first_tx.credit_amount + first_tx.debit_amount
         else:
             acc_open = acc.opening_balance if acc.opening_balance != Decimal("0.00") else acc.current_balance
+
+        if has_data_gap:
+            data_gap_count += 1
 
         acc_inflow = Decimal("0.00")
         acc_outflow = Decimal("0.00")
@@ -226,6 +289,8 @@ async def _compute_cfo_liquidity_data(
                 latest_tx_date=latest_tx_dt,
                 last_uploaded_at=last_up_dt,
                 latest_filename=latest_fname,
+                has_data_gap=has_data_gap,
+                data_gap_desc=data_gap_desc,
             )
         )
 
@@ -285,6 +350,7 @@ async def _compute_cfo_liquidity_data(
         cash_summary=None,
         discrepancy_accounts_count=discrepancy_count,
         unanchored_accounts_count=unanchored_count,
+        data_gap_accounts_count=data_gap_count,
         bank_breakdown=breakdown,
     )
 

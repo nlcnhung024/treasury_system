@@ -38,6 +38,7 @@ export const CFODashboardPage: React.FC = () => {
   const [data, setData] = useState<CFOLiquidityData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [exporting, setExporting] = useState<boolean>(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   // Bộ lọc Kỳ báo cáo & Điều kiện điều hành CFO
   const [timeframe, setTimeframe] = useState<TimeframeType>('MTD');
@@ -53,7 +54,7 @@ export const CFODashboardPage: React.FC = () => {
   const [drilldownTxs, setDrilldownTxs] = useState<Transaction[]>([]);
   const [loadingDrilldown, setLoadingDrilldown] = useState<boolean>(false);
   const [drilldownFlowFilter, setDrilldownFlowFilter] = useState<'ALL' | 'CREDIT' | 'DEBIT'>('ALL');
-  const [drilldownSort, setDrilldownSort] = useState<'AMOUNT_DESC' | 'DATE_DESC'>('AMOUNT_DESC');
+  const [drilldownSort, setDrilldownSort] = useState<'AMOUNT_DESC' | 'DATE_DESC'>('DATE_DESC');
 
   useEffect(() => {
     if (timeframe !== 'CUSTOM') {
@@ -63,6 +64,7 @@ export const CFODashboardPage: React.FC = () => {
 
   const fetchAllData = async (customFrom?: string, customTo?: string) => {
     setLoading(true);
+    setFetchError(null);
     try {
       const fDate = customFrom !== undefined ? customFrom : fromDate;
       const tDate = customTo !== undefined ? customTo : toDate;
@@ -92,8 +94,13 @@ export const CFODashboardPage: React.FC = () => {
           liqRes.data.period_end
         );
       }
-    } catch (err) {
-      console.error(err);
+    } catch (err: any) {
+      console.error('Lỗi khi tải dữ liệu CFO Dashboard:', err);
+      setFetchError(
+        err?.response?.data?.detail ||
+          err?.message ||
+          'Không thể kết nối đến máy chủ Backend. Vui lòng kiểm tra dịch vụ và bấm Làm mới.'
+      );
     } finally {
       setLoading(false);
     }
@@ -310,10 +317,21 @@ export const CFODashboardPage: React.FC = () => {
       );
     }
     return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-        <CheckCircle2 className="w-3 h-3" />
-        Khớp 100%
-      </span>
+      <div className="flex flex-col items-end gap-1">
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+          <CheckCircle2 className="w-3 h-3" />
+          Khớp 100%
+        </span>
+        {item.has_data_gap && (
+          <span
+            title={item.data_gap_desc || 'Có khoảng trống trong dữ liệu sao kê'}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-300"
+          >
+            <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+            Khuyết sao kê
+          </span>
+        )}
+      </div>
     );
   };
 
@@ -353,6 +371,15 @@ export const CFODashboardPage: React.FC = () => {
                   <span className="font-mono font-bold text-slate-900 text-xs">
                     {b.account_number}
                   </span>
+                  {b.has_data_gap && (
+                    <span
+                      title={b.data_gap_desc || 'Lệch số dư giữa số dư cuối kỳ trước và đầu kỳ sau'}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold border border-amber-300"
+                    >
+                      <AlertTriangle className="w-3 h-3 text-amber-600" />
+                      Lệch số dư ĐK/CK
+                    </span>
+                  )}
                 </div>
                 <div className="text-[11px] text-slate-600 font-medium mt-0.5 truncate max-w-[230px]" title={b.account_holder}>
                   {b.account_holder}
@@ -469,6 +496,18 @@ export const CFODashboardPage: React.FC = () => {
                     <p className="text-[11px] text-slate-500 mt-0.5">
                       File sao kê gần nhất: <span className="font-medium text-slate-700">{b.latest_filename || '—'}</span>
                     </p>
+                    {b.has_data_gap && (
+                      <div className="mt-2.5 p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-amber-900 text-xs flex items-start gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-semibold text-amber-950">Chỉ báo khoảng trống dữ liệu sao kê: </span>
+                          <span className="font-medium">{b.data_gap_desc}</span>
+                          <p className="mt-1 text-[11px] text-amber-800">
+                            Hệ thống đã tự động chuẩn hóa Số dư đầu kỳ theo số dư mở sổ thực tế của sao kê ({formatMoney(b.opening_balance)} VND) để số dư cuối kỳ khớp chính xác 100% với ngân hàng. Vui lòng nạp bổ sung sao kê các tháng còn thiếu để chuỗi giao dịch được khép kín.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -615,6 +654,26 @@ export const CFODashboardPage: React.FC = () => {
 
   return (
     <div className="space-y-6">
+      {/* Cảnh báo lỗi kết nối máy chủ */}
+      {fetchError && (
+        <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 flex items-center justify-between shadow-sm animate-pulse">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-5 h-5 text-rose-600 flex-shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-rose-900">Không thể tải dữ liệu báo cáo từ máy chủ</div>
+              <div className="text-xs text-rose-700">{fetchError}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchAllData()}
+            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow transition-colors"
+          >
+            Thử lại ngay
+          </button>
+        </div>
+      )}
+
       {/* 1. Header & Thanh Công Cụ Xuất Báo Cáo */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
@@ -792,8 +851,8 @@ export const CFODashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Cảnh báo Đối soát / Điểm neo Số dư (Nếu phát hiện TK chưa neo hoặc lệch) */}
-      {data && (data.discrepancy_accounts_count > 0 || data.unanchored_accounts_count > 0) && (
+      {/* 3. Cảnh báo Đối soát / Điểm neo Số dư (Nếu phát hiện TK chưa neo hoặc lệch hoặc hổng dữ liệu) */}
+      {data && (data.discrepancy_accounts_count > 0 || data.unanchored_accounts_count > 0 || (data.data_gap_accounts_count || 0) > 0) && (
         <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs text-amber-900">
           <div className="flex items-start gap-2.5">
             <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
@@ -806,7 +865,12 @@ export const CFODashboardPage: React.FC = () => {
               )}
               {data.unanchored_accounts_count > 0 && (
                 <span>
-                  Có <strong>{data.unanchored_accounts_count} tài khoản sổ phụ cá nhân (MODE_4)</strong> chưa được nhập Điểm neo Số dư thực tế nên đang tạm tính từ mốc 0 VND.
+                  Có <strong>{data.unanchored_accounts_count} tài khoản sổ phụ cá nhân (MODE_4)</strong> chưa được nhập Điểm neo Số dư thực tế nên đang tạm tính từ mốc 0 VND.{' '}
+                </span>
+              )}
+              {(data.data_gap_accounts_count || 0) > 0 && (
+                <span>
+                  Có <strong>{data.data_gap_accounts_count} tài khoản</strong> phát hiện khoảng trống dữ liệu sao kê chưa liên tục (cần nạp bổ sung các tháng còn thiếu để khép kín chuỗi đối soát).
                 </span>
               )}
             </div>
