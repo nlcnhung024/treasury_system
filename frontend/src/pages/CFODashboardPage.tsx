@@ -20,12 +20,14 @@ import {
   PieChart,
   BarChart3,
   UserCheck,
+  Landmark,
 } from 'lucide-react';
 import api from '../services/api';
 import {
   CFOLiquidityData,
   CFOBankBreakdownItem,
   Transaction,
+  CreditFacilitySummary,
 } from '../types';
 
 type TimeframeType = 'TODAY' | 'YESTERDAY' | 'WTD' | 'MTD' | 'ALL' | 'CUSTOM';
@@ -44,6 +46,7 @@ export const CFODashboardPage: React.FC = () => {
   const [excludeInternal, setExcludeInternal] = useState<boolean>(true);
   const [selectedBankCode, setSelectedBankCode] = useState<string>('');
   const [selectedHolder, setSelectedHolder] = useState<string>('');
+  const [creditSummary, setCreditSummary] = useState<CreditFacilitySummary | null>(null);
 
   // Drill-down giao dịch chi tiết của từng tài khoản ngay trên bảng
   const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
@@ -73,6 +76,13 @@ export const CFODashboardPage: React.FC = () => {
         },
       });
       setData(liqRes.data);
+
+      try {
+        const creditRes = await api.get('/loans/summary');
+        setCreditSummary(creditRes.data);
+      } catch (e) {
+        console.warn('Lỗi khi tải tóm tắt tín dụng:', e);
+      }
 
       // Nếu đang mở drill-down của 1 tài khoản, làm mới luôn danh sách giao dịch kỳ đó
       if (expandedAccountId !== null) {
@@ -958,6 +968,66 @@ export const CFODashboardPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* 4.5. Giám Sát Dư Nợ Tín Dụng & Nghĩa Vụ Trả Nợ (CFO Credit & Net Liquidity Card) */}
+      {creditSummary && creditSummary.total_active_loans > 0 && (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-xl p-5 text-white shadow-md border border-indigo-900/50">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2 text-indigo-300 text-xs font-bold uppercase tracking-wider">
+                <Landmark className="w-4 h-4 text-indigo-400" />
+                <span>Giám Sát Dư Nợ Khoản Vay Tín Dụng & Thanh Khoản Ròng</span>
+              </div>
+              <div className="text-sm text-slate-300">
+                Hệ thống đang quản lý <strong>{creditSummary.total_active_loans} khoản vay/khế ước LD</strong> tại{' '}
+                {creditSummary.by_bank.map((b) => b.bank_code).join(', ')} với lãi suất bình quân{' '}
+                <strong>{Number(creditSummary.weighted_avg_interest_rate).toFixed(2)} %/năm</strong>.
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-6">
+              <div className="text-left">
+                <div className="text-[11px] text-slate-400 uppercase font-medium">Tổng Dư Nợ Vay Gốc</div>
+                <div className="text-xl font-bold font-mono text-indigo-300">
+                  {formatMoney(creditSummary.total_principal_balance)} <span className="text-xs font-normal">VND</span>
+                </div>
+              </div>
+
+              <div className="text-left">
+                <div className="text-[11px] text-slate-400 uppercase font-medium">Gốc & Lãi Đến Hạn (7 Ngày)</div>
+                <div className="text-xl font-bold font-mono text-amber-300">
+                  {formatMoney(creditSummary.total_upcoming_due_7days)} <span className="text-xs font-normal">VND</span>
+                </div>
+              </div>
+
+              <div className="text-left">
+                <div className="text-[11px] text-slate-400 uppercase font-medium">Thanh Khoản Ròng (Sau 7 Ngày)</div>
+                <div
+                  className={`text-xl font-bold font-mono ${
+                    Number(data?.total_consolidated_liquidity || 0) - Number(creditSummary.total_upcoming_due_7days) >= 0
+                      ? 'text-emerald-300'
+                      : 'text-rose-400'
+                  }`}
+                >
+                  {formatMoney(
+                    Number(data?.total_consolidated_liquidity || 0) - Number(creditSummary.total_upcoming_due_7days)
+                  )}{' '}
+                  <span className="text-xs font-normal">VND</span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => navigate('/credit-statements')}
+                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow transition-colors flex items-center gap-1.5"
+              >
+                <span>Xem chi tiết khoản vay</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 5. Khu Vực Biểu Đồ Trực Quan Hóa Cơ Cấu Nguồn Tiền & Thu/Chi Theo Tài Khoản */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

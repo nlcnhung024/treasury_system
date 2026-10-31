@@ -6,6 +6,14 @@ from app.schemas.transaction import TransactionItem, BulkTagPayload, BulkTagResp
 from app.schemas.category_rule import CategoryItem, CreateCategoryPayload, RuleItem, CreateRulePayload, ReapplyRulesResponse
 from app.schemas.cash_ledger import CashLedgerItem, CreateCashEntryPayload
 from app.schemas.report import CfoLiquidityResponse, WaterfallReportResponse
+from app.schemas.credit import (
+    CreditStatementFileItem,
+    CreditStatementFileDetail,
+    CreditStatementItemResponse,
+    CreditFacilityItem,
+    CreditFacilitySummary,
+    CreditUploadResponse,
+)
 
 __all__ = [
     "PaginationMeta",
@@ -30,5 +38,11 @@ __all__ = [
     "CreateCashEntryPayload",
     "CfoLiquidityResponse",
     "WaterfallReportResponse",
+    "CreditStatementFileItem",
+    "CreditStatementFileDetail",
+    "CreditStatementItemResponse",
+    "CreditFacilityItem",
+    "CreditFacilitySummary",
+    "CreditUploadResponse",
 ]
 

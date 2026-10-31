@@ -1,0 +1,79 @@
+version: "1.0.0"
+schema_type: "credit_loan_statement_mapping"
+
+templates:
+  CTG_LOAN_XLS:
+    bank_code: "CTG"
+    bank_name: "Ngân hàng TMCP Công Thương Việt Nam (VietinBank eFAST)"
+    file_format: "XLS"
+    detection_rules:
+      - cell: "A3"
+        contains: "VIETINBANK"
+      - cell: "B6"
+        contains: "BÁO CÁO DANH SÁCH KHOẢN VAY"
+    metadata_extractors:
+      borrower_name:
+        cell: "A7"
+      cif_number:
+        cell: "A8"
+      statement_date:
+        cell: "K4"
+      total_principal:
+        cell: "E13"
+      total_interest:
+        cell: "F13"
+      total_payable:
+        cell: "G13"
+    grid_boundaries:
+      header_row: 19
+      data_start_row: 20
+      stop_condition:
+        col: "B"
+        empty: true
+    column_mappings:
+      stt: "A"
+      contract_number: "B"
+      disbursement_date: "C"
+      maturity_date: "D"
+      term: "E"
+      next_repayment_date: "F"
+      principal_balance: "G"
+      currency: "H"
+      interest_rate: "I"
+      accrued_interest: "J"
+      total_repayment_amount: "K"
+
+  BIDV_LOAN_LD_XLSX:
+    bank_code: "BIDV"
+    bank_name: "Ngân hàng TMCP Đầu tư và Phát triển Việt Nam (BIDV)"
+    file_format: "XLSX"
+    detection_rules:
+      - cell: "G1"
+        contains: "SỐ DƯ TÀI KHOẢN"
+      - cell: "B3"
+        contains: "VAY/LD"
+    metadata_extractors:
+      statement_date:
+        cell: "N3"
+    grid_boundaries:
+      header_row: 4
+      data_start_row: 5
+      stop_condition:
+        col: "C"
+        equals: "Tổng"
+    column_mappings:
+      contract_number: "C"
+      currency: "D"
+      loan_purpose: "E"
+      principal_balance: "F"
+      principal_balance_vnd: "G"
+      disbursement_date: "H"
+      maturity_date: "I"
+      debt_group: "J"
+      interest_rate: "K"
+      next_principal_amount: "L"
+      next_principal_amount_vnd: "M"
+      next_principal_due_date: "N"
+      next_interest_amount: "O"
+      next_interest_amount_vnd: "P"
+      next_interest_due_date: "Q"

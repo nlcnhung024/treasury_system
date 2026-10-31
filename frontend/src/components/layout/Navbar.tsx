@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { UploadCloud, Table, PieChart, TrendingUp, Sliders, ShieldCheck, UserCheck } from 'lucide-react';
+import { UploadCloud, Table, PieChart, TrendingUp, Sliders, ShieldCheck, UserCheck, Landmark } from 'lucide-react';
 import api from '../../services/api';
 
 interface Persona {
@@ -42,6 +42,7 @@ export const Navbar: React.FC = () => {
   const navItems = [
     { to: '/', label: 'Nạp Sao Kê', icon: UploadCloud },
     { to: '/transactions', label: 'Bảng Giao Dịch', icon: Table },
+    { to: '/credit-statements', label: 'Sao Kê Tín Dụng', icon: Landmark },
     { to: '/cfo-dashboard', label: 'Tồn Quỹ CFO (<9h)', icon: PieChart },
     { to: '/ceo-waterfall', label: 'Waterfall CEO', icon: TrendingUp },
     { to: '/rules', label: 'Bộ Quy Tắc', icon: Sliders },

@@ -90,3 +90,21 @@ Tự động hóa toàn bộ quy trình từ tiếp nhận file sao kê ngân h�
 - **Hiệu chỉnh Điểm neo Số dư Lũy kế & Lan truyền 2 Chiều (Anchor Running Balance Recalculation):** Cho phép chỉnh sửa trực tiếp `running_balance` tại một dòng giao dịch bất kỳ trên Bảng Giao dịch làm mốc căn cứ để tự động tính lại toàn bộ chuỗi số dư lũy kế (xuôi & ngược) và đồng bộ số dư đầu/cuối kỳ cho tài khoản đó (đặc biệt phục vụ mẫu sổ phụ cá nhân khuyết cột số dư).
 - **Xuất Báo cáo Excel Chuẩn Mực Kế toán:** Xuất file `.xlsx` định dạng sẵn ngày tháng `DD/MM/YYYY`, định dạng tiền tệ kế toán `#,##0.00` căn phải, có dòng `TỔNG CỘNG` tự động tính và bảo đảm an toàn chống Formula Injection.
 
+### Phân hệ 7: Xử lý & Báo cáo Sao kê Tín dụng Doanh nghiệp (Credit & Loan Statements)
+- **Tiếp nhận & Tự động Nhận diện Mẫu:** Hỗ trợ kéo - thả upload file sao kê danh sách khoản vay, khế ước nhận nợ LD từ các ngân hàng thương mại (VietinBank eFAST, BIDV...). Hệ thống tự nhận diện cấu trúc file qua Magic Bytes nhị phân và Signature Rules.
+- **Bóc tách Thông tin Khoản vay & Khế ước:**
+  - Bóc tách siêu dữ liệu: Tên đơn vị vay, Số CIF, Ngày xuất/Ngày chốt dữ liệu, Tổng dư nợ báo cáo trên Header/Footer.
+  - Bóc tách từng dòng khoản vay: Số tài khoản vay / Số LD khế ước, Ngày giải ngân, Ngày đáo hạn, Kỳ hạn, Lãi suất (%/năm), Dư nợ gốc hiện tại, Lãi cộng dồn/lãi phải trả gần nhất, Số tiền gốc đến hạn gần nhất, Ngày thu gốc/lãi tiếp theo, Nhóm nợ (1: Nợ đủ tiêu chuẩn, 2, 3...).
+- **Đối soát Số dư Tín dụng Tự động:**
+  $$\sum \text{Dư nợ gốc từng khoản vay} = \text{Tổng dư nợ ghi trên Header / Dòng Tổng của file}$$
+  Nếu chênh lệch $= 0$, đánh dấu file đạt `BALANCED` (Khớp 100%). Nếu có chênh lệch $\neq 0$, hệ thống cảnh báo cờ `DISCREPANCY` kèm số tiền lệch.
+- **Quản lý Danh mục Khoản vay Hiện hành (Credit Facilities Repository):**
+  - Tự động cập nhật (upsert) số dư và nghĩa vụ trả nợ mới nhất của từng hợp đồng/khế ước vào bảng `credit_facilities`.
+  - Lưu trữ toàn bộ snapshot dữ liệu từng lần nạp vào bảng `credit_statement_items` để đối soát và tra cứu lịch sử kiểm toán.
+- **Báo cáo Giám sát Nghĩa vụ Nợ & Lịch Thanh toán:**
+  - Thống kê tổng dư nợ theo từng ngân hàng và toàn hệ thống.
+  - Lịch đến hạn trả nợ gốc và lãi (trong 7 ngày, 15 ngày, 30 ngày tới).
+  - Tích hợp số liệu nghĩa vụ nợ tín dụng vào Dashboard CFO để giám sát thanh khoản ròng:
+    $$\text{Thanh khoản ròng (Net Liquidity)} = \text{Tổng tồn quỹ khả dụng} - \text{Nghĩa vụ nợ gốc & lãi đến hạn kỳ tới}$$
+
+

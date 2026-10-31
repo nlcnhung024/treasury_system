@@ -196,3 +196,6 @@ export interface ClassificationRule {
   applies_to_flow: string;
   is_active: boolean;
 }
+
+export * from './credit';
+

@@ -876,4 +876,61 @@ Feature: Bóc tách, Chuẩn hóa và Đối soát Đa Mẫu Sao kê Ngân hàng
     Given Quản trị viên bổ sung một khối cấu hình YAML mới cho ngân hàng thứ 8 (ví dụ: "VCB_CORP_XLSX") vào tệp "bank_templates_config.yaml"
     When Người dùng tải lên file sao kê của ngân hàng thứ 8
     Then Động cơ Universal Stream Parser tự động đọc cấu hình mới, nhận diện cột qua "canonical_header_aliases" hoặc "column_mappings" và bóc tách thành công trong thời gian cấu hình <= 15 phút mà không cần biên dịch lại mã nguồn
+
+---
+
+## 7. MA TRẬN ÁNH XẠ SAO KÊ TÍN DỤNG & DANH SÁCH KHOẢN VAY (CREDIT STATEMENTS MAPPING MATRIX)
+
+### 7.1. Mẫu CTG_LOAN_XLS (VietinBank eFAST - Báo cáo Danh Sách Khoản Vay)
+* **Tệp mẫu thực tế:** `Resources/Sample_sao_ke_tin_dung/danh-sach-tai-khoan-tien-vay(31-10-2026 08_54_00).xls`
+* **Định dạng vật lý:** `XLS` (BIFF8).
+* **Đặc trưng nhận diện (Signatures):**
+  - Ô `A2`: Chứa chuỗi `"VIETINBANK eFAST"`
+  - Ô `B6`: Chứa chuỗi `"BÁO CÁO DANH SÁCH KHOẢN VAY"`
+* **Vị trí Metadata:**
+  - `account_holder`: Ô `A7` (Regex: `^([^\n\r]+)$`)
+  - `cif_number`: Ô `A8` (Regex: `Số CIF:\s*([0-9]+)`)
+  - `statement_date`: Ô `K4` (Regex: `Thời gian in:\s*(\d{2}/\d{2}/\d{4})`)
+  - `total_principal_amount`: Ô `E13` (Dư nợ theo loại tiền VND: `30355015000.00`)
+  - `total_interest_amount`: Ô `F13` (Lãi cộng dồn: `181954751.63`)
+  - `total_payable_amount`: Ô `G13` (Tổng số tiền phải trả: `218131280.00`)
+* **Tọa độ lưới dữ liệu:** `header_row = 19`, `data_start_row = 20`. Điều kiện dừng: Ô cột B rỗng.
+* **Ánh xạ cột dữ liệu:**
+  - `contract_number`: Cột `B` (Số tài khoản vay)
+  - `disbursement_date`: Cột `C` (Ngày giải ngân đầu tiên, định dạng `DD-MM-YYYY`)
+  - `maturity_date`: Cột `D` (Ngày đáo hạn, định dạng `DD-MM-YYYY`)
+  - `term`: Cột `E` (Kỳ hạn, ví dụ: `4M`)
+  - `next_repayment_date`: Cột `F` (Ngày đến hạn tiếp theo, định dạng `DD-MM-YYYY`)
+  - `current_principal_balance`: Cột `G` (Dư nợ hiện tại, kiểu Decimal)
+  - `currency`: Cột `H` (Loại tiền: `VND`)
+  - `interest_rate`: Cột `I` (Lãi suất, ví dụ `8.7`)
+  - `accrued_interest`: Cột `J` (Lãi cộng dồn)
+  - `total_repayment_amount`: Cột `K` (Tổng số tiền phải trả kỳ tới)
+
+### 7.2. Mẫu BIDV_LOAN_LD_XLSX (BIDV - Báo cáo Số Dư Tài Khoản Vay/LD)
+* **Tệp mẫu thực tế:** `Resources/Sample_sao_ke_tin_dung/Vay_LD (1).xlsx`
+* **Định dạng vật lý:** `XLSX` (OOXML).
+* **Đặc trưng nhận diện (Signatures):**
+  - Ô `G1`: Chứa chuỗi `"SỐ DƯ TÀI KHOẢN"`
+  - Ô `B3`: Chứa chuỗi `"VAY/LD"`
+* **Vị trí Metadata:**
+  - `statement_date`: Ô `N3` (Regex: `Dữ liệu đến ngày\s*(\d{2}/\d{2}/\d{4})`)
+  - Dòng tổng (`Cột C == "Tổng"`):
+    - `total_principal_amount`: Cột `G` (`48,805,525,000`)
+    - `next_principal_amount`: Cột `M` (`48,805,525,000`)
+    - `total_interest_amount`: Cột `P` (`398,444,597`)
+* **Tọa độ lưới dữ liệu:** `header_row = 4`, `data_start_row = 5`. Điều kiện dừng: Ô cột C có giá trị `"Tổng"`.
+* **Ánh xạ cột dữ liệu:**
+  - `contract_number`: Cột `C` (Số LD)
+  - `currency`: Cột `D` (Loại tiền: `VND`)
+  - `loan_purpose`: Cột `E` (Mục đích khoản vay)
+  - `current_principal_balance`: Cột `F` (Dư nợ gốc hiện tại)
+  - `disbursement_date`: Cột `H` (Ngày giải ngân, định dạng `DD/MM/YYYY`)
+  - `maturity_date`: Cột `I` (Ngày đáo hạn, định dạng `DD/MM/YYYY`)
+  - `debt_group`: Cột `J` (Nhóm nợ, ví dụ `"1"`)
+  - `interest_rate`: Cột `K` (Lãi suất vay, ví dụ `"9.27 %"`)
+  - `next_principal_amount`: Cột `L` (Số tiền gốc đến hạn gần nhất)
+  - `next_principal_due_date`: Cột `N` (Ngày thu gốc gần nhất)
+  - `next_interest_amount`: Cột `O` (Số tiền lãi phải trả gần nhất)
+  - `next_interest_due_date`: Cột `Q` (Ngày trả lãi gần nhất)
 ```

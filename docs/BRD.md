@@ -415,6 +415,37 @@ Hệ thống được tổ chức thành **6 Epics nghiệp vụ cốt lõi**:
 
 ---
 
+### EPIC-07: Quản lý & Đối soát Sao kê Khoản vay Tín dụng (Credit Facilities & Loan Disbursements)
+* **Mục tiêu:** Cho phép nạp, tự động bóc tách, đối soát tổng dư nợ và theo dõi nghĩa vụ trả nợ gốc/lãi của các khoản vay tín dụng (VietinBank eFAST, BIDV Vay/LD...).
+
+#### US-07.1: Tiếp nhận & Tự động Nhận diện Mẫu Sao kê Tín dụng
+* **User Story:** Là một *Kế toán viên*, tôi muốn *kéo thả file sao kê khoản vay (.xls, .xlsx) lên hệ thống*, để *hệ thống tự động phát hiện mẫu VietinBank hoặc BIDV mà không cần cấu hình thủ công*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-001] Nạp file sao kê danh sách khoản vay VietinBank eFAST
+    Given File Excel "danh-sach-tai-khoan-tien-vay(31-10-2026 08_54_00).xls" định dạng BIFF8
+    When Kế toán nạp file vào màn hình Sao kê Tín dụng
+    Then Hệ thống tự động nhận diện mẫu "CTG_LOAN_XLS"
+    And Bóc tách đúng 19 khoản vay với tổng dư nợ 30,355,015,000 VND
+    And Đánh dấu trạng thái đối soát là "BALANCED" (Khớp 100%)
+  ```
+
+#### US-07.2: Quản lý Danh mục Khoản vay & Lịch Nghĩa vụ Nợ đến hạn
+* **User Story:** Là một *Giám đốc Tài chính (CFO)*, tôi muốn *xem danh sách tổng hợp các khoản vay/khế ước hiện hành cùng lịch trả nợ gốc và lãi sắp tới (trong 7 ngày, 30 ngày)*, để *chủ động cân đối dòng tiền và thanh khoản ròng trước 9h sáng*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-002] Xem lịch trả nợ gốc và lãi đến hạn
+    Given Hệ thống đã nạp các khoản vay từ VietinBank và BIDV
+    When CFO truy cập bảng điều khiển Sao kê Tín dụng
+    Then Hệ thống hiển thị tổng dư nợ gốc hợp nhất
+    And Hiển thị danh sách các khoản vay có ngày trả gốc/lãi gần nhất
+    And Cho phép lọc theo ngân hàng, nhóm nợ và khoảng thời gian đáo hạn
+  ```
+
+---
+
 ## 8. Tiêu chuẩn Sẵn sàng (DoR) & Hoàn thành (DoD)
 
 ### 8.1. Định nghĩa Sẵn sàng (Definition of Ready - DoR)

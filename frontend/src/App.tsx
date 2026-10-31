@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { Navbar } from './components/layout/Navbar';
 import { UploadPage } from './pages/UploadPage';
 import { TransactionsPage } from './pages/TransactionsPage';
+import { CreditStatementsPage } from './pages/CreditStatementsPage';
 import { CFODashboardPage } from './pages/CFODashboardPage';
 import { CEOWaterfallPage } from './pages/CEOWaterfallPage';
 import { RuleManagementPage } from './pages/RuleManagementPage';
@@ -16,6 +17,7 @@ export const App: React.FC = () => {
           <Routes>
             <Route path="/" element={<UploadPage />} />
             <Route path="/transactions" element={<TransactionsPage />} />
+            <Route path="/credit-statements" element={<CreditStatementsPage />} />
             <Route path="/cfo-dashboard" element={<CFODashboardPage />} />
             <Route path="/ceo-waterfall" element={<CEOWaterfallPage />} />
             <Route path="/rules" element={<RuleManagementPage />} />

@@ -1252,6 +1252,60 @@ paths:
                   pagination:
                     $ref: '#/components/schemas/PaginationMeta'
 
+  /credit-statements/upload:
+    post:
+      summary: "Upload file sao kê tín dụng / danh sách khoản vay (VietinBank eFAST, BIDV Vay/LD)"
+      description: "Tiếp nhận file .xlsx hoặc .xls, kiểm tra Magic Bytes, mã băm SHA-256 chống trùng, bóc tách và đối soát cân bằng số dư."
+      tags:
+        - "Credit Statements"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                bank_code:
+                  type: string
+                  example: "CTG"
+      responses:
+        "200":
+          description: "Upload và xử lý thành công"
+        "409":
+          description: "File bị trùng lặp mã băm SHA-256"
+
+  /credit-statements:
+    get:
+      summary: "Lấy danh sách các file sao kê tín dụng đã upload"
+      tags:
+        - "Credit Statements"
+      responses:
+        "200":
+          description: "Thành công"
+
+  /loans:
+    get:
+      summary: "Lấy danh sách các khoản vay và khế ước LD hiện hành"
+      tags:
+        - "Credit Facilities"
+      responses:
+        "200":
+          description: "Thành công"
+
+  /loans/summary:
+    get:
+      summary: "Lấy tổng hợp KPI dư nợ tín dụng và lịch trả nợ sắp tới"
+      tags:
+        - "Credit Facilities"
+      responses:
+        "200":
+          description: "Thành công"
+
 # =============================================================================
 # THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
 # =============================================================================

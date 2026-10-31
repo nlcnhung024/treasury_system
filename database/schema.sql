@@ -240,3 +240,132 @@ SELECT
     COALESCE((SELECT SUM(account_balance) FROM bank_totals), 0.00) AS total_consolidated_liquidity,
     CURRENT_DATE AS report_date;
 
+-- =============================================================================
+-- 9. BẢNG QUẢN LÝ FILE SAO KÊ TÍN DỤNG GỐC (CREDIT STATEMENT FILES)
+-- =============================================================================
+CREATE TABLE credit_statement_files (
+    file_id BIGSERIAL PRIMARY KEY,
+    file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    bank_code VARCHAR(20) NOT NULL,                         -- CTG, BIDV, ...
+    template_code VARCHAR(50) NOT NULL,                     -- CTG_LOAN_XLS, BIDV_LOAN_LD_XLSX
+    original_filename VARCHAR(255) NOT NULL,                -- Tên file gốc người dùng tải lên (.xlsx, .xls)
+    storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: /credit_statements/{bank}/{YYYY}/{uuid}.ext
+    file_size_bytes BIGINT NOT NULL,                        -- Dung lượng file (Bytes)
+    file_sha256 CHAR(64) NOT NULL UNIQUE,                   -- Mã băm toàn vẹn SHA-256 chống trùng lặp upload
+    mime_type VARCHAR(100) NOT NULL,                        -- MIME type xác thực
+    
+    -- Siêu dữ liệu bóc tách từ sao kê tín dụng
+    statement_date DATE,                                    -- Ngày in hoặc ngày chốt dữ liệu ghi trên file
+    total_principal_amount DECIMAL(18, 2) DEFAULT 0.00,     -- Tổng dư nợ ghi trên file (Header/Dòng Tổng)
+    total_interest_amount DECIMAL(18, 2) DEFAULT 0.00,      -- Tổng lãi phải trả/cộng dồn ghi trên file
+    total_payable_amount DECIMAL(18, 2) DEFAULT 0.00,       -- Tổng tiền phải trả ghi trên file
+    calculated_principal_amount DECIMAL(18, 2) DEFAULT 0.00,-- Tổng dư nợ hệ thống tính toán từ các khoản vay
+    total_contracts_count INT DEFAULT 0,                    -- Tổng số lượng khoản vay / khế ước bóc tách được
+    
+    -- Trạng thái vòng đời xử lý & đối soát
+    processing_status VARCHAR(30) NOT NULL DEFAULT 'UPLOADED',
+    -- 'UPLOADED' -> 'PARSING' -> 'COMPLETED' -> 'FAILED'
+    reconciliation_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
+    -- 'PENDING' -> 'BALANCED' (Khớp 100%) -> 'DISCREPANCY' (Lệch số dư)
+    discrepancy_amount DECIMAL(18, 2) DEFAULT 0.00,         -- Chênh lệch (|total_principal_amount - calculated_principal_amount|)
+    error_message TEXT,
+    uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_credit_files_bank ON credit_statement_files(bank_code);
+CREATE INDEX idx_credit_files_status ON credit_statement_files(processing_status);
+CREATE INDEX idx_credit_files_reconcile ON credit_statement_files(reconciliation_status);
+CREATE INDEX idx_credit_files_created ON credit_statement_files(created_at DESC);
+
+-- =============================================================================
+-- 10. BẢNG DANH MỤC HỢP ĐỒNG VAY & KHẾ ƯỚC (CREDIT FACILITIES / LOANS)
+-- Lưu trữ trạng thái mới nhất của các khoản vay tín dụng
+-- =============================================================================
+CREATE TABLE credit_facilities (
+    loan_id BIGSERIAL PRIMARY KEY,
+    bank_code VARCHAR(20) NOT NULL,                         -- CTG, BIDV, ...
+    bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng
+    contract_number VARCHAR(50) NOT NULL,                   -- Số tài khoản vay / Số LD / Số HĐ tín dụng
+    borrower_name VARCHAR(150) NOT NULL,                    -- Tên đơn vị vay (Doanh nghiệp)
+    cif_number VARCHAR(50),                                 -- Mã CIF khách hàng
+    loan_purpose TEXT,                                      -- Mục đích vay (Thanh toan tien hang...)
+    currency VARCHAR(5) NOT NULL DEFAULT 'VND',             -- Loại tiền
+    disbursement_date DATE,                                 -- Ngày giải ngân
+    maturity_date DATE,                                     -- Ngày đáo hạn
+    term VARCHAR(20),                                       -- Kỳ hạn (4M, 6M...)
+    interest_rate DECIMAL(6, 4) NOT NULL DEFAULT 0.0000,    -- Lãi suất (%/năm)
+    debt_group VARCHAR(10) NOT NULL DEFAULT '1',            -- Nhóm nợ (1: Đủ tiêu chuẩn, 2, 3...)
+    loan_type VARCHAR(30) NOT NULL DEFAULT 'SHORT_TERM',    -- 'SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM'
+    
+    -- Số dư & nghĩa vụ trả nợ
+    current_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc hiện tại
+    accrued_interest DECIMAL(18, 2) DEFAULT 0.00,           -- Lãi cộng dồn
+    next_repayment_date DATE,                               -- Ngày đến hạn tiếp theo
+    next_principal_amount DECIMAL(18, 2) DEFAULT 0.00,      -- Số tiền gốc đến hạn gần nhất
+    next_interest_amount DECIMAL(18, 2) DEFAULT 0.00,       -- Số tiền lãi đến hạn gần nhất
+    total_repayment_amount DECIMAL(18, 2) DEFAULT 0.00,     -- Tổng số tiền phải trả kỳ tới
+    
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',           -- 'ACTIVE', 'SETTLED', 'OVERDUE'
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_credit_facility_bank_contract UNIQUE (bank_code, contract_number)
+);
+
+CREATE INDEX idx_credit_facilities_bank ON credit_facilities(bank_code);
+CREATE INDEX idx_credit_facilities_maturity ON credit_facilities(maturity_date);
+CREATE INDEX idx_credit_facilities_next_repayment ON credit_facilities(next_repayment_date);
+CREATE INDEX idx_credit_facilities_status ON credit_facilities(status);
+
+-- =============================================================================
+-- 11. BẢNG CHI TIẾT KHOẢN VAY THEO FILE SAO KÊ (CREDIT STATEMENT ITEMS)
+-- Lưu trữ snapshot lịch sử theo từng lần upload sao kê phục vụ kiểm toán
+-- =============================================================================
+CREATE TABLE credit_statement_items (
+    item_id BIGSERIAL PRIMARY KEY,
+    file_id BIGINT NOT NULL REFERENCES credit_statement_files(file_id) ON DELETE CASCADE,
+    loan_id BIGINT REFERENCES credit_facilities(loan_id) ON DELETE SET NULL,
+    contract_number VARCHAR(50) NOT NULL,
+    disbursement_date DATE,
+    maturity_date DATE,
+    term VARCHAR(20),
+    interest_rate DECIMAL(6, 4) NOT NULL DEFAULT 0.0000,
+    debt_group VARCHAR(10) DEFAULT '1',
+    loan_purpose TEXT,
+    principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    principal_balance_vnd DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    accrued_interest DECIMAL(18, 2) DEFAULT 0.00,
+    next_principal_due_date DATE,
+    next_principal_amount DECIMAL(18, 2) DEFAULT 0.00,
+    next_interest_due_date DATE,
+    next_interest_amount DECIMAL(18, 2) DEFAULT 0.00,
+    total_due_amount DECIMAL(18, 2) DEFAULT 0.00,
+    currency VARCHAR(5) NOT NULL DEFAULT 'VND',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_credit_items_file ON credit_statement_items(file_id);
+CREATE INDEX idx_credit_items_loan ON credit_statement_items(loan_id);
+CREATE INDEX idx_credit_items_contract ON credit_statement_items(contract_number);
+
+-- =============================================================================
+-- 12. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG & THANH KHOẢN RÒNG CFO
+-- =============================================================================
+CREATE OR REPLACE VIEW v_cfo_debt_obligations AS
+SELECT 
+    cf.bank_code,
+    cf.bank_name,
+    COUNT(cf.loan_id) AS total_active_loans,
+    SUM(cf.current_principal_balance) AS total_principal_balance,
+    SUM(cf.accrued_interest) AS total_accrued_interest,
+    SUM(cf.next_principal_amount) AS upcoming_principal_due,
+    SUM(cf.next_interest_amount) AS upcoming_interest_due,
+    SUM(cf.next_principal_amount + cf.next_interest_amount) AS total_upcoming_debt_obligation,
+    ROUND(SUM(cf.current_principal_balance * cf.interest_rate) / NULLIF(SUM(cf.current_principal_balance), 0), 4) AS weighted_avg_interest_rate
+FROM credit_facilities cf
+WHERE cf.is_active = TRUE AND cf.status = 'ACTIVE'
+GROUP BY cf.bank_code, cf.bank_name;
+
+

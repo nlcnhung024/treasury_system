@@ -522,3 +522,28 @@ erDiagram
   - **Kho chính nội bộ (Primary MinIO):** Kích hoạt tính năng **Object Versioning** và thiết lập chính sách lưu trữ bất biến (WORM - Write Once, Read Many). File gốc sau khi nạp không thể bị xóa hoặc sửa đổi bởi bất kỳ người dùng nào, đảm bảo bằng chứng pháp lý khi cơ quan Thuế / Kiểm toán nhà nước yêu cầu đối chiếu.
   - **Sao lưu đám mây ngoại vi (Off-site GCS Backup):** Thiết lập tiến trình đồng bộ bất đồng bộ tự động (sử dụng MinIO Bucket Replication hoặc Rclone cronjob) đẩy toàn bộ file gốc đã mã hóa sang Google Cloud Storage (GCS Coldline/Archive). Đảm bảo nếu trung tâm dữ liệu nội bộ gặp thảm họa (cháy nổ, hỏng ổ cứng, ransomware), toàn bộ kho dữ liệu sao kê gốc vẫn được khôi phục nguyên vẹn 100%.
 
+---
+
+## 8. Kiến trúc Phân hệ Sao kê Tín dụng Doanh nghiệp (Credit & Loan Facilities)
+
+```mermaid
+flowchart LR
+    Client["Client Web Upload"] --> Router["/credit-statements/upload"]
+    Router --> MagicCheck["Magic Bytes & SHA-256 Check"]
+    MagicCheck --> Detector["Credit Template Detector"]
+    Detector --> Parser["Credit Stream Parser"]
+    Parser --> Ingestion["Credit Ingestion & Reconciler"]
+    Ingestion --> DB_Files[("credit_statement_files")]
+    Ingestion --> DB_Loans[("credit_facilities")]
+    Ingestion --> DB_Items[("credit_statement_items")]
+    DB_Loans --> ViewCFO["v_cfo_debt_obligations"]
+    ViewCFO --> APISummary["/loans/summary"]
+```
+
+- **Mô hình Dữ liệu Tín dụng:**
+  - `credit_statement_files`: Quản lý tệp sao kê tín dụng, băm SHA-256 chống trùng và đối soát tổng dư nợ báo cáo.
+  - `credit_facilities`: Bảng danh mục khoản vay/khế ước hiện hành, lưu thông tin dư nợ gốc, lãi suất, ngày đáo hạn, gốc & lãi đến hạn, nhóm nợ.
+  - `credit_statement_items`: Snapshot chi tiết từng đợt upload để truy vết kiểm toán độc lập.
+- **Đối soát Tín dụng:** Khớp tổng dư nợ bóc tách được với tổng dư nợ khai báo trên file với độ lệch tuyệt đối `discrepancy_amount = 0.00 VND`.
+
+
