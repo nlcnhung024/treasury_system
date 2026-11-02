@@ -86,6 +86,8 @@ async def ingest_credit_statement(
 
         if facility:
             # Cập nhật số dư và nghĩa vụ mới nhất
+            if not facility.original_principal_balance or facility.original_principal_balance == Decimal("0.00"):
+                facility.original_principal_balance = prin_balance
             facility.current_principal_balance = prin_balance
             facility.accrued_interest = item["accrued_interest"]
             facility.next_principal_amount = item["next_principal_amount"]
@@ -105,7 +107,10 @@ async def ingest_credit_statement(
                 facility.loan_purpose = item["loan_purpose"]
             facility.status = "ACTIVE"
 
-            if not facility.monthly_interest_due_day:
+            if pkg.bank_code in ("CTG", "CTG_LEASING"):
+                facility.interest_payment_method = "MONTHLY"
+                facility.monthly_interest_due_day = 5
+            elif not facility.monthly_interest_due_day:
                 facility.monthly_interest_due_day = disb_date.day if disb_date else 25
 
             # Tính số lãi cần trả theo quy định hiện hành của pháp luật (Thông tư 14/2017/TT-NHNN)
@@ -122,7 +127,7 @@ async def ingest_credit_statement(
             curr_payment_method = facility.interest_payment_method
             curr_due_day = facility.monthly_interest_due_day
         else:
-            default_due_day = disb_date.day if disb_date else 25
+            default_due_day = 5 if pkg.bank_code in ("CTG", "CTG_LEASING") else (disb_date.day if disb_date else 25)
             calc_interest = calculate_loan_interest(
                 principal_balance=prin_balance,
                 annual_interest_rate=rate,
@@ -148,6 +153,7 @@ async def ingest_credit_statement(
                 interest_payment_method="MONTHLY",
                 monthly_interest_due_day=default_due_day,
                 calculated_interest_due=calc_interest,
+                original_principal_balance=prin_balance,
                 current_principal_balance=prin_balance,
                 accrued_interest=item.get("accrued_interest", Decimal("0.00")),
                 next_repayment_date=next_rep_date,

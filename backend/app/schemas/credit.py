@@ -85,6 +85,8 @@ class CreditFacilityItem(BaseModel):
     interest_payment_method: str = "MONTHLY"  # 'MONTHLY', 'END_OF_TERM'
     monthly_interest_due_day: Optional[int] = None
     calculated_interest_due: Decimal = Decimal("0.00")
+    original_principal_balance: Decimal = Decimal("0.00")
+    total_repaid_principal: Decimal = Decimal("0.00")
     current_principal_balance: Decimal = Decimal("0.00")
     accrued_interest: Decimal = Decimal("0.00")
     next_repayment_date: Optional[date] = None
@@ -92,6 +94,9 @@ class CreditFacilityItem(BaseModel):
     next_interest_amount: Decimal = Decimal("0.00")
     total_repayment_amount: Decimal = Decimal("0.00")
     dossier_files_count: int = 0
+    total_invoices_amount: Decimal = Decimal("0.00")
+    invoice_reconciliation_status: Optional[str] = None  # 'SUFFICIENT', 'DEFICIENT', 'NO_INVOICE'
+    invoice_shortage_amount: Decimal = Decimal("0.00")
     status: str = "ACTIVE"
     is_active: bool = True
     created_at: datetime
@@ -112,6 +117,8 @@ class DisbursementDocumentItem(BaseModel):
     mime_type: str
     document_type: str = "DISBURSEMENT_RECORD"
     description: Optional[str] = None
+    invoice_number: Optional[str] = None
+    invoice_total_amount: Optional[Decimal] = None
     uploaded_by: str = "SYSTEM"
     created_at: datetime
     updated_at: datetime
@@ -128,7 +135,21 @@ class DisbursementDocumentUploadResponse(BaseModel):
     storage_path: str
     file_size_bytes: int
     document_type: str
+    invoice_number: Optional[str] = None
+    invoice_total_amount: Optional[Decimal] = None
     message: str
+
+
+class LoanInvoiceReconciliationResponse(BaseModel):
+    loan_id: int
+    contract_number: str
+    bank_code: str
+    current_principal_balance: Decimal
+    total_invoice_amount: Decimal
+    shortage_amount: Decimal
+    is_sufficient: bool
+    invoice_count: int
+    warning_message: Optional[str] = None
 
 
 class CreditFacilityCreate(BaseModel):
@@ -148,7 +169,8 @@ class CreditFacilityCreate(BaseModel):
     loan_type: str = "SHORT_TERM"  # 'SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM', 'FINANCIAL_LEASE'
     interest_payment_method: str = "MONTHLY"
     monthly_interest_due_day: Optional[int] = None
-    current_principal_balance: Decimal = Decimal("0.00")
+    original_principal_balance: Optional[Decimal] = None
+    current_principal_balance: Optional[Decimal] = None
     accrued_interest: Decimal = Decimal("0.00")
     next_repayment_date: Optional[date] = None
     next_principal_amount: Decimal = Decimal("0.00")
@@ -175,6 +197,7 @@ class CreditFacilityUpdate(BaseModel):
     loan_type: Optional[str] = None
     interest_payment_method: Optional[str] = None
     monthly_interest_due_day: Optional[int] = None
+    original_principal_balance: Optional[Decimal] = None
     current_principal_balance: Optional[Decimal] = None
     accrued_interest: Optional[Decimal] = None
     next_repayment_date: Optional[date] = None
@@ -183,6 +206,15 @@ class CreditFacilityUpdate(BaseModel):
     total_repayment_amount: Optional[Decimal] = None
     status: Optional[str] = None
     note: Optional[str] = None
+
+
+class CreditOrganizationItem(BaseModel):
+    bank_code: str
+    bank_name: str
+    institution_type: str = "OTHER"
+
+    class Config:
+        from_attributes = True
 
 
 class BankDebtSummary(BaseModel):
@@ -232,16 +264,20 @@ class RepaymentPlanSimulateRequest(BaseModel):
     mb_tenor_months: int = 6  # MB max tenor = 6 months
     ctg_tenor_months: int = 4  # CTG max tenor = 4 months
     reborrow_rate: Decimal = Decimal("100.00")  # Tỷ lệ vay lại (0% - 100%, mặc định 100%)
-    reborrow_mode: str = "STAGGERED_SMOOTHING"  # "LUMP_SUM_STANDARD" hoặc "STAGGERED_SMOOTHING"
+    reborrow_mode: str = "SRPR_OPTIMAL"  # "SRPR_OPTIMAL", "LUMP_SUM_STANDARD", "STAGGERED_SMOOTHING"
 
 
 class MonthlyRepaymentComparisonItem(BaseModel):
     month: str  # YYYY-MM
     natural_due_amount: Decimal = Decimal("0.00")
     reborrowed_new_due_amount: Decimal = Decimal("0.00")  # Nợ tái sinh từ vay lại đến hạn trong tháng này
+    bridged_due_amount: Decimal = Decimal("0.00")  # Nợ đến hạn do bắc cầu kỳ hạn đổ về
+    intraday_reroute_cut_amount: Decimal = Decimal("0.00")  # Lượng nợ T03 được cắt sớm bằng trả trước hạn & vay lại trong ngày
     allocated_payment_amount: Decimal = Decimal("0.00")
     prepaid_principal_amount: Decimal = Decimal("0.00")
     regular_principal_amount: Decimal = Decimal("0.00")
+    closing_total_debt: Decimal = Decimal("0.00")  # Tổng dư nợ cuối tháng sau khi vay lại đúng số tiền gốc đã cắt
+    reroute_destination_note: str = ""  # Hướng tái định tuyến kỳ hạn mới
     monthly_capacity: Decimal = Decimal("0.00")
     remaining_capacity: Decimal = Decimal("0.00")
     is_safe: bool = True
@@ -255,7 +291,7 @@ class LoanAllocationActionItem(BaseModel):
     original_balance: Decimal
     interest_rate: Decimal
     original_due_date: Optional[date] = None
-    action_type: str  # "PAY_ON_DUE", "PARTIAL_PREPAYMENT", "FULL_PREPAYMENT", "ROLLOVER_REFINANCE", "NEW_REBORROW_DRAWDOWN"
+    action_type: str  # "PAY_ON_DUE", "PARTIAL_PREPAYMENT", "FULL_PREPAYMENT", "ROLLOVER_REFINANCE", "NEW_REBORROW_DRAWDOWN", "STEPPED_BRIDGING_DRAWDOWN", "INTRADAY_PREPAY_REROUTE"
     payment_month: str  # YYYY-MM
     payment_amount: Decimal
     remaining_balance_after: Decimal
@@ -274,8 +310,9 @@ class DebtRepaymentPlanResponse(BaseModel):
     prepayment_penalty_rate: Decimal = Decimal("0.0000")
     strategy: str = "SPLIT_LARGE_LOANS"
     reborrow_rate: Decimal = Decimal("100.00")
-    reborrow_mode: str = "STAGGERED_SMOOTHING"
+    reborrow_mode: str = "SRPR_OPTIMAL"
     total_reborrowed_amount: Decimal = Decimal("0.00")
+    total_cut_and_reborrowed_amount: Decimal = Decimal("0.00")  # Tổng nợ đã cắt và được vay lại đúng số tiền gốc
     reborrow_summary_note: str = ""
     peak_debt_before: Decimal = Decimal("0.00")
     peak_debt_after: Decimal = Decimal("0.00")
@@ -285,5 +322,94 @@ class DebtRepaymentPlanResponse(BaseModel):
     net_financial_benefit: Decimal = Decimal("0.00")
     monthly_schedule: List[MonthlyRepaymentComparisonItem] = []
     allocations: List[LoanAllocationActionItem] = []
+
+
+# =============================================================================
+# SCHEMAS: ĐỐI SOÁT TRẢ NỢ VÀ GIẢM TRỪ NỢ GỐC (US-07.9)
+# =============================================================================
+
+class UnreconciledDebtTransactionItem(BaseModel):
+    transaction_id: int
+    account_id: int
+    bank_code: str
+    account_number: Optional[str] = None
+    account_holder: Optional[str] = None
+    transaction_date: datetime
+    reference_number: Optional[str] = None
+    counter_party: Optional[str] = None
+    description: str
+    debit_amount: Decimal
+    category_id: Optional[int] = None
+    category_name: Optional[str] = None
+
+    # Gợi ý khế ước tự động từ Regex
+    suggested_contract_number: Optional[str] = None
+    suggested_loan_id: Optional[int] = None
+    suggested_bank_code: Optional[str] = None
+    suggested_borrower_name: Optional[str] = None
+    suggested_principal_balance: Optional[Decimal] = None
+    suggested_interest_rate: Optional[Decimal] = None
+    suggested_principal_amount: Optional[Decimal] = None
+    suggested_interest_amount: Optional[Decimal] = None
+    match_confidence: str = "NONE"  # 'HIGH', 'MEDIUM', 'LOW', 'NONE'
+
+    class Config:
+        from_attributes = True
+
+
+class RepaymentReconcileRequest(BaseModel):
+    transaction_id: int
+    loan_id: int
+    principal_amount: Decimal
+    interest_amount: Decimal
+    notes: Optional[str] = None
+
+
+class RepaymentReconcileResponse(BaseModel):
+    repayment_id: int
+    loan_id: int
+    transaction_id: int
+    contract_number: str
+    bank_code: str
+    repayment_date: datetime
+    principal_amount: Decimal
+    interest_amount: Decimal
+    total_amount: Decimal
+    previous_principal_balance: Decimal
+    remaining_principal_balance: Decimal
+    loan_status: str  # 'ACTIVE', 'SETTLED'
+    message: str
+
+
+class LoanRepaymentHistoryItem(BaseModel):
+    repayment_id: int
+    loan_id: int
+    transaction_id: int
+    contract_number: str
+    bank_code: str
+    repayment_date: datetime
+    principal_amount: Decimal
+    interest_amount: Decimal
+    total_amount: Decimal
+    previous_principal_balance: Decimal
+    remaining_principal_balance: Decimal
+    notes: Optional[str] = None
+    reconciled_by: str
+    created_at: datetime
+    transaction_description: Optional[str] = None
+    reference_number: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class RepaymentRollbackResponse(BaseModel):
+    repayment_id: int
+    loan_id: int
+    contract_number: str
+    restored_balance: Decimal
+    loan_status: str
+    message: str
+
 
 

@@ -35,12 +35,28 @@
 - **Tính nguyên tử (ACID Transactions):** Các thao tác ghi dữ liệu nhiều bước (ghi file metadata $\rightarrow$ insert hàng ngàn giao dịch) phải được bọc trong Database Transaction. Nếu xảy ra lỗi giữa chừng, toàn bộ thay đổi phải được Rollback.
 - **Fail-Safe & Idempotency:** Mọi API và Worker Job phải đảm bảo tính Idempotent (thực thi lại nhiều lần không tạo ra dữ liệu trùng lặp hoặc sai lệch).
 - **Structured Logging:** Ghi log hệ thống theo định dạng JSON có kèm mã lỗi (`error_code`), dấu vết thời gian (`timestamp`), và mã định danh phiên làm việc (`correlation_id`).
+- **Bất biến Nhật ký Kiểm toán (Audit Trail Invariant):** Toàn bộ bản ghi kiểm toán nghiệp vụ bắt buộc tuân thủ đúng cấu trúc 5 thành phần: `actor`, `action`, `target_entity`, `target_id`, và `details` (JSON object).
+- **Bất biến Thứ tự Route API (Route Ordering Invariant):** Mọi API Router trên backend bắt buộc đặt Static Routes trước Dynamic Parameter Routes để triệt tiêu lỗi ép kiểu path parameter (`int_parsing` collision).
+- **Thực thi DDL tuần tự trên Asyncpg (Asyncpg Single-Statement Invariant):**
+  - Trình điều khiển `asyncpg` của PostgreSQL KHÔNG hỗ trợ gộp nhiều câu lệnh SQL trong cùng một prepared statement (`cannot insert multiple commands into a prepared statement`).
+  - Khi viết script khởi tạo hoặc migration CSDL (DDL), BẮT BUỘC phải tách và thực thi từng câu lệnh riêng biệt (tách riêng `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE`), cấm gộp chuỗi nhiều lệnh cách nhau bằng dấu chấm phẩy `;`.
 
 ## 6. Tiêu chuẩn Tài liệu & Mã nguồn (Code & Spec Standards)
 - Đặt tên biến, hàm, bảng, cột nhất quán theo quy ước kỹ thuật chuẩn:
   - CSDL & API JSON: `snake_case` (ví dụ: `account_number`, `transaction_date`).
   - Code Typescript/Javascript: `camelCase` cho biến/hàm, `PascalCase` cho Class/Interface.
   - Code Python: `snake_case` cho hàm/biến, `PascalCase` cho Class.
+- **Tiêu chuẩn Khung Phản hồi Danh sách API (Collection Response Envelope Standard):**
+  - Mọi API trả về danh sách nhiều bản ghi bắt buộc phải đồng nhất cấu trúc bao gói (Envelope). Khuyến nghị chuẩn hóa sử dụng khóa `data` hoặc `items` kèm `pagination`:
+    ```json
+    {
+      "data": [...],
+      "pagination": { "page": 1, "page_size": 50, "total_records": 100 }
+    }
+    ```
+  - Khi phía Frontend tiếp nhận dữ liệu danh sách, BẮT BUỘC áp dụng cơ chế bóc tách phòng vệ (Defensive Extraction):
+    `const list = res.data?.data || res.data?.items || [];`
+    nhằm triệt tiêu vĩnh viễn lỗi giao diện nhận mảng rỗng do lệch tên khóa.
 
 ## 7. Tiêu chuẩn Đồng bộ Hóa Tài liệu & Kiểm soát Lan truyền Thay đổi (Cross-Artifact Synchronization Standard)
 Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thuật/nghiệp vụ nào (`docs/*.md`, `docs/*.yaml`, `database/*.sql`) BẮT BUỘC thực thi quy trình 3 bước để đảm bảo tính nhất quán tuyệt đối 100%:
@@ -57,5 +73,10 @@ Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thu
   5. *Khóa JSON (JSON Keys)* trong các mẫu payload API.
 - **Bước 3 — Ghi nhận Phiên bản Liên kết (Linked Version Bump):**
   Cập nhật bảng Lịch sử Phiên bản (Version History) tại các tài liệu vừa chỉnh sửa, ghi rõ phiên bản mới và danh sách các tệp đã được đồng bộ chéo.
+
+## 8. Tiêu chuẩn Cô lập & Thu dọn Dữ liệu Kiểm thử (Test Isolation & Mandatory Teardown)
+- **Dọn dẹp triệt để (Mandatory Cleanup):** Khi viết hoặc chạy các kịch bản kiểm thử (test suite, pytest fixture, integration tests), mọi dữ liệu giả lập (mock/test accounts, test statement files, test loans, test transactions) BẮT BUỘC phải được dọn dẹp sạch sẽ (teardown/delete) ngay sau khi test hoàn tất hoặc sử dụng transaction rollback riêng biệt.
+- **Bảo vệ môi trường phát triển & UI:** TUYỆT ĐỐI KHÔNG để sót lại tài khoản test (như `9999TESTACC`, `CONG TY TEST`), file test (`Test Accountant`) hoặc bản ghi rác trong cơ sở dữ liệu làm hiển thị sai lệch trên giao diện người dùng thực tế.
+
 
 

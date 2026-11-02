@@ -22,6 +22,7 @@
 | **1.5.0** | 2026-10-31 | `@SystemArchitect` | Đồng bộ toàn diện theo sản phẩm thực tế: Bổ sung phân hệ Sao kê Tín dụng Doanh nghiệp (`CreditStatementService`, `CreditStreamParser`, `credit_templates_config.yaml`), cập nhật mô hình CSDL (`credit_statement_files`, `credit_facilities`, `credit_statement_items`, `v_cfo_debt_obligations`), chuẩn hóa Tồn quỹ CFO theo 2 Khối ngân hàng và tích hợp chỉ số Thanh khoản Ròng (Net Liquidity) trước 9h sáng |
 | **1.6.0** | 2026-11-02 | `@SystemArchitect` | Mở rộng kiến trúc Quản lý Khoản vay: Bổ sung module Nhập lẻ khoản vay thủ công (Manual Loan Entry) từ các Ngân hàng, Công ty tài chính, Cho thuê tài chính; cập nhật schema `credit_facilities` (`institution_type`, `is_manual`, `note`), các REST endpoints CRUD và bộ lọc đa chiều |
 | **1.7.0** | 2026-11-02 | `@SystemArchitect` | Bổ sung trường Hình thức trả lãi (`interest_payment_method`), Ngày trả lãi hằng tháng (`monthly_interest_due_day`), module tính số lãi cần trả theo Thông tư 14/2017/TT-NHNN (`loan_interest_service.py`), liên kết Hồ sơ giải ngân lưu tại Object Storage (`disbursement_documents` & thư mục `/disbursement_dossiers/`) |
+| **1.8.0** | 2026-11-02 | `@SystemArchitect` | Bổ sung Phân hệ Đối soát Chi trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9): Cấu trúc bảng `loan_repayment_history`, cơ chế đối chiếu khế ước tự động bằng Regex, giao dịch nguyên tử cập nhật số dư nợ gốc kèm khóa dòng `FOR UPDATE`, và lưu vết lịch sử theo đúng `transaction_date`. |
 
 ---
 
@@ -635,10 +636,35 @@ flowchart LR
 
 - **Mô hình Dữ liệu Tín dụng:**
   - `credit_statement_files`: Quản lý tệp sao kê tín dụng, băm SHA-256 chống trùng và đối soát tổng dư nợ báo cáo.
-  - `credit_facilities`: Bảng danh mục khoản vay/khế ước hiện hành, lưu thông tin dư nợ gốc, lãi suất, hình thức trả lãi (`MONTHLY`/`END_OF_TERM`), ngày trả lãi hằng tháng, số tiền lãi tính theo Thông tư 14/2017/TT-NHNN (`calculated_interest_due`), ngày đáo hạn, gốc & lãi đến hạn, nhóm nợ.
+  - `credit_facilities`: Bảng danh mục khoản vay/khế ước hiện hành, lưu thông tin dư nợ gốc, lãi suất, hình thức trả lãi (`MONTHLY`/`END_OF_TERM`), ngày trả lãi hằng tháng (đặc thù VietinBank chuẩn ngày 5 hằng tháng), số tiền lãi tính theo Thông tư 14/2017/TT-NHNN (`calculated_interest_due`), ngày đáo hạn, gốc & lãi đến hạn, nhóm nợ.
   - `credit_statement_items`: Snapshot chi tiết từng đợt upload để truy vết kiểm toán độc lập kèm hình thức trả lãi và số lãi tính toán.
   - `disbursement_documents`: Bộ hồ sơ giải ngân của từng khoản vay lưu trữ trên Object Storage (MinIO On-Premise) với cấu trúc phân cấp `/disbursement_dossiers/{bank_code}/{contract_number}/...`, lưu trữ đầy đủ chữ ký số SHA-256 chống giả mạo.
 - **Tính toán Lãi Vay Pháp lý (Thông tư 14/2017/TT-NHNN):** Áp dụng chuẩn thời gian cơ sở Actual/365, nguyên tắc tính ngày đầu bỏ ngày cuối cho cả 2 hình thức: trả lãi hằng tháng theo chu kỳ và trả lãi cuối kỳ khi đáo hạn.
 - **Đối soát Tín dụng:** Khớp tổng dư nợ bóc tách được với tổng dư nợ khai báo trên file với độ lệch tuyệt đối `discrepancy_amount = 0.00 VND`.
+
+### 8.1. Phân hệ Đối soát Chi Trả Nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9)
+```mermaid
+flowchart TD
+    TX["Giao dịch chi 'Trả nợ' (bank_transactions)"] --> Filter["Filter: debit_amount > 0 AND category='Trả nợ'"]
+    Filter --> RegexParser["Contract Regex Parser (Extract 80xxxx, LDxxxx, Principal/Interest)"]
+    RegexParser --> Suggest["Gợi ý Khế ước & Số tiền tương ứng"]
+    Suggest --> ModalUI["Khung chia Gốc - Lãi (Nút 100% Gốc / Auto-balance)"]
+    ModalUI --> Submit["Xác nhận đối soát (Atomic POST)"]
+    Submit --> DB_Lock["SELECT ... FOR UPDATE (CreditFacility, BankTransaction)"]
+    DB_Lock --> UpdateBalance["Giảm trừ: balance = balance - principal_amount"]
+    UpdateBalance --> SettleCheck{"balance == 0?"}
+    SettleCheck -->|Yes| SetSettled["status = 'SETTLED'"]
+    SettleCheck -->|No| KeepActive["status = 'ACTIVE'"]
+    SetSettled --> InsertHist["INSERT loan_repayment_history (repayment_date = transaction_date)"]
+    KeepActive --> InsertHist
+    InsertHist --> AuditLog["INSERT audit_logs (REPAYMENT_RECONCILED)"]
+    AuditLog --> Commit["Commit Transaction"]
+```
+- **Bảng `loan_repayment_history`:** Lưu trữ chi tiết các lần trả nợ với `repayment_date = transaction_date`, lưu số dư trước và sau giảm trừ nợ gốc (`previous_principal_balance`, `remaining_principal_balance`), ràng buộc toàn vẹn `principal_amount + interest_amount = total_amount`.
+- **An toàn Giao dịch Kép (Concurrency & Idempotency):**
+  - Khóa `UNIQUE` trên `transaction_id` ngăn ngừa triệt để việc một giao dịch sao kê bị đối soát nhiều lần.
+  - Khóa dòng `SELECT FOR UPDATE` ngăn ngừa Race Condition khi 2 người dùng đồng thời đối soát cùng một khoản vay.
+  - Hỗ trợ hoàn tác (Rollback) khôi phục số dư nợ gốc ban đầu nếu phát hiện sai sót.
+
 
 

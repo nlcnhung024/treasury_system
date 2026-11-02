@@ -18,16 +18,13 @@ import {
   Layers,
   ShieldCheck,
   PieChart,
-  BarChart3,
   UserCheck,
-  Landmark,
 } from 'lucide-react';
 import api from '../services/api';
 import {
   CFOLiquidityData,
   CFOBankBreakdownItem,
   Transaction,
-  CreditFacilitySummary,
 } from '../types';
 
 type TimeframeType = 'TODAY' | 'YESTERDAY' | 'WTD' | 'MTD' | 'ALL' | 'CUSTOM';
@@ -47,7 +44,6 @@ export const CFODashboardPage: React.FC = () => {
   const [excludeInternal, setExcludeInternal] = useState<boolean>(true);
   const [selectedBankCode, setSelectedBankCode] = useState<string>('');
   const [selectedHolder, setSelectedHolder] = useState<string>('');
-  const [creditSummary, setCreditSummary] = useState<CreditFacilitySummary | null>(null);
 
   // Drill-down giao dịch chi tiết của từng tài khoản ngay trên bảng
   const [expandedAccountId, setExpandedAccountId] = useState<number | null>(null);
@@ -78,13 +74,6 @@ export const CFODashboardPage: React.FC = () => {
         },
       });
       setData(liqRes.data);
-
-      try {
-        const creditRes = await api.get('/loans/summary');
-        setCreditSummary(creditRes.data);
-      } catch (e) {
-        console.warn('Lỗi khi tải tóm tắt tín dụng:', e);
-      }
 
       // Nếu đang mở drill-down của 1 tài khoản, làm mới luôn danh sách giao dịch kỳ đó
       if (expandedAccountId !== null) {
@@ -285,6 +274,29 @@ export const CFODashboardPage: React.FC = () => {
     return num.toLocaleString('vi-VN');
   };
 
+  const formatDateTime = (dateStr?: string | null) => {
+    if (!dateStr) return 'Chưa có GD';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '—';
+    const datePart = d.toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+    const hours = d.getHours();
+    const minutes = d.getMinutes();
+    const seconds = d.getSeconds();
+    if (hours === 0 && minutes === 0 && seconds === 0) {
+      return datePart;
+    }
+    const timePart = d.toLocaleTimeString('vi-VN', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    return `${datePart} ${timePart}`;
+  };
+
   const renderReconciliationBadge = (item: CFOBankBreakdownItem) => {
     if (item.reconciliation_status === 'DISCREPANCY') {
       return (
@@ -468,10 +480,7 @@ export const CFODashboardPage: React.FC = () => {
               <div className="flex items-center gap-1 text-[10px] text-slate-400">
                 <Clock className="w-3 h-3" />
                 <span>
-                  {b.latest_tx_date
-                    ? new Date(b.latest_tx_date).toLocaleDateString('vi-VN')
-                    : 'Chưa có GD'}{' '}
-                  ({b.period_tx_count} GD)
+                  {formatDateTime(b.latest_tx_date)} ({b.period_tx_count} GD)
                 </span>
               </div>
             </div>
@@ -1038,66 +1047,6 @@ export const CFODashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 4.5. Giám Sát Dư Nợ Tín Dụng & Nghĩa Vụ Trả Nợ (CFO Credit & Net Liquidity Card) */}
-      {creditSummary && creditSummary.total_active_loans > 0 && (
-        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-xl p-5 text-white shadow-md border border-indigo-900/50">
-          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center space-x-2 text-indigo-300 text-xs font-bold uppercase tracking-wider">
-                <Landmark className="w-4 h-4 text-indigo-400" />
-                <span>Giám Sát Dư Nợ Khoản Vay Tín Dụng & Thanh Khoản Ròng</span>
-              </div>
-              <div className="text-sm text-slate-300">
-                Hệ thống đang quản lý <strong>{creditSummary.total_active_loans} khoản vay/khế ước LD</strong> tại{' '}
-                {creditSummary.by_bank.map((b) => b.bank_code).join(', ')} với lãi suất bình quân{' '}
-                <strong>{Number(creditSummary.weighted_avg_interest_rate).toFixed(2)} %/năm</strong>.
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-6">
-              <div className="text-left">
-                <div className="text-[11px] text-slate-400 uppercase font-medium">Tổng Dư Nợ Vay Gốc</div>
-                <div className="text-xl font-bold font-mono text-indigo-300">
-                  {formatMoney(creditSummary.total_principal_balance)} <span className="text-xs font-normal">VND</span>
-                </div>
-              </div>
-
-              <div className="text-left">
-                <div className="text-[11px] text-slate-400 uppercase font-medium">Gốc & Lãi Đến Hạn (7 Ngày)</div>
-                <div className="text-xl font-bold font-mono text-amber-300">
-                  {formatMoney(creditSummary.total_upcoming_due_7days)} <span className="text-xs font-normal">VND</span>
-                </div>
-              </div>
-
-              <div className="text-left">
-                <div className="text-[11px] text-slate-400 uppercase font-medium">Thanh Khoản Ròng (Sau 7 Ngày)</div>
-                <div
-                  className={`text-xl font-bold font-mono ${
-                    Number(data?.total_consolidated_liquidity || 0) - Number(creditSummary.total_upcoming_due_7days) >= 0
-                      ? 'text-emerald-300'
-                      : 'text-rose-400'
-                  }`}
-                >
-                  {formatMoney(
-                    Number(data?.total_consolidated_liquidity || 0) - Number(creditSummary.total_upcoming_due_7days)
-                  )}{' '}
-                  <span className="text-xs font-normal">VND</span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => navigate('/credit-statements')}
-                className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow transition-colors flex items-center gap-1.5"
-              >
-                <span>Xem chi tiết khoản vay</span>
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 5. Khu Vực Biểu Đồ Trực Quan Hóa Cơ Cấu Nguồn Tiền & Thu/Chi Theo Tài Khoản */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Biểu đồ 1: Cơ cấu Phân bổ Tồn quỹ theo Ngân hàng */}
@@ -1156,74 +1105,84 @@ export const CFODashboardPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Biểu đồ 2: So sánh Cường độ Thu - Chi theo Tài khoản trong kỳ */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5">
+        {/* Bảng 2: Thống Kê Giao Dịch & Thời Điểm Giao Dịch Mới Nhất Theo Tài Khoản */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col justify-between">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-emerald-600" />
+              <Clock className="w-4 h-4 text-blue-600" />
               <h2 className="text-sm font-bold text-slate-900">
-                Biến Động Dòng Tiền Thu / Chi Theo Tài Khoản Trong Kỳ
+                Thống Kê Giao Dịch
               </h2>
             </div>
-            <div className="flex items-center gap-3 text-[11px]">
-              <span className="flex items-center gap-1 text-emerald-700 font-semibold">
-                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500 inline-block" /> Thu (Có)
-              </span>
-              <span className="flex items-center gap-1 text-rose-600 font-semibold">
-                <span className="w-2.5 h-2.5 rounded-sm bg-rose-500 inline-block" /> Chi (Nợ)
-              </span>
-            </div>
+            <span className="text-[11px] text-slate-400 font-medium">
+              Thời điểm GD mới nhất của mỗi tài khoản
+            </span>
           </div>
 
-          <div className="space-y-3 max-h-56 overflow-y-auto pr-1">
-            {(() => {
-              const maxFlow = Math.max(
-                1,
-                ...filteredBankItems.map((b) =>
-                  Math.max(Number(b.total_inflow || 0), Number(b.total_outflow || 0))
-                )
-              );
-              return filteredBankItems.map((b) => {
-                const inPct = (Number(b.total_inflow || 0) / maxFlow) * 100;
-                const outPct = (Number(b.total_outflow || 0) / maxFlow) * 100;
-                return (
-                  <div
+          <div className="overflow-x-auto max-h-56 overflow-y-auto pr-1">
+            <table className="w-full text-left text-xs text-slate-600">
+              <thead className="bg-slate-50 text-slate-700 text-[11px] font-semibold sticky top-0 border-b border-slate-200">
+                <tr>
+                  <th className="px-2.5 py-2">Tài khoản</th>
+                  <th className="px-2 py-2 text-center">Số GD kỳ</th>
+                  <th className="px-2.5 py-2 text-left">GD Mới Nhất</th>
+                  <th className="px-2.5 py-2 text-right">Thu / Chi Kỳ</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {filteredBankItems.map((b) => (
+                  <tr
                     key={b.account_id || b.account_number}
                     onClick={() => handleToggleAccountExpand(b.account_id)}
-                    className="text-xs cursor-pointer hover:bg-slate-50 p-1.5 rounded-lg transition-colors"
+                    className="hover:bg-blue-50/60 cursor-pointer transition-colors"
+                    title="Bấm để xem chi tiết giao dịch tài khoản này"
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="font-semibold text-slate-800">
-                        {b.bank_code} • <span className="font-mono">{b.account_number}</span>
+                    <td className="px-2.5 py-2">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[10px]">
+                          {b.bank_code}
+                        </span>
+                        <span className="font-mono font-bold text-slate-800 text-[11px]">
+                          {b.account_number}
+                        </span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 truncate max-w-[130px]" title={b.account_holder}>
+                        {b.account_holder}
+                      </div>
+                    </td>
+                    <td className="px-2 py-2 text-center font-mono">
+                      <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        b.period_tx_count > 0 ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {b.period_tx_count}
                       </span>
-                      <span className="font-mono text-[11px]">
+                    </td>
+                    <td className="px-2.5 py-2">
+                      {b.latest_tx_date ? (
+                        <div className="flex items-center gap-1 font-mono text-[11px] text-slate-700 font-medium whitespace-nowrap">
+                          <Clock className="w-3 h-3 text-indigo-500 shrink-0" />
+                          <span>{formatDateTime(b.latest_tx_date)}</span>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] text-slate-400 italic">Chưa có GD</span>
+                      )}
+                    </td>
+                    <td className="px-2.5 py-2 text-right font-mono text-[11px] whitespace-nowrap">
+                      <div>
                         <span className="text-emerald-700 font-semibold">
                           +{formatMoney(b.total_inflow)}
-                        </span>{' '}
-                        /{' '}
+                        </span>
+                      </div>
+                      <div>
                         <span className="text-rose-600 font-semibold">
                           -{formatMoney(b.total_outflow)}
                         </span>
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-emerald-500 rounded-full"
-                          style={{ width: `${inPct}%` }}
-                        />
                       </div>
-                      <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-rose-500 rounded-full"
-                          style={{ width: `${outPct}%` }}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                );
-              });
-            })()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

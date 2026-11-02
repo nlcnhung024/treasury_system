@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Upload,
   CheckCircle,
@@ -25,6 +25,19 @@ import {
   FolderArchive,
   Shield,
   Receipt,
+  Tag,
+  File,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  SlidersHorizontal,
+  Table,
+  Sparkles,
+  Info,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -44,11 +57,94 @@ interface PresetOrg {
   type: InstitutionType;
 }
 
+export const parseXmlInvoiceBrowser = async (
+  file: File
+): Promise<{ invoiceNumber: string | null; totalAmount: number | null }> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        if (!text) return resolve({ invoiceNumber: null, totalAmount: null });
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'text/xml');
+
+        const getTagValue = (tagNames: string[]): string | null => {
+          const upperTags = tagNames.map((t) => t.toUpperCase());
+          const all = doc.getElementsByTagName('*');
+          for (let i = 0; i < all.length; i++) {
+            const local = (all[i].localName || all[i].nodeName).toUpperCase();
+            if (upperTags.includes(local)) {
+              const content = all[i].textContent?.trim();
+              if (content) return content;
+            }
+          }
+          return null;
+        };
+
+        const invoiceNumber = getTagValue(['SHDon', 'InvoiceNumber', 'SoHoaDon', 'InvNum', 'SHD', 'InvoiceNo']);
+        let totalStr = getTagValue([
+          'TgTTTBSo',
+          'TotalPayment',
+          'TgTToan',
+          'TongTienThanhToan',
+          'TotalAmount',
+          'Amount',
+          'SumAmount',
+        ]);
+
+        let totalAmount: number | null = null;
+        if (totalStr) {
+          let cleanStr = totalStr.replace(/\s+/g, '');
+          if (cleanStr.includes(',') && cleanStr.includes('.')) {
+            if (cleanStr.lastIndexOf(',') > cleanStr.lastIndexOf('.')) {
+              cleanStr = cleanStr.replace(/\./g, '').replace(',', '.');
+            } else {
+              cleanStr = cleanStr.replace(/,/g, '');
+            }
+          } else if (cleanStr.includes(',') && !cleanStr.includes('.')) {
+            const parts = cleanStr.split(',');
+            if (parts.length === 2 && (parts[1].length === 1 || parts[1].length === 2)) {
+              cleanStr = cleanStr.replace(',', '.');
+            } else {
+              cleanStr = cleanStr.replace(/,/g, '');
+            }
+          }
+          cleanStr = cleanStr.replace(/[^\d.-]/g, '');
+          const parsed = parseFloat(cleanStr);
+          if (!isNaN(parsed) && parsed > 0) {
+            totalAmount = parsed;
+          }
+        }
+
+        if (totalAmount === null) {
+          const preTaxStr = getTagValue(['TgTCThue', 'TotalTaxableAmount', 'SubTotal']);
+          const taxStr = getTagValue(['TgTThue', 'TotalVATAmount', 'TaxAmount']);
+          if (preTaxStr) {
+            const preTax = parseFloat(preTaxStr.replace(/[^\d.-]/g, '')) || 0;
+            const tax = taxStr ? parseFloat(taxStr.replace(/[^\d.-]/g, '')) || 0 : 0;
+            if (preTax > 0) totalAmount = preTax + tax;
+          }
+        }
+
+        resolve({ invoiceNumber, totalAmount });
+      } catch (err) {
+        console.warn('Error parsing XML in browser:', err);
+        resolve({ invoiceNumber: null, totalAmount: null });
+      }
+    };
+    reader.onerror = () => resolve({ invoiceNumber: null, totalAmount: null });
+    reader.readAsText(file, 'utf-8');
+  });
+};
+
 interface StagedDossierFile {
   id: string;
   file: File;
   document_type: string;
   description: string;
+  invoice_number?: string | null;
+  invoice_total_amount?: number | null;
 }
 
 const PRESET_ORGANIZATIONS: PresetOrg[] = [
@@ -80,6 +176,21 @@ const PRESET_ORGANIZATIONS: PresetOrg[] = [
   { code: 'VCB_LEASING', name: 'Công ty Cho thuê Tài chính Vietcombank (VCBL)', type: 'LEASING_COMPANY' },
 ];
 
+const CUSTOM_ORGS_STORAGE_KEY = 'custom_credit_organizations';
+
+const loadSavedCustomOrgs = (): PresetOrg[] => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_ORGS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('Failed to load custom orgs from localStorage', e);
+  }
+  return [];
+};
+
 export interface DossierCategoryConfig {
   key: string;
   label: string;
@@ -87,8 +198,24 @@ export interface DossierCategoryConfig {
   badgeLabel: string;
   description: string;
   examples: string;
-  colorName: 'indigo' | 'amber' | 'emerald' | 'cyan' | 'purple';
+  colorName: 'indigo' | 'amber' | 'emerald' | 'cyan' | 'purple' | 'rose' | 'teal' | 'orange' | 'blue';
+  isCustom?: boolean;
 }
+
+export const CUSTOM_DOSSIER_CATEGORIES_STORAGE_KEY = 'custom_dossier_categories';
+
+export const loadSavedCustomCategories = (): DossierCategoryConfig[] => {
+  try {
+    const raw = localStorage.getItem(CUSTOM_DOSSIER_CATEGORIES_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    console.warn('Failed to load custom dossier categories from localStorage', e);
+  }
+  return [];
+};
 
 export const DOSSIER_CATEGORIES: DossierCategoryConfig[] = [
   {
@@ -139,14 +266,16 @@ export const DOSSIER_CATEGORIES: DossierCategoryConfig[] = [
 ];
 
 export const mapDocTypeToCategoryKey = (docType: string): string => {
+  if (!docType) return 'OTHER';
   if (docType === 'CONTRACT') return 'CONTRACT';
   if (docType === 'DEBT_NOTE' || docType === 'DISBURSEMENT_RECORD') return 'DEBT_NOTE';
-  if (docType === 'INVOICE') return 'INVOICE';
+  if (docType === 'INVOICE' || docType === 'INVOICE_PAYMENT') return 'INVOICE';
   if (docType === 'COLLATERAL') return 'COLLATERAL';
-  return 'OTHER';
+  if (docType === 'OTHER') return 'OTHER';
+  return docType;
 };
 
-export const renderDossierBadge = (docType: string) => {
+export const renderDossierBadge = (docType: string, allCategories?: DossierCategoryConfig[]) => {
   const catKey = mapDocTypeToCategoryKey(docType);
   switch (catKey) {
     case 'CONTRACT':
@@ -173,17 +302,224 @@ export const renderDossierBadge = (docType: string) => {
           <Shield className="w-3 h-3" /> Tài sản BĐ
         </span>
       );
-    default:
+    case 'OTHER':
       return (
         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
           <FolderArchive className="w-3 h-3" /> Chứng từ khác
         </span>
       );
+    default: {
+      const match = allCategories?.find((c) => c.key === catKey || c.key === docType);
+      const label = match ? match.badgeLabel : docType;
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
+          <Tag className="w-3 h-3" /> {label}
+        </span>
+      );
+    }
   }
 };
 
+
+// ---------------------------------------------------------------------------
+// PIVOT TABLE DEFINITIONS & HELPERS
+// ---------------------------------------------------------------------------
+export interface PivotDimDef {
+  id: string;
+  label: string;
+  getValue: (loan: CreditFacility) => string;
+}
+
+export interface PivotMetricDef {
+  id: string;
+  label: string;
+  shortLabel: string;
+  format: (val: number) => string;
+  unit: string;
+  compute: (loans: CreditFacility[]) => number;
+}
+
+export const PIVOT_ROW_DIMENSIONS: PivotDimDef[] = [
+  {
+    id: 'bank_name',
+    label: 'Ngân hàng / TCTD',
+    getValue: (l) => l.bank_name || l.bank_code || 'Chưa xác định',
+  },
+  {
+    id: 'institution_type',
+    label: 'Loại tổ chức tín dụng',
+    getValue: (l) => {
+      if (l.institution_type === 'BANK') return 'Ngân hàng thương mại';
+      if (l.institution_type === 'FINANCE_COMPANY') return 'Công ty tài chính';
+      if (l.institution_type === 'LEASING_COMPANY') return 'Cho thuê tài chính';
+      return 'Tổ chức khác';
+    },
+  },
+  {
+    id: 'debt_group',
+    label: 'Phân loại nhóm nợ',
+    getValue: (l) => `Nhóm ${l.debt_group || '1'}`,
+  },
+  {
+    id: 'interest_payment_method',
+    label: 'Hình thức trả lãi',
+    getValue: (l) => {
+      if (l.interest_payment_method === 'MONTHLY') return 'Hàng tháng';
+      if (l.interest_payment_method === 'END_OF_TERM') return 'Cuối kỳ / Đáo hạn';
+      return 'Định kỳ khác';
+    },
+  },
+  {
+    id: 'term',
+    label: 'Thời hạn / Kỳ hạn',
+    getValue: (l) => l.term || 'Không ghi kỳ hạn',
+  },
+  {
+    id: 'disbursement_month',
+    label: 'Tháng giải ngân',
+    getValue: (l) => (l.disbursement_date ? l.disbursement_date.substring(0, 7) : 'Chưa có ngày'),
+  },
+  {
+    id: 'maturity_month',
+    label: 'Tháng đáo hạn',
+    getValue: (l) => (l.maturity_date ? l.maturity_date.substring(0, 7) : 'Chưa có ngày'),
+  },
+  {
+    id: 'is_manual',
+    label: 'Nguồn dữ liệu',
+    getValue: (l) => (l.is_manual ? 'Nhập nợ lẻ thủ công' : 'Bóc tách từ file sao kê'),
+  },
+  {
+    id: 'has_dossier',
+    label: 'Hồ sơ giải ngân',
+    getValue: (l) => ((l.dossier_files_count || 0) > 0 ? 'Đã có hồ sơ' : 'Chưa có hồ sơ'),
+  },
+];
+
+export const PIVOT_COL_DIMENSIONS: PivotDimDef[] = [
+  {
+    id: 'NONE',
+    label: '(Không phân chia cột - Bảng 1 Chiều)',
+    getValue: () => '__SINGLE__',
+  },
+  ...PIVOT_ROW_DIMENSIONS,
+];
+
+export const PIVOT_METRIC_DEFS: PivotMetricDef[] = [
+  {
+    id: 'current_principal_balance',
+    label: 'Tổng Dư Nợ Gốc (VNĐ)',
+    shortLabel: 'Dư Nợ Gốc',
+    unit: 'VNĐ',
+    format: (v) => `${Number(v).toLocaleString('vi-VN')} ₫`,
+    compute: (list) => list.reduce((sum, l) => sum + Number(l.current_principal_balance || 0), 0),
+  },
+  {
+    id: 'calculated_interest_due',
+    label: 'Tổng Tiền Lãi Dự Trả TT14 (VNĐ)',
+    shortLabel: 'Lãi Dự Trả',
+    unit: 'VNĐ',
+    format: (v) => `${Number(v).toLocaleString('vi-VN')} ₫`,
+    compute: (list) =>
+      list.reduce((sum, l) => sum + Number(l.calculated_interest_due ?? l.accrued_interest ?? 0), 0),
+  },
+  {
+    id: 'next_principal_amount',
+    label: 'Gốc Đến Hạn Kỳ Tới (VNĐ)',
+    shortLabel: 'Gốc Đến Hạn',
+    unit: 'VNĐ',
+    format: (v) => `${Number(v).toLocaleString('vi-VN')} ₫`,
+    compute: (list) => list.reduce((sum, l) => sum + Number(l.next_principal_amount || 0), 0),
+  },
+  {
+    id: 'wair',
+    label: 'Lãi Suất BQ Gia Quyền (WAIR %)',
+    shortLabel: 'Lãi Suất WAIR',
+    unit: '%/năm',
+    format: (v) => `${Number(v).toFixed(2)} %`,
+    compute: (list) => {
+      const totalP = list.reduce((sum, l) => sum + Number(l.current_principal_balance || 0), 0);
+      if (totalP <= 0) {
+        if (list.length === 0) return 0;
+        return list.reduce((sum, l) => sum + Number(l.interest_rate || 0), 0) / list.length;
+      }
+      const weightedSum = list.reduce(
+        (sum, l) => sum + Number(l.current_principal_balance || 0) * Number(l.interest_rate || 0),
+        0
+      );
+      return weightedSum / totalP;
+    },
+  },
+  {
+    id: 'count',
+    label: 'Số Lượng Hợp Đồng / Khế Ước',
+    shortLabel: 'Số Lượng HĐ',
+    unit: 'HĐ',
+    format: (v) => `${Number(v).toLocaleString('vi-VN')} HĐ`,
+    compute: (list) => list.length,
+  },
+];
+
+export const PIVOT_PRESETS = [
+  {
+    name: 'Ngân hàng × Nhóm nợ',
+    row: 'bank_name',
+    col: 'debt_group',
+    metric: 'current_principal_balance',
+  },
+  {
+    name: 'Ngân hàng × Hình thức trả lãi',
+    row: 'bank_name',
+    col: 'interest_payment_method',
+    metric: 'calculated_interest_due',
+  },
+  {
+    name: 'Loại TCTD × Kỳ hạn',
+    row: 'institution_type',
+    col: 'term',
+    metric: 'current_principal_balance',
+  },
+  {
+    name: 'Tháng đáo hạn × Ngân hàng',
+    row: 'maturity_month',
+    col: 'bank_name',
+    metric: 'next_principal_amount',
+  },
+  {
+    name: 'Ngân hàng × Hồ sơ giải ngân',
+    row: 'bank_name',
+    col: 'has_dossier',
+    metric: 'count',
+  },
+  {
+    name: 'Tổng hợp theo Ngân hàng (1D)',
+    row: 'bank_name',
+    col: 'NONE',
+    metric: 'current_principal_balance',
+  },
+];
+
 export const CreditStatementsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'loans' | 'files' | 'banks'>('loans');
+  const [activeTab, setActiveTab] = useState<'loans' | 'files' | 'banks' | 'pivot'>('loans');
+
+  // Sorting State
+  const [sortField, setSortField] = useState<string>('contract_number');
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  // Pivot Table State
+  const [pivotRowDim, setPivotRowDim] = useState<string>('bank_name');
+  const [pivotColDim, setPivotColDim] = useState<string>('debt_group');
+  const [pivotMetric, setPivotMetric] = useState<string>('current_principal_balance');
+  const [pivotSearch, setPivotSearch] = useState<string>('');
   const [loans, setLoans] = useState<CreditFacility[]>([]);
   const [files, setFiles] = useState<CreditStatementFile[]>([]);
   const [summary, setSummary] = useState<CreditFacilitySummary | null>(null);
@@ -199,6 +535,64 @@ export const CreditStatementsPage: React.FC = () => {
   const [institutionFilter, setInstitutionFilter] = useState<string>('ALL');
   const [sourceFilter, setSourceFilter] = useState<string>('ALL');
   const [dueFilter, setDueFilter] = useState<string>('ALL');
+
+  // Danh sách tổ chức tín dụng (kết hợp preset và các tổ chức tự nhập đã lưu vào localStorage / DB)
+  const [organizations, setOrganizations] = useState<PresetOrg[]>(() => {
+    const saved = loadSavedCustomOrgs();
+    const map = new Map<string, PresetOrg>();
+    PRESET_ORGANIZATIONS.forEach((o) => map.set(o.code, o));
+    saved.forEach((o) => {
+      if (o.code && !map.has(o.code)) {
+        map.set(o.code, o);
+      }
+    });
+    return Array.from(map.values());
+  });
+
+  // Đăng ký và ghi nhớ tổ chức mới vào bộ nhớ client & localStorage
+  const registerCustomOrg = (org: PresetOrg) => {
+    if (!org.code || !org.name) return;
+    const cleanCode = org.code.trim().toUpperCase();
+    const cleanName = org.name.trim();
+    setOrganizations((prev) => {
+      const map = new Map<string, PresetOrg>();
+      prev.forEach((o) => map.set(o.code, o));
+      map.set(cleanCode, {
+        code: cleanCode,
+        name: cleanName,
+        type: org.type,
+      });
+      const merged = Array.from(map.values());
+      const customOnly = merged.filter(
+        (m) => !PRESET_ORGANIZATIONS.some((p) => p.code === m.code && p.name === m.name)
+      );
+      try {
+        localStorage.setItem(CUSTOM_ORGS_STORAGE_KEY, JSON.stringify(customOnly));
+      } catch (e) {
+        console.warn('Lỗi khi lưu tổ chức tùy chỉnh vào localStorage', e);
+      }
+      return merged;
+    });
+  };
+
+  // Danh sách tổ chức cho bộ lọc danh sách khoản vay
+  const filterBankOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    loans.forEach((l) => {
+      const code = (l.bank_code || '').trim().toUpperCase();
+      if (code && !map.has(code)) {
+        map.set(code, l.bank_name || code);
+      }
+    });
+    organizations.forEach((o) => {
+      if (!map.has(o.code)) {
+        map.set(o.code, o.name);
+      }
+    });
+    return Array.from(map.entries())
+      .map(([code, name]) => ({ code, name }))
+      .sort((a, b) => a.code.localeCompare(b.code));
+  }, [loans, organizations]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -224,7 +618,8 @@ export const CreditStatementsPage: React.FC = () => {
     debt_group: '1',
     loan_type: 'SHORT_TERM',
     interest_payment_method: 'MONTHLY' as InterestPaymentMethod,
-    monthly_interest_due_day: 25 as number | null,
+    monthly_interest_due_day: 5 as number | null,
+    original_principal_balance: 0,
     current_principal_balance: 0,
     accrued_interest: 0,
     next_repayment_date: '',
@@ -251,6 +646,208 @@ export const CreditStatementsPage: React.FC = () => {
   const [entryBatchNote, setEntryBatchNote] = useState<string>('');
   const [isEntrySubmitting, setIsEntrySubmitting] = useState<boolean>(false);
   const [entryModalMsg, setEntryModalMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Danh mục loại hồ sơ giải ngân (kết hợp mặc định + các loại người dùng tự bổ sung qua localStorage)
+  const [dossierCategories, setDossierCategories] = useState<DossierCategoryConfig[]>(() => {
+    const saved = loadSavedCustomCategories();
+    const map = new Map<string, DossierCategoryConfig>();
+    DOSSIER_CATEGORIES.forEach((c) => map.set(c.key, c));
+    saved.forEach((c) => {
+      if (c.key && !map.has(c.key)) {
+        map.set(c.key, { ...c, isCustom: true });
+      }
+    });
+    return Array.from(map.values());
+  });
+
+  // Đăng ký loại hồ sơ mới
+  const registerCustomCategory = (cat: {
+    label: string;
+    shortLabel?: string;
+    key?: string;
+    description?: string;
+    examples?: string;
+  }) => {
+    const cleanLabel = cat.label.trim();
+    if (!cleanLabel) return null;
+
+    let cleanKey = (cat.key || '').trim().toUpperCase().replace(/[^A-Z0-9_]/g, '_');
+    if (!cleanKey) {
+      cleanKey = cleanLabel
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D')
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    }
+    if (!cleanKey) {
+      cleanKey = `CAT_${Date.now()}`;
+    }
+
+    const shortLabel = cat.shortLabel?.trim() || cleanLabel;
+    const badgeLabel = shortLabel;
+    const description = cat.description?.trim() || `Chứng từ, tài liệu thuộc nhóm ${cleanLabel}`;
+    const examples = cat.examples?.trim() || `${cleanKey.toLowerCase()}_01.pdf`;
+
+    const newCatItem: DossierCategoryConfig = {
+      key: cleanKey,
+      label: cleanLabel,
+      shortLabel: shortLabel,
+      badgeLabel: badgeLabel,
+      description: description,
+      examples: examples,
+      colorName: 'purple',
+      isCustom: true,
+    };
+
+    setDossierCategories((prev) => {
+      const map = new Map<string, DossierCategoryConfig>();
+      prev.forEach((c) => map.set(c.key, c));
+      map.set(cleanKey, newCatItem);
+      const merged = Array.from(map.values());
+      const customOnly = merged.filter((m) => m.isCustom);
+      try {
+        localStorage.setItem(CUSTOM_DOSSIER_CATEGORIES_STORAGE_KEY, JSON.stringify(customOnly));
+      } catch (e) {
+        console.warn('Lỗi khi lưu loại hồ sơ tùy chỉnh vào localStorage', e);
+      }
+      return merged;
+    });
+
+    return cleanKey;
+  };
+
+  // Xóa loại hồ sơ tùy chỉnh
+  const handleDeleteCustomCategory = (key: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!window.confirm('Bạn có chắc chắn muốn xóa loại hồ sơ này khỏi danh mục gợi ý?')) return;
+    setDossierCategories((prev) => {
+      const updated = prev.filter((c) => c.key !== key);
+      const customOnly = updated.filter((m) => m.isCustom);
+      try {
+        localStorage.setItem(CUSTOM_DOSSIER_CATEGORIES_STORAGE_KEY, JSON.stringify(customOnly));
+      } catch (err) {}
+      return updated;
+    });
+    if (stagedDocCategory === key) {
+      setStagedDocCategory('CONTRACT');
+    }
+    if (entryCategoryTab === key) {
+      setEntryCategoryTab('CONTRACT');
+    }
+  };
+
+  // Đồng bộ các loại hồ sơ từ danh sách tài liệu thực tế của khoản vay
+  const syncDocumentTypesIntoCategories = (docs: DisbursementDocument[]) => {
+    if (!Array.isArray(docs) || docs.length === 0) return;
+    setDossierCategories((prev) => {
+      const map = new Map<string, DossierCategoryConfig>();
+      prev.forEach((c) => map.set(c.key, c));
+      let hasNew = false;
+      docs.forEach((d) => {
+        const dtype = (d.document_type || '').trim().toUpperCase();
+        if (dtype && !map.has(dtype)) {
+          hasNew = true;
+          map.set(dtype, {
+            key: dtype,
+            label: `Hồ sơ ${dtype}`,
+            shortLabel: dtype,
+            badgeLabel: dtype,
+            description: `Chứng từ loại ${dtype}`,
+            examples: `${dtype.toLowerCase()}.pdf`,
+            colorName: 'purple',
+            isCustom: true,
+          });
+        }
+      });
+      if (!hasNew) return prev;
+      const merged = Array.from(map.values());
+      const customOnly = merged.filter((m) => m.isCustom);
+      try {
+        localStorage.setItem(CUSTOM_DOSSIER_CATEGORIES_STORAGE_KEY, JSON.stringify(customOnly));
+      } catch (e) {}
+      return merged;
+    });
+  };
+
+  // State Modal Thêm Loại Hồ Sơ
+  const [isAddCatModalOpen, setIsAddCatModalOpen] = useState<boolean>(false);
+  const [addCatContext, setAddCatContext] = useState<'createModal' | 'entryModal'>('createModal');
+  const [newCatLabel, setNewCatLabel] = useState<string>('');
+  const [newCatShortLabel, setNewCatShortLabel] = useState<string>('');
+  const [newCatKey, setNewCatKey] = useState<string>('');
+  const [newCatDesc, setNewCatDesc] = useState<string>('');
+  const [newCatExamples, setNewCatExamples] = useState<string>('');
+  const [newCatError, setNewCatError] = useState<string | null>(null);
+
+  const QUICK_CATEGORY_SUGGESTIONS = [
+    {
+      label: 'Thư Bảo Lãnh Thanh Toán & Thực Hiện HĐ',
+      shortLabel: 'Thư bảo lãnh',
+      key: 'GUARANTEE_LETTER',
+      desc: 'Thư bảo lãnh phát hành bởi ngân hàng: bảo lãnh thanh toán, bảo lãnh dự thầu, bảo lãnh tạm ứng, bảo lãnh bảo hành',
+      examples: 'Thu_bao_lanh_BIDV_5ty.pdf, Cam_ket_bao_lanh_VCB.pdf',
+    },
+    {
+      label: 'Biên Bản Nghiệm Thu & Bàn Giao',
+      shortLabel: 'Nghiệm thu',
+      key: 'ACCEPTANCE_RECORD',
+      desc: 'Biên bản nghiệm thu hoàn thành giai đoạn, biên bản bàn giao máy móc/công trình, xác nhận khối lượng hoàn thành',
+      examples: 'BB_Nghiem_thu_GiaiDoan1.pdf, BB_Ban_giao_day_chuyen.pdf',
+    },
+    {
+      label: 'Hồ Sơ Năng Lực & Pháp Lý Doanh Nghiệp',
+      shortLabel: 'Hồ sơ pháp lý',
+      key: 'LEGAL_DOSSIER',
+      desc: 'Đăng ký kinh doanh, điều lệ công ty, giấy phép đầu tư, giấy phép khai thác mỏ/xây dựng, CCCD người đại diện',
+      examples: 'GPKD_Sunrise_2026.pdf, Dieu_le_Cong_ty.pdf',
+    },
+    {
+      label: 'Bảo Hiểm Công Trình & Tài Sản',
+      shortLabel: 'Bảo hiểm',
+      key: 'INSURANCE_POLICY',
+      desc: 'Hợp đồng bảo hiểm cháy nổ bắt buộc, bảo hiểm mọi rủi ro xây dựng lắp đặt, biên lai nộp phí bảo hiểm',
+      examples: 'Hop_dong_bao_hiem_PJICO.pdf, Giay_chung_nhan_BH.pdf',
+    },
+    {
+      label: 'Phương Án Kinh Doanh & Kế Hoạch Trả Nợ',
+      shortLabel: 'Phương án KD',
+      key: 'BUSINESS_PLAN',
+      desc: 'Thuyết minh phương án vay vốn, kế hoạch tài chính luân chuyển dòng tiền, báo cáo doanh thu dự kiến',
+      examples: 'Phuong_an_kinh_doanh_2026.pdf, Du_toan_chi_phi_SXKD.pdf',
+    },
+  ];
+
+  const handleCreateCategorySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCatLabel.trim()) {
+      setNewCatError('Vui lòng nhập tên loại hồ sơ / chứng từ.');
+      return;
+    }
+    const createdKey = registerCustomCategory({
+      label: newCatLabel,
+      shortLabel: newCatShortLabel,
+      key: newCatKey,
+      description: newCatDesc,
+      examples: newCatExamples,
+    });
+    if (createdKey) {
+      if (addCatContext === 'createModal') {
+        setStagedDocCategory(createdKey);
+      } else {
+        setEntryCategoryTab(createdKey);
+      }
+    }
+    setIsAddCatModalOpen(false);
+    setNewCatLabel('');
+    setNewCatShortLabel('');
+    setNewCatKey('');
+    setNewCatDesc('');
+    setNewCatExamples('');
+    setNewCatError(null);
+  };
 
   // Helper tính lãi theo TT 14/2017/TT-NHNN preview
   const computeInterestPreview = (
@@ -281,14 +878,53 @@ export const CreditStatementsPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [loansRes, filesRes, summaryRes] = await Promise.all([
+      const [loansRes, filesRes, summaryRes, orgsRes] = await Promise.all([
         api.get('/loans', { params: { limit: 100 } }),
         api.get('/credit-statements', { params: { limit: 50 } }),
         api.get('/loans/summary'),
+        api.get('/loans/organizations').catch(() => ({ data: [] })),
       ]);
-      setLoans(loansRes.data.data || []);
+      const fetchedLoans: CreditFacility[] = loansRes.data.data || [];
+      setLoans(fetchedLoans);
       setFiles(filesRes.data.data || []);
       setSummary(summaryRes.data || null);
+
+      // Tự động đồng bộ các tổ chức từ máy chủ & các khoản vay hiện có vào danh sách gợi ý
+      setOrganizations((prev) => {
+        const map = new Map<string, PresetOrg>();
+        prev.forEach((o) => map.set(o.code, o));
+
+        if (Array.isArray(orgsRes.data)) {
+          orgsRes.data.forEach((item: any) => {
+            const code = (item.bank_code || '').trim().toUpperCase();
+            const name = (item.bank_name || '').trim();
+            const itype = (item.institution_type as InstitutionType) || 'OTHER';
+            if (code && !map.has(code)) {
+              map.set(code, { code, name: name || code, type: itype });
+            }
+          });
+        }
+
+        fetchedLoans.forEach((l) => {
+          const code = (l.bank_code || '').trim().toUpperCase();
+          if (code && !map.has(code)) {
+            map.set(code, {
+              code,
+              name: l.bank_name || code,
+              type: (l.institution_type as InstitutionType) || 'OTHER',
+            });
+          }
+        });
+
+        const merged = Array.from(map.values());
+        const customOnly = merged.filter(
+          (m) => !PRESET_ORGANIZATIONS.some((p) => p.code === m.code && p.name === m.name)
+        );
+        try {
+          localStorage.setItem(CUSTOM_ORGS_STORAGE_KEY, JSON.stringify(customOnly));
+        } catch (e) {}
+        return merged;
+      });
     } catch (err) {
       console.error('Lỗi khi tải dữ liệu sao kê tín dụng:', err);
     } finally {
@@ -371,6 +1007,177 @@ export const CreditStatementsPage: React.FC = () => {
     return `${Number(val).toLocaleString('vi-VN')} ₫`;
   };
 
+  const renderInvoiceReconciliationCard = (
+    principalBalance: number,
+    existingDocs: DisbursementDocument[],
+    stagedList: StagedDossierFile[]
+  ) => {
+    const validSavedInvoices = existingDocs.filter(
+      (d) => (d.invoice_total_amount && Number(d.invoice_total_amount) > 0) || d.file_name.toLowerCase().endsWith('.xml')
+    );
+    const validStagedInvoices = stagedList.filter(
+      (sf) => (sf.invoice_total_amount && Number(sf.invoice_total_amount) > 0) || sf.file.name.toLowerCase().endsWith('.xml')
+    );
+
+    const totalSavedAmount = validSavedInvoices.reduce(
+      (sum, d) => sum + (Number(d.invoice_total_amount) || 0),
+      0
+    );
+    const totalStagedAmount = validStagedInvoices.reduce(
+      (sum, sf) => sum + (Number(sf.invoice_total_amount) || 0),
+      0
+    );
+    const totalInvoiceAmount = totalSavedAmount + totalStagedAmount;
+    const totalXmlCount = validSavedInvoices.length + validStagedInvoices.length;
+
+    const isShortage = totalInvoiceAmount < principalBalance;
+    const shortageAmount = principalBalance > totalInvoiceAmount ? principalBalance - totalInvoiceAmount : 0;
+    const surplusAmount = totalInvoiceAmount > principalBalance ? totalInvoiceAmount - principalBalance : 0;
+    const coveragePercent = principalBalance > 0 ? Math.min(100, Math.round((totalInvoiceAmount / principalBalance) * 100)) : 100;
+
+    return (
+      <div
+        className={`p-4 rounded-xl border-2 shadow-xs transition-all ${
+          totalXmlCount === 0
+            ? 'bg-blue-50/70 border-blue-200 text-blue-950'
+            : isShortage
+            ? 'bg-rose-50/95 border-rose-300 text-rose-950 ring-2 ring-rose-200/50'
+            : 'bg-emerald-50/95 border-emerald-300 text-emerald-950 ring-2 ring-emerald-200/50'
+        }`}
+      >
+        <div className="flex items-start gap-3.5">
+          <div
+            className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-bold text-xl shadow-xs ${
+              totalXmlCount === 0
+                ? 'bg-blue-100 border border-blue-200 text-blue-700'
+                : isShortage
+                ? 'bg-rose-100 border border-rose-300 text-rose-700 animate-pulse'
+                : 'bg-emerald-100 border border-emerald-300 text-emerald-700'
+            }`}
+          >
+            {totalXmlCount === 0 ? (
+              <Info className="w-5 h-5 text-blue-600" />
+            ) : isShortage ? (
+              <AlertTriangle className="w-5 h-5 text-rose-600 animate-pulse" />
+            ) : (
+              <CheckCircle className="w-5 h-5 text-emerald-600" />
+            )}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h4
+                  className={`text-sm font-black tracking-tight uppercase ${
+                    totalXmlCount === 0
+                      ? 'text-blue-900'
+                      : isShortage
+                      ? 'text-rose-900'
+                      : 'text-emerald-900'
+                  }`}
+                >
+                  {totalXmlCount === 0
+                    ? 'Đối Soát Hóa Đơn Điện Tử XML Với Dư Nợ Gốc'
+                    : isShortage
+                    ? 'CẢNH BÁO: THIẾU HÓA ĐƠN GIẢI NGÂN'
+                    : 'ĐÃ ĐỦ HÓA ĐƠN GIẢI NGÂN HỢP LỆ'}
+                </h4>
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    totalXmlCount === 0
+                      ? 'bg-blue-100 text-blue-800 border-blue-300'
+                      : isShortage
+                      ? 'bg-rose-200 text-rose-900 border-rose-300'
+                      : 'bg-emerald-200 text-emerald-900 border-emerald-300'
+                  }`}
+                >
+                  {totalXmlCount === 0
+                    ? 'Chưa nạp XML'
+                    : isShortage
+                    ? `Đạt ${coveragePercent}% - Thiếu hóa đơn`
+                    : 'Đạt 100% - Đầy đủ'}
+                </span>
+              </div>
+
+              {isShortage && totalXmlCount > 0 && (
+                <span className="text-xs font-black text-rose-800 bg-white/90 px-3 py-1 rounded-lg border border-rose-300 shadow-2xs">
+                  Còn thiếu: {formatVND(shortageAmount)}
+                </span>
+              )}
+              {!isShortage && totalXmlCount > 0 && surplusAmount > 0 && (
+                <span className="text-xs font-bold text-emerald-800 bg-white/90 px-3 py-1 rounded-lg border border-emerald-300 shadow-2xs">
+                  Dư thừa: +{formatVND(surplusAmount)}
+                </span>
+              )}
+            </div>
+
+            {/* Dòng tóm tắt 3 cột đối soát */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2.5 pt-2 border-t border-slate-200/60 text-xs">
+              <div className="bg-white/70 p-2 rounded-lg border border-slate-200/80">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                  Dư Nợ Gốc Cần Bù Đắp
+                </span>
+                <span className="font-bold text-slate-900 text-sm">
+                  {formatVND(principalBalance)}
+                </span>
+              </div>
+              <div className="bg-white/70 p-2 rounded-lg border border-slate-200/80">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                  Tổng Tiền Hóa Đơn XML ({totalXmlCount} HĐ)
+                </span>
+                <span
+                  className={`font-bold text-sm ${
+                    isShortage && totalXmlCount > 0 ? 'text-rose-700' : 'text-emerald-700'
+                  }`}
+                >
+                  {formatVND(totalInvoiceAmount)}
+                </span>
+              </div>
+              <div className="bg-white/70 p-2 rounded-lg border border-slate-200/80">
+                <span className="text-[10px] text-slate-500 font-semibold uppercase block">
+                  Chênh Lệch / Trạng Thái
+                </span>
+                {totalXmlCount === 0 ? (
+                  <span className="font-bold text-blue-700 text-xs">Cần nạp file XML</span>
+                ) : isShortage ? (
+                  <span className="font-bold text-rose-700 text-sm">
+                    Thiếu -{formatVND(shortageAmount)}
+                  </span>
+                ) : (
+                  <span className="font-bold text-emerald-700 text-sm">Đã đủ 100%</span>
+                )}
+              </div>
+            </div>
+
+            {/* Thông điệp cảnh báo rõ ràng */}
+            {isShortage && totalXmlCount > 0 && (
+              <p className="text-xs text-rose-900 font-medium mt-2 bg-rose-100/70 p-2.5 rounded-lg border border-rose-200 leading-relaxed">
+                ⚠️ <strong>Cảnh báo:</strong> Tổng số tiền trên các hóa đơn điện tử XML (
+                <strong>{formatVND(totalInvoiceAmount)}</strong>) <strong>bé hơn dư nợ gốc</strong> (
+                <strong>{formatVND(principalBalance)}</strong>). Hệ thống cảnh báo{' '}
+                <strong>thiếu hóa đơn</strong> giải ngân. Vui lòng bổ sung thêm tối thiểu{' '}
+                <strong>{formatVND(shortageAmount)}</strong> hóa đơn XML để đảm bảo đủ tính pháp lý và hồ sơ sử dụng vốn tín dụng!
+              </p>
+            )}
+
+            {!isShortage && totalXmlCount > 0 && (
+              <p className="text-xs text-emerald-900 font-medium mt-2 bg-emerald-100/70 p-2.5 rounded-lg border border-emerald-200 leading-relaxed">
+                ✅ <strong>Đã đảm bảo:</strong> Toàn bộ dư nợ gốc ({formatVND(principalBalance)}) đã
+                được bao phủ đầy đủ bởi các hóa đơn điện tử XML hợp lệ ({formatVND(totalInvoiceAmount)}).
+              </p>
+            )}
+
+            {totalXmlCount === 0 && (
+              <p className="text-[11px] text-blue-800 mt-2">
+                💡 <strong>Ghi chú:</strong> Hồ sơ dạng hóa đơn gồm cả file <code>XML</code> và <code>PDF</code>. Hệ thống sẽ tự động đọc nội dung file XML để cộng dồn số tiền thanh toán <code>&lt;TgTTTBSo&gt;</code> và đối chiếu với dư nợ gốc của khoản vay.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // Mở modal tạo mới
   const handleOpenCreateModal = () => {
     setEditingLoan(null);
@@ -395,7 +1202,8 @@ export const CreditStatementsPage: React.FC = () => {
       debt_group: '1',
       loan_type: 'SHORT_TERM',
       interest_payment_method: 'MONTHLY' as InterestPaymentMethod,
-      monthly_interest_due_day: 25,
+      monthly_interest_due_day: 5,
+      original_principal_balance: 0,
       current_principal_balance: 0,
       accrued_interest: 0,
       next_repayment_date: '',
@@ -419,12 +1227,25 @@ export const CreditStatementsPage: React.FC = () => {
 
     // Tải danh sách hồ sơ giải ngân đã có của khoản vay
     api.get(`/loans/${loan.loan_id}/dossier`)
-      .then((res) => setEditModalDocs(res.data || []))
+      .then((res) => {
+        setEditModalDocs(res.data || []);
+        syncDocumentTypesIntoCategories(res.data || []);
+      })
       .catch((err) => console.error('Lỗi khi tải hồ sơ giải ngân:', err))
       .finally(() => setIsEditModalDocsLoading(false));
 
-    const matched = PRESET_ORGANIZATIONS.find((p) => p.code === loan.bank_code);
-    setFormOrgPreset(matched ? matched.code : 'CUSTOM');
+    const matched = organizations.find((p) => p.code === loan.bank_code);
+    if (matched) {
+      setFormOrgPreset(matched.code);
+    } else {
+      const customOrg: PresetOrg = {
+        code: loan.bank_code,
+        name: loan.bank_name || loan.bank_code,
+        type: (loan.institution_type as InstitutionType) || 'OTHER',
+      };
+      registerCustomOrg(customOrg);
+      setFormOrgPreset(loan.bank_code);
+    }
     setFormData({
       bank_code: loan.bank_code,
       bank_name: loan.bank_name,
@@ -441,7 +1262,8 @@ export const CreditStatementsPage: React.FC = () => {
       debt_group: loan.debt_group || '1',
       loan_type: loan.loan_type || 'SHORT_TERM',
       interest_payment_method: (loan.interest_payment_method || 'MONTHLY') as InterestPaymentMethod,
-      monthly_interest_due_day: loan.monthly_interest_due_day || 25,
+      monthly_interest_due_day: loan.monthly_interest_due_day || (loan.bank_code === 'CTG' ? 5 : 25),
+      original_principal_balance: Number(loan.original_principal_balance || loan.current_principal_balance) || 0,
       current_principal_balance: Number(loan.current_principal_balance) || 0,
       accrued_interest: Number(loan.accrued_interest) || 0,
       next_repayment_date: loan.next_repayment_date || '',
@@ -454,53 +1276,57 @@ export const CreditStatementsPage: React.FC = () => {
     setIsModalOpen(true);
   };
 
+  // Helper bóc tách hóa đơn XML và chuẩn bị tệp nạp
+  const stageFilesWithInvoiceParsing = async (
+    files: File[],
+    catKey: string
+  ): Promise<StagedDossierFile[]> => {
+    const validFiles: StagedDossierFile[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.size > 50 * 1024 * 1024) {
+        alert(`Tệp "${f.name}" vượt quá dung lượng tối đa 50MB.`);
+        continue;
+      }
+      let invoiceNumber: string | null = null;
+      let invoiceTotalAmount: number | null = null;
+      if (f.name.toLowerCase().endsWith('.xml') || f.type.includes('xml')) {
+        const parsed = await parseXmlInvoiceBrowser(f);
+        invoiceNumber = parsed.invoiceNumber;
+        invoiceTotalAmount = parsed.totalAmount;
+      }
+      validFiles.push({
+        id: `${Date.now()}-${i}-${f.name}`,
+        file: f,
+        document_type: catKey,
+        description: '',
+        invoice_number: invoiceNumber,
+        invoice_total_amount: invoiceTotalAmount,
+      });
+    }
+    return validFiles;
+  };
+
   // Handlers quản lý file hồ sơ giải ngân đính kèm trong Form Modal theo loại chứng từ
-  const handleAddStagedFilesForCategory = (
+  const handleAddStagedFilesForCategory = async (
     e: React.ChangeEvent<HTMLInputElement>,
     catKey: string
   ) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const files = Array.from(e.target.files);
     e.target.value = '';
-
-    const validFiles: StagedDossierFile[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (f.size > 50 * 1024 * 1024) {
-        alert(`Tệp "${f.name}" vượt quá dung lượng tối đa 50MB.`);
-        continue;
-      }
-      validFiles.push({
-        id: `${Date.now()}-${i}-${f.name}`,
-        file: f,
-        document_type: catKey,
-        description: '',
-      });
-    }
+    const validFiles = await stageFilesWithInvoiceParsing(files, catKey);
     setStagedFiles((prev) => [...prev, ...validFiles]);
   };
 
-  const handleDropStagedFilesForCategory = (
+  const handleDropStagedFilesForCategory = async (
     e: React.DragEvent<HTMLDivElement>,
     catKey: string
   ) => {
     e.preventDefault();
     if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
     const files = Array.from(e.dataTransfer.files);
-    const validFiles: StagedDossierFile[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (f.size > 50 * 1024 * 1024) {
-        alert(`Tệp "${f.name}" vượt quá dung lượng tối đa 50MB.`);
-        continue;
-      }
-      validFiles.push({
-        id: `${Date.now()}-${i}-${f.name}`,
-        file: f,
-        document_type: catKey,
-        description: '',
-      });
-    }
+    const validFiles = await stageFilesWithInvoiceParsing(files, catKey);
     setStagedFiles((prev) => [...prev, ...validFiles]);
   };
 
@@ -570,7 +1396,9 @@ export const CreditStatementsPage: React.FC = () => {
       setIsEntryDocsLoading(true);
       try {
         const res = await api.get(`/loans/${loanId}/dossier`);
-        setEntryDossierDocs(res.data || []);
+        const docs = res.data || [];
+        setEntryDossierDocs(docs);
+        syncDocumentTypesIntoCategories(docs);
       } catch (err: any) {
         console.error('Lỗi khi tải hồ sơ giải ngân:', err);
         setEntryDossierDocs([]);
@@ -588,7 +1416,9 @@ export const CreditStatementsPage: React.FC = () => {
     setIsEntryDocsLoading(true);
     try {
       const res = await api.get(`/loans/${loanId}/dossier`);
-      setEntryDossierDocs(res.data || []);
+      const docs = res.data || [];
+      setEntryDossierDocs(docs);
+      syncDocumentTypesIntoCategories(docs);
     } catch (err: any) {
       console.error('Lỗi khi tải hồ sơ giải ngân của khoản vay:', err);
       setEntryDossierDocs([]);
@@ -597,52 +1427,25 @@ export const CreditStatementsPage: React.FC = () => {
     }
   };
 
-  const handleAddEntryStagedFiles = (
+  const handleAddEntryStagedFiles = async (
     e: React.ChangeEvent<HTMLInputElement>,
     catKey: string
   ) => {
     if (!e.target.files || e.target.files.length === 0) return;
     const files = Array.from(e.target.files);
     e.target.value = '';
-
-    const validFiles: StagedDossierFile[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (f.size > 50 * 1024 * 1024) {
-        alert(`Tệp "${f.name}" vượt quá dung lượng tối đa 50MB.`);
-        continue;
-      }
-      validFiles.push({
-        id: `${Date.now()}-${i}-${f.name}`,
-        file: f,
-        document_type: catKey,
-        description: '',
-      });
-    }
+    const validFiles = await stageFilesWithInvoiceParsing(files, catKey);
     setEntryStagedFiles((prev) => [...prev, ...validFiles]);
   };
 
-  const handleDropEntryStagedFiles = (
+  const handleDropEntryStagedFiles = async (
     e: React.DragEvent<HTMLDivElement>,
     catKey: string
   ) => {
     e.preventDefault();
     if (!e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
     const files = Array.from(e.dataTransfer.files);
-    const validFiles: StagedDossierFile[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      if (f.size > 50 * 1024 * 1024) {
-        alert(`Tệp "${f.name}" vượt quá dung lượng tối đa 50MB.`);
-        continue;
-      }
-      validFiles.push({
-        id: `${Date.now()}-${i}-${f.name}`,
-        file: f,
-        document_type: catKey,
-        description: '',
-      });
-    }
+    const validFiles = await stageFilesWithInvoiceParsing(files, catKey);
     setEntryStagedFiles((prev) => [...prev, ...validFiles]);
   };
 
@@ -668,7 +1471,9 @@ export const CreditStatementsPage: React.FC = () => {
       await api.delete(`/loans/dossier/${documentId}`);
       if (entrySelectedLoanId) {
         const res = await api.get(`/loans/${entrySelectedLoanId}/dossier`);
-        setEntryDossierDocs(res.data || []);
+        const docs = res.data || [];
+        setEntryDossierDocs(docs);
+        syncDocumentTypesIntoCategories(docs);
       }
       await fetchData();
     } catch (err: any) {
@@ -724,7 +1529,9 @@ export const CreditStatementsPage: React.FC = () => {
       });
       setEntryStagedFiles([]);
       const res = await api.get(`/loans/${entrySelectedLoanId}/dossier`);
-      setEntryDossierDocs(res.data || []);
+      const docs = res.data || [];
+      setEntryDossierDocs(docs);
+      syncDocumentTypesIntoCategories(docs);
       await fetchData();
     } else {
       setEntryModalMsg({
@@ -745,7 +1552,7 @@ export const CreditStatementsPage: React.FC = () => {
         institution_type: 'OTHER',
       }));
     } else {
-      const org = PRESET_ORGANIZATIONS.find((o) => o.code === presetCode);
+      const org = organizations.find((o) => o.code === presetCode);
       if (org) {
         setFormData((prev) => ({
           ...prev,
@@ -753,6 +1560,7 @@ export const CreditStatementsPage: React.FC = () => {
           bank_name: org.name,
           institution_type: org.type,
           loan_type: org.type === 'LEASING_COMPANY' ? 'FINANCIAL_LEASE' : prev.loan_type,
+          monthly_interest_due_day: org.code === 'CTG' || org.code === 'CTG_LEASING' ? 5 : (prev.monthly_interest_due_day || 25),
         }));
       }
     }
@@ -823,6 +1631,7 @@ export const CreditStatementsPage: React.FC = () => {
           loan_type: formData.loan_type,
           interest_payment_method: formData.interest_payment_method,
           monthly_interest_due_day: formData.interest_payment_method === 'MONTHLY' ? formData.monthly_interest_due_day : null,
+          original_principal_balance: formData.original_principal_balance || formData.current_principal_balance,
           current_principal_balance: formData.current_principal_balance,
           accrued_interest: formData.accrued_interest,
           next_repayment_date: formData.next_repayment_date || null,
@@ -852,6 +1661,7 @@ export const CreditStatementsPage: React.FC = () => {
           loan_type: formData.loan_type,
           interest_payment_method: formData.interest_payment_method,
           monthly_interest_due_day: formData.interest_payment_method === 'MONTHLY' ? formData.monthly_interest_due_day : null,
+          original_principal_balance: formData.original_principal_balance || formData.current_principal_balance,
           current_principal_balance: formData.current_principal_balance,
           accrued_interest: formData.accrued_interest,
           next_repayment_date: formData.next_repayment_date || null,
@@ -884,6 +1694,13 @@ export const CreditStatementsPage: React.FC = () => {
           }
         }
       }
+
+      // Tự động bổ sung và ghi nhớ tổ chức vừa nhập vào danh mục gợi ý cho các lần sau
+      registerCustomOrg({
+        code: formData.bank_code.trim().toUpperCase(),
+        name: formData.bank_name.trim(),
+        type: formData.institution_type,
+      });
 
       setStagedFiles([]);
       setIsModalOpen(false);
@@ -963,6 +1780,275 @@ export const CreditStatementsPage: React.FC = () => {
     }
     return true;
   });
+
+  // Sắp xếp danh sách khoản vay theo cột đang chọn (Sort tính năng theo yêu cầu)
+  const sortedLoans = useMemo(() => {
+    return [...filteredLoans].sort((a: any, b: any) => {
+      let aVal = a[sortField];
+      let bVal = b[sortField];
+
+      if (sortField === 'original_principal_balance') {
+        aVal = Number(a.original_principal_balance || a.current_principal_balance || 0);
+        bVal = Number(b.original_principal_balance || b.current_principal_balance || 0);
+      } else if (sortField === 'total_repaid_principal') {
+        aVal = Number(a.total_repaid_principal || 0);
+        bVal = Number(b.total_repaid_principal || 0);
+      }
+
+      if (aVal === null || aVal === undefined) aVal = '';
+      if (bVal === null || bVal === undefined) bVal = '';
+
+      // Số học
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      // Chuỗi ký tự (tiếng Việt có dấu và số)
+      const strA = String(aVal);
+      const strB = String(bVal);
+      const cmp = strA.localeCompare(strB, 'vi', { numeric: true, sensitivity: 'base' });
+      return sortDirection === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredLoans, sortField, sortDirection]);
+
+  // Phân trang danh sách khoản vay (Đảm bảo bảng chỉ dài đúng 1 trang màn hình)
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(10);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, bankFilter, institutionFilter, sourceFilter, dueFilter, sortField, sortDirection]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedLoans.length / (pageSize >= 9999 ? 1 : pageSize)));
+  const paginatedLoans = useMemo(() => {
+    if (pageSize >= 9999) return sortedLoans;
+    const start = (currentPage - 1) * pageSize;
+    return sortedLoans.slice(start, start + pageSize);
+  }, [sortedLoans, currentPage, pageSize]);
+
+  const renderSortHeader = (field: string, label: string, align: 'left' | 'center' | 'right' = 'left') => {
+    const isActive = sortField === field;
+    const isFirstCol = field === 'contract_number';
+    return (
+      <th
+        onClick={() => handleSort(field)}
+        className={`py-3 px-3 cursor-pointer select-none transition-colors whitespace-nowrap group hover:bg-slate-200/80 ${
+          isActive ? 'text-indigo-700 bg-indigo-50/50' : 'text-slate-600'
+        } ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'} ${
+          isFirstCol
+            ? 'sticky left-0 bg-slate-100 z-30 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-200'
+            : ''
+        }`}
+        title={`Click để sắp xếp theo ${label} (${isActive && sortDirection === 'asc' ? 'Giảm dần' : 'Tăng dần'})`}
+      >
+        <div
+          className={`inline-flex items-center gap-1.5 ${
+            align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'
+          }`}
+        >
+          <span>{label}</span>
+          {isActive ? (
+            sortDirection === 'asc' ? (
+              <ArrowUp className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+            ) : (
+              <ArrowDown className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+            )
+          ) : (
+            <ArrowUpDown className="w-3 h-3 text-slate-400 group-hover:text-slate-600 opacity-60 group-hover:opacity-100 flex-shrink-0" />
+          )}
+        </div>
+      </th>
+    );
+  };
+
+  // ---------------------------------------------------------------------------
+  // PIVOT MATRIX COMPUTATION
+  // ---------------------------------------------------------------------------
+  const pivotResult = useMemo(() => {
+    const rowDef = PIVOT_ROW_DIMENSIONS.find((d) => d.id === pivotRowDim) || PIVOT_ROW_DIMENSIONS[0];
+    const is2D = pivotColDim !== 'NONE';
+    const colDef = is2D ? PIVOT_COL_DIMENSIONS.find((d) => d.id === pivotColDim) : null;
+    const metricDef = PIVOT_METRIC_DEFS.find((m) => m.id === pivotMetric) || PIVOT_METRIC_DEFS[0];
+
+    const loansToPivot = filteredLoans.filter((l) => {
+      if (!pivotSearch.trim()) return true;
+      const q = pivotSearch.toLowerCase();
+      return (
+        (l.bank_name && l.bank_name.toLowerCase().includes(q)) ||
+        (l.bank_code && l.bank_code.toLowerCase().includes(q)) ||
+        (l.contract_number && l.contract_number.toLowerCase().includes(q)) ||
+        (l.borrower_name && l.borrower_name.toLowerCase().includes(q)) ||
+        (l.loan_purpose && l.loan_purpose.toLowerCase().includes(q))
+      );
+    });
+
+    const rowKeysSet = new Set<string>();
+    const colKeysSet = new Set<string>();
+    const grid: Record<string, Record<string, CreditFacility[]>> = {};
+
+    loansToPivot.forEach((loan) => {
+      const rKey = rowDef.getValue(loan);
+      const cKey = colDef ? colDef.getValue(loan) : '__SINGLE__';
+
+      rowKeysSet.add(rKey);
+      if (colDef) colKeysSet.add(cKey);
+
+      if (!grid[rKey]) grid[rKey] = {};
+      if (!grid[rKey][cKey]) grid[rKey][cKey] = [];
+      grid[rKey][cKey].push(loan);
+    });
+
+    const sortedRowKeys = Array.from(rowKeysSet).sort((a, b) =>
+      a.localeCompare(b, 'vi', { numeric: true })
+    );
+    const sortedColKeys = colDef
+      ? Array.from(colKeysSet).sort((a, b) => a.localeCompare(b, 'vi', { numeric: true }))
+      : ['__SINGLE__'];
+
+    const matrix: Record<string, Record<string, number>> = {};
+    const matrixCounts: Record<string, Record<string, number>> = {};
+    const rowTotals: Record<string, number> = {};
+    const rowCounts: Record<string, number> = {};
+    const colTotals: Record<string, number> = {};
+    const colCounts: Record<string, number> = {};
+    let grandMax = 0;
+
+    sortedRowKeys.forEach((rKey) => {
+      matrix[rKey] = {};
+      matrixCounts[rKey] = {};
+      const allRowLoans: CreditFacility[] = [];
+
+      sortedColKeys.forEach((cKey) => {
+        const cellLoans = grid[rKey]?.[cKey] || [];
+        const val = metricDef.compute(cellLoans);
+        matrix[rKey][cKey] = val;
+        matrixCounts[rKey][cKey] = cellLoans.length;
+        if (val > grandMax) grandMax = val;
+        allRowLoans.push(...cellLoans);
+      });
+
+      rowTotals[rKey] = metricDef.compute(allRowLoans);
+      rowCounts[rKey] = allRowLoans.length;
+    });
+
+    sortedColKeys.forEach((cKey) => {
+      const allColLoans: CreditFacility[] = [];
+      sortedRowKeys.forEach((rKey) => {
+        const cellLoans = grid[rKey]?.[cKey] || [];
+        allColLoans.push(...cellLoans);
+      });
+      colTotals[cKey] = metricDef.compute(allColLoans);
+      colCounts[cKey] = allColLoans.length;
+    });
+
+    const grandTotal = metricDef.compute(loansToPivot);
+
+    // Summary KPIs for current pivot subset
+    const totalPrincipal = loansToPivot.reduce((s, l) => s + Number(l.current_principal_balance || 0), 0);
+    const totalInterest = loansToPivot.reduce(
+      (s, l) => s + Number(l.calculated_interest_due ?? l.accrued_interest ?? 0),
+      0
+    );
+    const totalNextPrincipal = loansToPivot.reduce((s, l) => s + Number(l.next_principal_amount || 0), 0);
+    const avgWair =
+      totalPrincipal > 0
+        ? loansToPivot.reduce(
+            (s, l) => s + Number(l.current_principal_balance || 0) * Number(l.interest_rate || 0),
+            0
+          ) / totalPrincipal
+        : 0;
+
+    return {
+      rowDef,
+      colDef,
+      is2D,
+      metricDef,
+      loansCount: loansToPivot.length,
+      sortedRowKeys,
+      sortedColKeys,
+      matrix,
+      matrixCounts,
+      rowTotals,
+      rowCounts,
+      colTotals,
+      colCounts,
+      grandTotal,
+      grandMax,
+      kpis: {
+        totalPrincipal,
+        totalInterest,
+        totalNextPrincipal,
+        avgWair,
+        totalLoans: loansToPivot.length,
+      },
+    };
+  }, [filteredLoans, pivotRowDim, pivotColDim, pivotMetric, pivotSearch]);
+
+  const handleExportPivotCSV = () => {
+    if (!pivotResult) return;
+    const {
+      rowDef,
+      colDef,
+      is2D,
+      metricDef,
+      sortedRowKeys,
+      sortedColKeys,
+      matrix,
+      rowTotals,
+      colTotals,
+      grandTotal,
+    } = pivotResult;
+
+    const rows: string[][] = [];
+
+    if (is2D && colDef) {
+      rows.push([`${rowDef.label} \\ ${colDef.label}`, ...sortedColKeys, 'Tổng Cộng']);
+    } else {
+      rows.push([rowDef.label, metricDef.label]);
+    }
+
+    sortedRowKeys.forEach((rKey) => {
+      if (is2D && colDef) {
+        const colVals = sortedColKeys.map((cKey) => {
+          const v = matrix[rKey]?.[cKey] || 0;
+          return metricDef.format(v);
+        });
+        rows.push([rKey, ...colVals, metricDef.format(rowTotals[rKey] || 0)]);
+      } else {
+        rows.push([rKey, metricDef.format(matrix[rKey]?.['__SINGLE__'] || 0)]);
+      }
+    });
+
+    if (is2D && colDef) {
+      const colTotalVals = sortedColKeys.map((cKey) => metricDef.format(colTotals[cKey] || 0));
+      rows.push(['TỔNG TẤT CẢ', ...colTotalVals, metricDef.format(grandTotal)]);
+    } else {
+      rows.push(['TỔNG TẤT CẢ', metricDef.format(grandTotal)]);
+    }
+
+    const csvContent =
+      '\uFEFF' +
+      rows
+        .map((row) =>
+          row
+            .map((cell) => {
+              const str = String(cell ?? '').replace(/"/g, '""');
+              return `"${str}"`;
+            })
+            .join(',')
+        )
+        .join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `pivot_khoan_vay_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-6">
@@ -1163,6 +2249,17 @@ export const CreditStatementsPage: React.FC = () => {
             <FileSpreadsheet className="w-4 h-4" />
             <span>Lịch Sử File Sao Kê Đã Nạp ({files.length})</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('pivot')}
+            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'pivot'
+              ? 'border-indigo-600 text-indigo-600 font-semibold'
+              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+              }`}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            <span>Phân Tích Đa Chiều (Pivot)</span>
+          </button>
         </nav>
       </div>
 
@@ -1214,16 +2311,14 @@ export const CreditStatementsPage: React.FC = () => {
                 aria-label="Lọc theo ngân hàng"
                 value={bankFilter}
                 onChange={(e) => setBankFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[200px] truncate"
               >
-                <option value="ALL">Tất cả mã tổ chức</option>
-                <option value="CTG">VietinBank (CTG)</option>
-                <option value="MBB">MBBank (MBB)</option>
-                <option value="BIDV">BIDV</option>
-                <option value="FE_CREDIT">FE Credit</option>
-                <option value="HOME_CREDIT">Home Credit</option>
-                <option value="CHAILEASE">Chailease</option>
-                <option value="BSL">BSL Leasing</option>
+                <option value="ALL">Tất cả tổ chức tín dụng</option>
+                {filterBankOptions.map((b) => (
+                  <option key={b.code} value={b.code}>
+                    {b.code} - {b.name}
+                  </option>
+                ))}
               </select>
 
               {/* Lọc hạn thanh toán */}
@@ -1249,56 +2344,79 @@ export const CreditStatementsPage: React.FC = () => {
           </div>
 
           {/* Table */}
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
+          <div className="overflow-x-auto max-h-[calc(100vh-320px)] min-h-[380px] overflow-y-auto">
+            <table className="w-full min-w-full text-left text-xs border-collapse">
+              <thead className="sticky top-0 bg-slate-100 z-20 shadow-xs">
                 <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider">
-                  <th className="py-3 px-3">Số HĐ / Khế Ước</th>
-                  <th className="py-3 px-3">Tổ Chức Cấp Tín Dụng</th>
-                  <th className="py-3 px-3">Loại Tổ Chức & Nguồn</th>
-                  <th className="py-3 px-3">Mục Đích Khoản Vay</th>
-                  <th className="py-3 px-3 text-right">Dư Nợ Gốc (VND)</th>
-                  <th className="py-3 px-3 text-center">Lãi Suất</th>
-                  <th className="py-3 px-3 text-center">Hình Thức Trả Lãi</th>
-                  <th className="py-3 px-3 text-right">Lãi Cần Trả (TT14)</th>
-                  <th className="py-3 px-3">Thời Hạn</th>
-                  <th className="py-3 px-3 text-right">Gốc Đến Hạn</th>
-                  <th className="py-3 px-3 text-center">Ngày Trả Nợ</th>
-                  <th className="py-3 px-3 text-center">Hồ Sơ Giải Ngân</th>
-                  <th className="py-3 px-3 text-center">Nhóm Nợ</th>
-                  <th className="py-3 px-3 text-center min-w-[90px] sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-slate-200">
+                  {renderSortHeader('contract_number', 'Số HĐ / Khế Ước', 'left')}
+                  {renderSortHeader('bank_name', 'Tổ Chức Cấp Tín Dụng', 'left')}
+                  {renderSortHeader('institution_type', 'Loại Tổ Chức & Nguồn', 'left')}
+                  {renderSortHeader('loan_purpose', 'Mục Đích Khoản Vay', 'left')}
+                  {renderSortHeader('original_principal_balance', 'Dư Nợ Gốc Ban Đầu', 'right')}
+                  {renderSortHeader('total_repaid_principal', 'Đã Trả Gốc', 'right')}
+                  {renderSortHeader('current_principal_balance', 'Dư Nợ Gốc Hiện Tại (Tính Lãi)', 'right')}
+                  {renderSortHeader('interest_rate', 'Lãi Suất', 'center')}
+                  {renderSortHeader('interest_payment_method', 'Hình Thức Trả Lãi', 'center')}
+                  {renderSortHeader('calculated_interest_due', 'Lãi Cần Trả (TT14)', 'right')}
+                  {renderSortHeader('disbursement_date', 'Ngày Giải Ngân', 'center')}
+                  {renderSortHeader('maturity_date', 'Thời Hạn / Đáo Hạn', 'left')}
+                  {renderSortHeader('next_principal_amount', 'Gốc Đến Hạn', 'right')}
+                  {renderSortHeader('next_repayment_date', 'Ngày Trả Nợ', 'center')}
+                  {renderSortHeader('dossier_files_count', 'Hồ Sơ Giải Ngân', 'center')}
+                  {renderSortHeader('debt_group', 'Nhóm Nợ', 'center')}
+                  <th className="py-3 px-3 text-center min-w-[80px] sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-slate-200">
                     Thao Tác
                   </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredLoans.length === 0 ? (
+                {sortedLoans.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="py-8 text-center text-slate-400">
+                    <td colSpan={17} className="py-8 text-center text-slate-400">
                       Chưa có khoản vay hoặc khoản nợ lẻ nào phù hợp với điều kiện lọc.
                     </td>
                   </tr>
                 ) : (
-                  filteredLoans.map((loan) => {
+                  paginatedLoans.map((loan) => {
                     const instType = loan.institution_type || 'BANK';
+                    const hasDossier = (loan.dossier_files_count || 0) > 0;
                     return (
                       <tr key={loan.loan_id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="py-2.5 px-3 font-semibold text-indigo-700">
-                          <div className="flex items-center gap-1.5">
-                            <span>{loan.contract_number}</span>
-                            {loan.term && <span className="text-slate-400 font-normal text-xs">({loan.term})</span>}
+                        <td className="py-3 px-3 font-semibold text-indigo-700 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100">
+                          <div className="flex items-center gap-2">
+                            {hasDossier ? (
+                              <span
+                                className="cursor-pointer"
+                                title="Khoản vay ĐÃ CÓ hồ sơ/sao kê lưu trữ"
+                                onClick={() => handleOpenEditModal(loan)}
+                              >
+                                <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0 hover:text-indigo-800" />
+                              </span>
+                            ) : (
+                              <span
+                                className="cursor-pointer"
+                                title="Khoản vay CHƯA CÓ hồ sơ/sao kê lưu trữ"
+                                onClick={() => handleOpenEditModal(loan)}
+                              >
+                                <File className="w-4 h-4 text-slate-400 flex-shrink-0 hover:text-slate-600" />
+                              </span>
+                            )}
+                            <div className="flex items-center gap-1.5">
+                              <span>{loan.contract_number}</span>
+                              {loan.term && <span className="text-slate-400 font-normal text-xs">({loan.term})</span>}
+                            </div>
                           </div>
                           {loan.note && (
-                            <p className="text-[10px] text-slate-400 font-normal truncate max-w-[140px]" title={loan.note}>
+                            <p className="text-[10px] text-slate-400 font-normal truncate max-w-[200px] pl-6 mt-0.5" title={loan.note}>
                               {loan.note}
                             </p>
                           )}
                         </td>
-                        <td className="py-2.5 px-3">
-                          <div className="font-semibold text-slate-800">{loan.bank_name}</div>
-                          <div className="text-[10px] font-mono text-slate-500">{loan.bank_code}</div>
+                        <td className="py-3 px-3 min-w-[220px] max-w-[340px]">
+                          <div className="font-semibold text-slate-800 leading-snug">{loan.bank_name}</div>
+                          <div className="text-[10px] font-mono text-slate-500 mt-0.5">{loan.bank_code}</div>
                         </td>
-                        <td className="py-2.5 px-3">
+                        <td className="py-3 px-3 whitespace-nowrap">
                           <div className="flex flex-col gap-1 items-start">
                             {/* Badge loại tổ chức */}
                             {instType === 'BANK' && (
@@ -1340,16 +2458,40 @@ export const CreditStatementsPage: React.FC = () => {
                             )}
                           </div>
                         </td>
-                        <td className="py-2.5 px-3 max-w-xs truncate text-slate-600" title={loan.loan_purpose || ''}>
+                        <td className="py-3 px-3 min-w-[200px] max-w-sm text-slate-600 leading-snug" title={loan.loan_purpose || ''}>
                           {loan.loan_purpose || 'Vay vốn phục vụ SXKD'}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900">
-                          {Number(loan.current_principal_balance).toLocaleString('vi-VN')} ₫
+                        {/* 1. Dư nợ gốc ban đầu (Cố định không đổi sau giải ngân) */}
+                        <td className="py-3 px-3 text-right font-medium text-slate-700 whitespace-nowrap" title="Dư nợ gốc giải ngân ban đầu ghi nhận trên hợp đồng tín dụng/khế ước (Giá trị cố định không đổi)">
+                          {Number(loan.original_principal_balance || loan.current_principal_balance).toLocaleString('vi-VN')} ₫
                         </td>
-                        <td className="py-2.5 px-3 text-center font-medium text-slate-700">
+
+                        {/* 2. Đã trả gốc (Tổng nợ gốc đã trả từ sao kê) */}
+                        <td className="py-3 px-3 text-right whitespace-nowrap" title="Tổng số tiền nợ gốc đã trả">
+                          {Number(loan.total_repaid_principal || 0) > 0 ? (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                              -{Number(loan.total_repaid_principal).toLocaleString('vi-VN')} ₫
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-mono">-</span>
+                          )}
+                        </td>
+
+                        {/* 3. Dư nợ gốc hiện tại (Mốc tính lãi = Gốc ban đầu - Đã trả gốc) */}
+                        <td className="py-3 px-3 text-right font-bold text-slate-900 whitespace-nowrap" title="Dư nợ gốc hiện tại (Sau khi trừ nợ gốc đã trả - Mốc để tính tiền lãi theo thời gian)">
+                          <div>
+                            <span>{Number(loan.current_principal_balance).toLocaleString('vi-VN')} ₫</span>
+                            {Number(loan.total_repaid_principal || 0) > 0 && Number(loan.original_principal_balance || 0) > 0 && (
+                              <span className="block text-[10px] text-emerald-600 font-medium">
+                                (Còn {((Number(loan.current_principal_balance) / Number(loan.original_principal_balance)) * 100).toFixed(1)}%)
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 text-center font-medium text-slate-700 whitespace-nowrap">
                           {Number(loan.interest_rate).toFixed(2)}%
                         </td>
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
                           {loan.interest_payment_method === 'END_OF_TERM' ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
                               Cuối kỳ
@@ -1357,24 +2499,33 @@ export const CreditStatementsPage: React.FC = () => {
                           ) : (
                             <span
                               className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200"
-                              title={`Trả lãi định kỳ ngày ${loan.monthly_interest_due_day || 25} hằng tháng`}
+                              title={`Trả lãi định kỳ ngày ${loan.monthly_interest_due_day || (loan.bank_code === 'CTG' ? 5 : 25)} hằng tháng`}
                             >
-                              Hằng tháng (ngày {loan.monthly_interest_due_day || 25})
+                              Hằng tháng (ngày {loan.monthly_interest_due_day || (loan.bank_code === 'CTG' ? 5 : 25)})
                             </span>
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-emerald-700 whitespace-nowrap" title="Số lãi cần trả tính theo Thông tư 14/2017/TT-NHNN (Cơ sở 365 ngày)">
+                        <td className="py-3 px-3 text-right font-bold text-emerald-700 whitespace-nowrap" title="Số lãi cần trả tính theo Thông tư 14/2017/TT-NHNN (Cơ sở 365 ngày)">
                           {Number(loan.calculated_interest_due || 0).toLocaleString('vi-VN')} ₫
                         </td>
-                        <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                          {loan.disbursement_date || '-'} $\rightarrow$ {loan.maturity_date || '-'}
+                        {/* Cột Ngày Giải Ngân */}
+                        <td className="py-3 px-3 text-center text-slate-700 whitespace-nowrap font-mono text-[11px]">
+                          {loan.disbursement_date || '-'}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-medium text-slate-700">
+                        {/* Cột Thời Hạn / Đáo Hạn */}
+                        <td className="py-3 px-3 text-slate-600 whitespace-nowrap">
+                          {loan.maturity_date ? (
+                            <span>{loan.maturity_date}</span>
+                          ) : (
+                            <span className="text-slate-400">-</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right font-medium text-slate-700 whitespace-nowrap">
                           {loan.next_principal_amount > 0
                             ? `${Number(loan.next_principal_amount).toLocaleString('vi-VN')} ₫`
                             : '-'}
                         </td>
-                        <td className="py-2.5 px-3 text-center text-slate-600 whitespace-nowrap">
+                        <td className="py-3 px-3 text-center text-slate-600 whitespace-nowrap">
                           {loan.next_repayment_date ? (
                             <span className="inline-flex items-center gap-1 font-medium text-indigo-600">
                               <Calendar className="w-3.5 h-3.5" />
@@ -1384,20 +2535,51 @@ export const CreditStatementsPage: React.FC = () => {
                             '-'
                           )}
                         </td>
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap">
-                          {(loan.dossier_files_count || 0) > 0 ? (
-                            <span
-                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
-                              title={`${loan.dossier_files_count} chứng từ giải ngân đã lưu trữ`}
-                            >
-                              <CheckCircle className="w-3 h-3 text-emerald-600" />
-                              <span>{loan.dossier_files_count} chứng từ</span>
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 text-xs">-</span>
-                          )}
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
+                          <div className="flex flex-col items-center gap-1">
+                            {(loan.dossier_files_count || 0) > 0 ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer hover:bg-emerald-100 transition-colors"
+                                title={`${loan.dossier_files_count} chứng từ giải ngân đã lưu trữ. Bấm để xem và quản lý hồ sơ.`}
+                                onClick={() => handleOpenDossierEntryModal(loan)}
+                              >
+                                <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                <span>{loan.dossier_files_count} chứng từ</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenDossierEntryModal(loan)}
+                                className="text-slate-400 hover:text-indigo-600 text-xs hover:underline cursor-pointer"
+                                title="Bấm để nạp hồ sơ giải ngân"
+                              >
+                                Chưa có hồ sơ
+                              </button>
+                            )}
+
+                            {/* Cảnh báo thiếu hóa đơn hoặc thông báo đủ hóa đơn XML */}
+                            {loan.invoice_reconciliation_status === 'DEFICIENT' && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse cursor-pointer hover:bg-rose-200 transition-colors shadow-2xs"
+                                title={`⚠️ Thiếu hóa đơn giải ngân! Tổng HĐ: ${formatVND(loan.total_invoices_amount)} < Dư nợ gốc: ${formatVND(loan.current_principal_balance)} (Còn thiếu ${formatVND(loan.invoice_shortage_amount)})`}
+                                onClick={() => handleOpenDossierEntryModal(loan)}
+                              >
+                                <AlertTriangle className="w-3 h-3 text-rose-600 flex-shrink-0" />
+                                <span>Thiếu HĐ (-{formatVND(loan.invoice_shortage_amount)})</span>
+                              </span>
+                            )}
+                            {loan.invoice_reconciliation_status === 'SUFFICIENT' && (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer hover:bg-emerald-200 transition-colors"
+                                title={`✅ Đã đủ hóa đơn giải ngân: ${formatVND(loan.total_invoices_amount)} >= Dư nợ gốc: ${formatVND(loan.current_principal_balance)}`}
+                                onClick={() => handleOpenDossierEntryModal(loan)}
+                              >
+                                <span>Đủ HĐ XML</span>
+                              </span>
+                            )}
+                          </div>
                         </td>
-                        <td className="py-2.5 px-3 text-center">
+                        <td className="py-3 px-3 text-center whitespace-nowrap">
                           <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
                             Nhóm {loan.debt_group}
                           </span>
@@ -1418,6 +2600,88 @@ export const CreditStatementsPage: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+
+          {/* Thanh Phân Trang (Đảm bảo bảng chỉ dài đúng 1 trang) */}
+          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 select-none">
+            {/* Trái: Thống kê số lượng bản ghi hiển thị */}
+            <div className="flex items-center gap-1.5">
+              <span>Hiển thị</span>
+              <span className="font-bold text-slate-900">
+                {sortedLoans.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
+              </span>
+              <span>-</span>
+              <span className="font-bold text-slate-900">
+                {Math.min(sortedLoans.length, currentPage * pageSize)}
+              </span>
+              <span>trên tổng số</span>
+              <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+                {sortedLoans.length}
+              </span>
+              <span>khoản vay</span>
+            </div>
+
+            {/* Giữa: Lựa chọn số dòng mỗi trang */}
+            <div className="flex items-center gap-2">
+              <span className="text-slate-500 font-medium">Mỗi trang:</span>
+              <select
+                value={pageSize}
+                onChange={(e) => {
+                  setPageSize(Number(e.target.value));
+                  setCurrentPage(1);
+                }}
+                className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs"
+              >
+                <option value={10}>10 dòng / trang (Chuẩn 1 trang)</option>
+                <option value={15}>15 dòng / trang</option>
+                <option value={20}>20 dòng / trang</option>
+                <option value={50}>50 dòng / trang</option>
+                <option value={9999}>Tất cả ({sortedLoans.length})</option>
+              </select>
+            </div>
+
+            {/* Phải: Các nút chuyển trang */}
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage <= 1}
+                className="p-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors shadow-2xs"
+                title="Về trang đầu tiên"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage <= 1}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors font-medium shadow-2xs"
+                title="Trang trước"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Trước</span>
+              </button>
+
+              <div className="px-2 font-semibold text-slate-700">
+                Trang <span className="text-indigo-600 font-bold">{currentPage}</span> / {totalPages}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage >= totalPages}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors font-medium shadow-2xs"
+                title="Trang tiếp theo"
+              >
+                <span>Sau</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors shadow-2xs"
+                title="Đến trang cuối cùng"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -1488,7 +2752,7 @@ export const CreditStatementsPage: React.FC = () => {
       {activeTab === 'files' && (
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
+            <table className="w-full min-w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider">
                   <th className="py-3 px-3">File ID</th>
@@ -1556,6 +2820,416 @@ export const CreditStatementsPage: React.FC = () => {
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* TAB 4: PHÂN TÍCH ĐA CHIỀU (PIVOT TABLE) CHO DANH MỤC KHOẢN VAY            */}
+      {/* ========================================================================= */}
+      {activeTab === 'pivot' && (
+        <div className="space-y-5">
+          {/* Top Card: Title, Subtitle, Quick Presets & Export */}
+          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <SlidersHorizontal className="w-5 h-5 text-indigo-600" />
+                  <span>Ma Trận Xoay & Phân Tích Đa Chiều (Pivot Table)</span>
+                  <span className="text-xs font-normal text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                    {pivotResult.loansCount} khoản vay đang khảo sát
+                  </span>
+                </h2>
+                <p className="text-xs text-slate-500 mt-1">
+                  Khảo sát danh mục tín dụng linh hoạt theo 2 chiều (Dòng × Cột) kết hợp các chỉ số tài chính trọng yếu. Tự động liên kết với bộ lọc toàn cục ở phía trên.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleExportPivotCSV}
+                  className="inline-flex items-center space-x-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                  title="Xuất ma trận Pivot hiện tại ra file CSV tương thích Excel (UTF-8 BOM)"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Xuất File CSV / Excel</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Presets */}
+            <div className="pt-3 border-t border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5 mr-1">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Mẫu xem nhanh (Presets):</span>
+                </span>
+                {PIVOT_PRESETS.map((preset, idx) => {
+                  const isActive =
+                    pivotRowDim === preset.row &&
+                    pivotColDim === preset.col &&
+                    pivotMetric === preset.metric;
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => {
+                        setPivotRowDim(preset.row);
+                        setPivotColDim(preset.col);
+                        setPivotMetric(preset.metric);
+                      }}
+                      className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
+                        isActive
+                          ? 'bg-indigo-600 text-white border-indigo-600 font-semibold shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
+                      }`}
+                    >
+                      {preset.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Controls Bar: Select Row Dim, Col Dim, Metric, Search */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Row Dimension */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
+                  1. Chiều Dòng (Row Group)
+                </label>
+                <select
+                  value={pivotRowDim}
+                  onChange={(e) => setPivotRowDim(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                >
+                  {PIVOT_ROW_DIMENSIONS.map((dim) => (
+                    <option key={dim.id} value={dim.id}>
+                      {dim.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Column Dimension */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
+                  2. Chiều Cột (Column Pivot)
+                </label>
+                <select
+                  value={pivotColDim}
+                  onChange={(e) => setPivotColDim(e.target.value)}
+                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                >
+                  {PIVOT_COL_DIMENSIONS.map((dim) => (
+                    <option key={dim.id} value={dim.id}>
+                      {dim.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Aggregation Metric */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
+                  3. Chỉ Số Tổng Hợp (Metric)
+                </label>
+                <select
+                  value={pivotMetric}
+                  onChange={(e) => setPivotMetric(e.target.value)}
+                  className="w-full text-xs bg-indigo-50 border border-indigo-300 rounded-lg px-3 py-2 text-indigo-900 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                >
+                  {PIVOT_METRIC_DEFS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Search in Pivot */}
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
+                  4. Lọc Nhanh Nội Bộ
+                </label>
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="Lọc dòng / cột..."
+                    value={pivotSearch}
+                    onChange={(e) => setPivotSearch(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
+                  />
+                  {pivotSearch && (
+                    <button
+                      onClick={() => setPivotSearch('')}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Sub-KPI Badges for the filtered pivot dataset */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 text-xs">
+                <span>Tổng Dư Nợ Gốc</span>
+                <DollarSign className="w-4 h-4 text-sky-600" />
+              </div>
+              <div className="text-base font-bold text-slate-900 mt-1">
+                {formatVND(pivotResult.kpis.totalPrincipal)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Dư nợ theo bộ lọc hiện tại</div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 text-xs">
+                <span>Lãi Dự Trả TT14</span>
+                <Percent className="w-4 h-4 text-emerald-600" />
+              </div>
+              <div className="text-base font-bold text-emerald-600 mt-1">
+                {formatVND(pivotResult.kpis.totalInterest)}
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Lãi tích lũy đến hạn</div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 text-xs">
+                <span>Lãi Suất BQ (WAIR)</span>
+                <Layers className="w-4 h-4 text-purple-600" />
+              </div>
+              <div className="text-base font-bold text-purple-600 mt-1">
+                {pivotResult.kpis.avgWair.toFixed(2)} %/năm
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Bình quân gia quyền dư nợ</div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
+              <div className="flex items-center justify-between text-slate-500 text-xs">
+                <span>Số Khoản Vay / Khế Ước</span>
+                <Table className="w-4 h-4 text-indigo-600" />
+              </div>
+              <div className="text-base font-bold text-indigo-600 mt-1">
+                {pivotResult.kpis.totalLoans.toLocaleString('vi-VN')} HĐ
+              </div>
+              <div className="text-[11px] text-slate-400 mt-0.5">Khoản nợ nằm trong ma trận</div>
+            </div>
+          </div>
+
+          {/* Pivot Table Main View */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider">
+                    {/* Top-left cell: Row label \ Col label */}
+                    <th className="py-3 px-4 sticky left-0 bg-slate-100 z-10 border-r border-slate-200 min-w-[220px]">
+                      <div className="flex items-center gap-1.5 text-indigo-900">
+                        <span className="font-bold">{pivotResult.rowDef.label}</span>
+                        {pivotResult.is2D && pivotResult.colDef && (
+                          <>
+                            <span className="text-slate-400">/</span>
+                            <span className="text-slate-500 text-[11px] font-normal">
+                              {pivotResult.colDef.label}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                    </th>
+
+                    {/* Column Headers */}
+                    {pivotResult.is2D ? (
+                      <>
+                        {pivotResult.sortedColKeys.map((cKey) => (
+                          <th
+                            key={cKey}
+                            className="py-3 px-3 text-right whitespace-nowrap min-w-[130px] border-r border-slate-200"
+                          >
+                            <div className="text-slate-800 font-bold">{cKey}</div>
+                            <div className="text-[10px] text-slate-400 font-normal">
+                              {pivotResult.colCounts[cKey] || 0} HĐ
+                            </div>
+                          </th>
+                        ))}
+                        {/* Grand Total Column Header */}
+                        <th className="py-3 px-4 text-right whitespace-nowrap min-w-[140px] bg-indigo-50/70 text-indigo-950 font-bold">
+                          <div>Tổng Cộng</div>
+                          <div className="text-[10px] text-indigo-600 font-normal">
+                            {pivotResult.loansCount} HĐ
+                          </div>
+                        </th>
+                      </>
+                    ) : (
+                      <th className="py-3 px-4 text-right whitespace-nowrap min-w-[180px] bg-indigo-50/70 text-indigo-950 font-bold">
+                        <div>{pivotResult.metricDef.label}</div>
+                      </th>
+                    )}
+                  </tr>
+                </thead>
+
+                <tbody className="divide-y divide-slate-100">
+                  {pivotResult.sortedRowKeys.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={pivotResult.is2D ? pivotResult.sortedColKeys.length + 2 : 2}
+                        className="py-12 text-center text-slate-400"
+                      >
+                        Không có dữ liệu thỏa mãn điều kiện lọc. Vui lòng thử nới lỏng bộ lọc.
+                      </td>
+                    </tr>
+                  ) : (
+                    pivotResult.sortedRowKeys.map((rKey) => {
+                      const rowTotal = pivotResult.rowTotals[rKey] || 0;
+                      const rowCount = pivotResult.rowCounts[rKey] || 0;
+
+                      return (
+                        <tr key={rKey} className="hover:bg-slate-50/80 transition-colors group">
+                          {/* Row Header cell */}
+                          <td className="py-2.5 px-4 sticky left-0 bg-white group-hover:bg-slate-50/80 z-10 border-r border-slate-200 font-medium text-slate-800">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="truncate max-w-[260px]" title={rKey}>
+                                {rKey}
+                              </span>
+                              <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                                {rowCount}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* 2D Data Cells */}
+                          {pivotResult.is2D ? (
+                            <>
+                              {pivotResult.sortedColKeys.map((cKey) => {
+                                const val = pivotResult.matrix[rKey]?.[cKey] || 0;
+                                const count = pivotResult.matrixCounts[rKey]?.[cKey] || 0;
+                                const heatRatio =
+                                  pivotResult.grandMax > 0 && val > 0
+                                    ? Math.min(100, Math.round((val / pivotResult.grandMax) * 100))
+                                    : 0;
+
+                                return (
+                                  <td
+                                    key={cKey}
+                                    className="py-2 px-3 text-right whitespace-nowrap border-r border-slate-100 relative group/cell"
+                                  >
+                                    {val > 0 ? (
+                                      <div>
+                                        <div className="font-semibold text-slate-800">
+                                          {pivotResult.metricDef.format(val)}
+                                        </div>
+                                        {pivotResult.metricDef.id !== 'count' && (
+                                          <div className="text-[10px] text-slate-400">
+                                            {count} HĐ
+                                          </div>
+                                        )}
+                                        {/* Subtle heat bar */}
+                                        <div className="w-full bg-slate-100 h-1 rounded-full mt-1 overflow-hidden">
+                                          <div
+                                            className="bg-indigo-500 h-full rounded-full transition-all duration-300"
+                                            style={{ width: `${heatRatio}%` }}
+                                          />
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <span className="text-slate-300">-</span>
+                                    )}
+                                  </td>
+                                );
+                              })}
+
+                              {/* Row Total Cell */}
+                              <td className="py-2.5 px-4 text-right whitespace-nowrap bg-indigo-50/30 font-bold text-indigo-900 border-l border-indigo-100">
+                                <div>{pivotResult.metricDef.format(rowTotal)}</div>
+                                {pivotResult.metricDef.id !== 'count' && (
+                                  <div className="text-[10px] text-indigo-500 font-normal">
+                                    {rowCount} HĐ
+                                  </div>
+                                )}
+                              </td>
+                            </>
+                          ) : (
+                            /* 1D Data Cell */
+                            <td className="py-2.5 px-4 text-right whitespace-nowrap font-bold text-slate-900">
+                              <div className="flex items-center justify-end gap-3">
+                                <span>
+                                  {pivotResult.metricDef.format(
+                                    pivotResult.matrix[rKey]?.['__SINGLE__'] || 0
+                                  )}
+                                </span>
+                                {pivotResult.grandTotal > 0 && (
+                                  <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                                    {(
+                                      ((pivotResult.matrix[rKey]?.['__SINGLE__'] || 0) /
+                                        pivotResult.grandTotal) *
+                                      100
+                                    ).toFixed(1)}
+                                    %
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+
+                {/* Grand Total Row */}
+                {pivotResult.sortedRowKeys.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-indigo-50/70 border-t-2 border-indigo-200 font-bold text-slate-900 text-xs">
+                      <td className="py-3 px-4 sticky left-0 bg-indigo-50/90 z-10 border-r border-indigo-200 text-indigo-950">
+                        <div className="flex items-center justify-between">
+                          <span>TỔNG CỘNG TOÀN BỘ</span>
+                          <span className="text-[10px] text-indigo-700 font-semibold bg-indigo-100 px-2 py-0.5 rounded-full">
+                            {pivotResult.loansCount} HĐ
+                          </span>
+                        </div>
+                      </td>
+
+                      {pivotResult.is2D ? (
+                        <>
+                          {pivotResult.sortedColKeys.map((cKey) => (
+                            <td
+                              key={cKey}
+                              className="py-3 px-3 text-right whitespace-nowrap border-r border-indigo-100 text-slate-900"
+                            >
+                              <div>
+                                {pivotResult.metricDef.format(pivotResult.colTotals[cKey] || 0)}
+                              </div>
+                              {pivotResult.metricDef.id !== 'count' && (
+                                <div className="text-[10px] text-slate-500 font-normal">
+                                  {pivotResult.colCounts[cKey] || 0} HĐ
+                                </div>
+                              )}
+                            </td>
+                          ))}
+                          <td className="py-3 px-4 text-right whitespace-nowrap bg-indigo-100/80 text-indigo-950 font-black text-sm">
+                            <div>{pivotResult.metricDef.format(pivotResult.grandTotal)}</div>
+                            {pivotResult.metricDef.id !== 'count' && (
+                              <div className="text-[10px] text-indigo-700 font-normal">
+                                {pivotResult.loansCount} HĐ
+                              </div>
+                            )}
+                          </td>
+                        </>
+                      ) : (
+                        <td className="py-3 px-4 text-right whitespace-nowrap text-indigo-950 font-black text-sm">
+                          {pivotResult.metricDef.format(pivotResult.grandTotal)}
+                        </td>
+                      )}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -1705,7 +3379,7 @@ export const CreditStatementsPage: React.FC = () => {
 
                 {/* Thanh Tab chọn Loại chứng từ */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200">
-                  {DOSSIER_CATEGORIES.map((cat) => {
+                  {dossierCategories.map((cat) => {
                     const stagedCount = entryStagedFiles.filter(
                       (sf) => mapDocTypeToCategoryKey(sf.document_type) === cat.key
                     ).length;
@@ -1729,6 +3403,9 @@ export const CreditStatementsPage: React.FC = () => {
                         {cat.key === 'INVOICE' && <Receipt className="w-3.5 h-3.5" />}
                         {cat.key === 'COLLATERAL' && <Shield className="w-3.5 h-3.5" />}
                         {cat.key === 'OTHER' && <FolderArchive className="w-3.5 h-3.5" />}
+                        {!['CONTRACT', 'DEBT_NOTE', 'INVOICE', 'COLLATERAL', 'OTHER'].includes(cat.key) && (
+                          <Tag className="w-3.5 h-3.5 text-purple-300" />
+                        )}
                         <span>{cat.shortLabel}</span>
                         <span
                           className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${isActive
@@ -1740,6 +3417,15 @@ export const CreditStatementsPage: React.FC = () => {
                         >
                           {totalCount}
                         </span>
+                        {cat.isCustom && totalCount === 0 && (
+                          <span
+                            onClick={(e) => handleDeleteCustomCategory(cat.key, e)}
+                            className="ml-0.5 text-slate-400 hover:text-rose-500 transition-colors p-0.5 rounded hover:bg-slate-200"
+                            title="Xóa loại hồ sơ tùy chỉnh này"
+                          >
+                            <X className="w-3 h-3" />
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -1762,11 +3448,26 @@ export const CreditStatementsPage: React.FC = () => {
                       {entryStagedFiles.length + entryDossierDocs.length}
                     </span>
                   </button>
+
+                  {/* Nút bổ sung loại hồ sơ mới */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddCatContext('entryModal');
+                      setIsAddCatModalOpen(true);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 border border-dashed border-indigo-300 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 hover:border-indigo-400 cursor-pointer shadow-2xs ml-auto"
+                    title="Bổ sung thêm loại hồ sơ / chứng từ mới"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>+ Thêm loại hồ sơ</span>
+                  </button>
                 </div>
 
                 {/* Nội dung Tab cụ thể */}
                 {entryCategoryTab !== 'ALL' && (() => {
-                  const currentCategory = DOSSIER_CATEGORIES.find((c) => c.key === entryCategoryTab)!;
+                  const targetLoan = loans.find((l) => l.loan_id === entrySelectedLoanId);
+                  const currentCategory = dossierCategories.find((c) => c.key === entryCategoryTab) || dossierCategories[0];
                   const catStagedFiles = entryStagedFiles.filter(
                     (sf) => mapDocTypeToCategoryKey(sf.document_type) === entryCategoryTab
                   );
@@ -1776,6 +3477,14 @@ export const CreditStatementsPage: React.FC = () => {
 
                   return (
                     <div className="space-y-3">
+                      {/* Bảng đối soát hóa đơn XML & Dư nợ gốc (nếu là tab Hóa đơn & UNC) */}
+                      {entryCategoryTab === 'INVOICE' &&
+                        renderInvoiceReconciliationCard(
+                          targetLoan?.current_principal_balance || 0,
+                          catExistingDocs,
+                          catStagedFiles
+                        )}
+
                       {/* Banner thông tin loại chứng từ */}
                       <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs flex items-start gap-3">
                         <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 flex-shrink-0 mt-0.5">
@@ -1784,6 +3493,9 @@ export const CreditStatementsPage: React.FC = () => {
                           {currentCategory.key === 'INVOICE' && <Receipt className="w-4 h-4" />}
                           {currentCategory.key === 'COLLATERAL' && <Shield className="w-4 h-4" />}
                           {currentCategory.key === 'OTHER' && <FolderArchive className="w-4 h-4" />}
+                          {!['CONTRACT', 'DEBT_NOTE', 'INVOICE', 'COLLATERAL', 'OTHER'].includes(currentCategory.key) && (
+                            <Tag className="w-4 h-4 text-purple-600" />
+                          )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
@@ -1791,6 +3503,11 @@ export const CreditStatementsPage: React.FC = () => {
                             <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.2 rounded-full border border-indigo-200">
                               Mục: {currentCategory.badgeLabel}
                             </span>
+                            {currentCategory.isCustom && (
+                              <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.2 rounded-full border border-purple-200">
+                                Tự định nghĩa
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-600 mt-0.5">
                             {currentCategory.description}
@@ -1810,7 +3527,7 @@ export const CreditStatementsPage: React.FC = () => {
                           <input
                             type="file"
                             multiple
-                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar"
+                            accept=".pdf,.xml,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar"
                             onChange={(e) => handleAddEntryStagedFiles(e, entryCategoryTab)}
                             className="hidden"
                           />
@@ -1821,7 +3538,7 @@ export const CreditStatementsPage: React.FC = () => {
                             Bấm để chọn tệp hoặc kéo thả {currentCategory.shortLabel} vào đây
                           </p>
                           <p className="text-[10px] text-slate-500 mt-0.5 text-center">
-                            Tệp tải vào mục này sẽ tự động gán loại "{currentCategory.badgeLabel}" (Tối đa 50MB/file)
+                            Tệp tải vào mục này sẽ tự động gán loại "{currentCategory.badgeLabel}" (Hỗ trợ PDF, XML hóa đơn... Tối đa 50MB/file)
                           </p>
                         </label>
                       </div>
@@ -1858,6 +3575,20 @@ export const CreditStatementsPage: React.FC = () => {
                                     <X className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
+                                {(sf.invoice_number || sf.invoice_total_amount) && (
+                                  <div className="flex items-center gap-2 text-[11px] bg-indigo-50/80 p-1.5 rounded-md border border-indigo-100">
+                                    {sf.invoice_number && (
+                                      <span className="font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                                        HĐ #{sf.invoice_number}
+                                      </span>
+                                    )}
+                                    {sf.invoice_total_amount && (
+                                      <span className="font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                                        Tiền HĐ: {formatVND(sf.invoice_total_amount)}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div>
                                     <label className="block text-[10px] font-medium text-slate-600 mb-0.5">
@@ -1868,11 +3599,11 @@ export const CreditStatementsPage: React.FC = () => {
                                       onChange={(e) => handleUpdateEntryStagedType(sf.id, e.target.value)}
                                       className="w-full text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                     >
-                                      <option value="CONTRACT">Hợp đồng tín dụng</option>
-                                      <option value="DEBT_NOTE">Khế ước nhận nợ LD</option>
-                                      <option value="INVOICE">Hóa đơn / UNC</option>
-                                      <option value="COLLATERAL">Tài sản bảo đảm</option>
-                                      <option value="OTHER">Phê duyệt & Khác</option>
+                                      {dossierCategories.map((c) => (
+                                        <option key={c.key} value={c.key}>
+                                          {c.shortLabel}
+                                        </option>
+                                      ))}
                                     </select>
                                   </div>
                                   <div>
@@ -1921,10 +3652,20 @@ export const CreditStatementsPage: React.FC = () => {
                                     <span className="font-semibold text-slate-900 truncate max-w-xs block" title={doc.file_name}>
                                       {doc.file_name}
                                     </span>
-                                    <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                    <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
                                       <span>{(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
                                       <span>•</span>
                                       <span>{new Date(doc.created_at).toLocaleDateString('vi-VN')}</span>
+                                      {doc.invoice_number && (
+                                        <span className="font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                                          Số HĐ: {doc.invoice_number}
+                                        </span>
+                                      )}
+                                      {doc.invoice_total_amount && (
+                                        <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                          {formatVND(Number(doc.invoice_total_amount))}
+                                        </span>
+                                      )}
                                       {doc.description && (
                                         <>
                                           <span>•</span>
@@ -1967,7 +3708,7 @@ export const CreditStatementsPage: React.FC = () => {
                 {entryCategoryTab === 'ALL' && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {DOSSIER_CATEGORIES.map((cat) => {
+                      {dossierCategories.map((cat) => {
                         const sCount = entryStagedFiles.filter(
                           (sf) => mapDocTypeToCategoryKey(sf.document_type) === cat.key
                         ).length;
@@ -2026,7 +3767,7 @@ export const CreditStatementsPage: React.FC = () => {
                               <div className="flex items-center space-x-2 min-w-0">
                                 <FileText className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                                 <span className="font-semibold text-slate-900 truncate max-w-xs">{sf.file.name}</span>
-                                {renderDossierBadge(sf.document_type)}
+                                {renderDossierBadge(sf.document_type, dossierCategories)}
                                 <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
                                   Chờ lưu
                                 </span>
@@ -2049,7 +3790,7 @@ export const CreditStatementsPage: React.FC = () => {
                               <div className="flex items-center space-x-2 min-w-0">
                                 <FileText className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                                 <span className="font-semibold text-slate-900 truncate max-w-xs">{doc.file_name}</span>
-                                {renderDossierBadge(doc.document_type)}
+                                {renderDossierBadge(doc.document_type, dossierCategories)}
                                 <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                                   Đã lưu
                                 </span>
@@ -2193,27 +3934,38 @@ export const CreditStatementsPage: React.FC = () => {
                       className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 font-medium text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                     >
                       <optgroup label="🏦 Ngân Hàng Thương Mại">
-                        {PRESET_ORGANIZATIONS.filter((o) => o.type === 'BANK').map((o) => (
+                        {organizations.filter((o) => o.type === 'BANK').map((o) => (
                           <option key={o.code} value={o.code}>
                             {o.name}
                           </option>
                         ))}
                       </optgroup>
                       <optgroup label="🏢 Công Ty Tài Chính">
-                        {PRESET_ORGANIZATIONS.filter((o) => o.type === 'FINANCE_COMPANY').map((o) => (
+                        {organizations.filter((o) => o.type === 'FINANCE_COMPANY').map((o) => (
                           <option key={o.code} value={o.code}>
                             {o.name}
                           </option>
                         ))}
                       </optgroup>
                       <optgroup label="🚜 Công Ty Cho Thuê Tài Chính (Leasing)">
-                        {PRESET_ORGANIZATIONS.filter((o) => o.type === 'LEASING_COMPANY').map((o) => (
+                        {organizations.filter((o) => o.type === 'LEASING_COMPANY').map((o) => (
                           <option key={o.code} value={o.code}>
                             {o.name}
                           </option>
                         ))}
                       </optgroup>
-                      <option value="CUSTOM">➕ Tổ chức / Đối tác khác (Tự nhập tên và mã)</option>
+                      {organizations.some((o) => o.type === 'OTHER' || !['BANK', 'FINANCE_COMPANY', 'LEASING_COMPANY'].includes(o.type)) && (
+                        <optgroup label="🌐 Tổ Chức Tín Dụng / Quỹ / Đối Tác Đã Nhập">
+                          {organizations
+                            .filter((o) => o.type === 'OTHER' || !['BANK', 'FINANCE_COMPANY', 'LEASING_COMPANY'].includes(o.type))
+                            .map((o) => (
+                              <option key={o.code} value={o.code}>
+                                {o.name}
+                              </option>
+                            ))}
+                        </optgroup>
+                      )}
+                      <option value="CUSTOM">➕ Tổ chức / Đối tác khác (Tự nhập tên và mã mới)</option>
                     </select>
                   </div>
 
@@ -2367,9 +4119,37 @@ export const CreditStatementsPage: React.FC = () => {
                   3. Số Dư Nợ Gốc & Lãi Suất
                 </label>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div>
-                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    <label className="block text-xs font-semibold text-slate-700 mb-1" title="Số tiền giải ngân ban đầu ghi nhận trên Hợp đồng / Khế ước - Giá trị cố định không đổi">
+                      Dư Nợ Gốc Ban Đầu (VND) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1000"
+                      value={formData.original_principal_balance || ''}
+                      onChange={(e) => {
+                        const val = parseFloat(e.target.value) || 0;
+                        setFormData((prev) => ({
+                          ...prev,
+                          original_principal_balance: val,
+                          current_principal_balance:
+                            !editingLoan && (prev.current_principal_balance === 0 || prev.current_principal_balance === prev.original_principal_balance)
+                              ? val
+                              : prev.current_principal_balance,
+                        }));
+                      }}
+                      placeholder="VD: 5000000000"
+                      className="w-full text-sm font-bold bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                    <p className="text-[11px] text-slate-500 font-medium mt-1">
+                      {formatVND(formData.original_principal_balance)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1" title="Dư nợ gốc còn lại sau khi trừ tiền nợ gốc đã trả - Đây là mốc để tính tiền lãi theo thời gian">
                       Dư Nợ Gốc Hiện Tại (VND) <span className="text-rose-500">*</span>
                     </label>
                     <input
@@ -2387,6 +4167,11 @@ export const CreditStatementsPage: React.FC = () => {
                     />
                     <p className="text-[11px] text-indigo-700 font-medium mt-1">
                       {formatVND(formData.current_principal_balance)}
+                      {formData.original_principal_balance > formData.current_principal_balance && (
+                        <span className="text-emerald-600 block text-[10px]">
+                          (Đã trả: {formatVND(formData.original_principal_balance - formData.current_principal_balance)})
+                        </span>
+                      )}
                     </p>
                   </div>
 
@@ -2468,17 +4253,17 @@ export const CreditStatementsPage: React.FC = () => {
                         type="number"
                         min="1"
                         max="31"
-                        value={formData.monthly_interest_due_day || 25}
+                        value={formData.monthly_interest_due_day ?? (formData.bank_code === 'CTG' ? 5 : 25)}
                         onChange={(e) =>
                           setFormData({
                             ...formData,
-                            monthly_interest_due_day: parseInt(e.target.value) || 25,
+                            monthly_interest_due_day: parseInt(e.target.value) || (formData.bank_code === 'CTG' ? 5 : 25),
                           })
                         }
                         className="w-full text-xs font-bold bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                       <p className="text-[11px] text-slate-500 mt-1">
-                        Ví dụ: Ngày {formData.monthly_interest_due_day || 25} hằng tháng
+                        Ví dụ: Ngày {formData.monthly_interest_due_day ?? (formData.bank_code === 'CTG' ? 5 : 25)} hằng tháng
                       </p>
                     </div>
                   ) : (
@@ -2650,7 +4435,7 @@ export const CreditStatementsPage: React.FC = () => {
 
                 {/* Thanh Tab chọn Loại chứng từ */}
                 <div className="flex items-center gap-1.5 overflow-x-auto pb-1 border-b border-slate-200">
-                  {DOSSIER_CATEGORIES.map((cat) => {
+                  {dossierCategories.map((cat) => {
                     const stagedCount = stagedFiles.filter(
                       (sf) => mapDocTypeToCategoryKey(sf.document_type) === cat.key
                     ).length;
@@ -2674,6 +4459,9 @@ export const CreditStatementsPage: React.FC = () => {
                         {cat.key === 'INVOICE' && <Receipt className="w-3.5 h-3.5" />}
                         {cat.key === 'COLLATERAL' && <Shield className="w-3.5 h-3.5" />}
                         {cat.key === 'OTHER' && <FolderArchive className="w-3.5 h-3.5" />}
+                        {!['CONTRACT', 'DEBT_NOTE', 'INVOICE', 'COLLATERAL', 'OTHER'].includes(cat.key) && (
+                          <Tag className="w-3.5 h-3.5 text-purple-300" />
+                        )}
                         <span>{cat.shortLabel}</span>
                         <span
                           className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${isActive
@@ -2685,6 +4473,15 @@ export const CreditStatementsPage: React.FC = () => {
                         >
                           {totalCount}
                         </span>
+                        {cat.isCustom && totalCount === 0 && (
+                          <span
+                            onClick={(e) => handleDeleteCustomCategory(cat.key, e)}
+                            className="ml-0.5 text-slate-400 hover:text-rose-500 transition-colors p-0.5 rounded hover:bg-slate-200"
+                            title="Xóa loại hồ sơ tùy chỉnh này"
+                          >
+                            <X className="w-3 h-3" />
+                          </span>
+                        )}
                       </button>
                     );
                   })}
@@ -2707,20 +4504,43 @@ export const CreditStatementsPage: React.FC = () => {
                       {stagedFiles.length + editModalDocs.length}
                     </span>
                   </button>
+
+                  {/* Nút bổ sung loại hồ sơ mới */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAddCatContext('createModal');
+                      setIsAddCatModalOpen(true);
+                    }}
+                    className="px-2.5 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-all flex items-center gap-1 border border-dashed border-indigo-300 text-indigo-700 bg-indigo-50/70 hover:bg-indigo-100 hover:border-indigo-400 cursor-pointer shadow-2xs ml-auto"
+                    title="Bổ sung thêm loại hồ sơ / chứng từ mới"
+                  >
+                    <Plus className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>+ Thêm loại hồ sơ</span>
+                  </button>
                 </div>
 
                 {/* Nội dung Tab cụ thể */}
                 {stagedDocCategory !== 'ALL' && (() => {
-                  const currentCategory = DOSSIER_CATEGORIES.find((c) => c.key === stagedDocCategory)!;
+                  const currentCategory = dossierCategories.find((c) => c.key === stagedDocCategory) || dossierCategories[0];
                   const catStagedFiles = stagedFiles.filter(
                     (sf) => mapDocTypeToCategoryKey(sf.document_type) === stagedDocCategory
                   );
                   const catExistingDocs = editModalDocs.filter(
                     (d) => mapDocTypeToCategoryKey(d.document_type) === stagedDocCategory
                   );
+                  const loanPrincipal = Number(formData.current_principal_balance) || editingLoan?.current_principal_balance || 0;
 
                   return (
                     <div className="space-y-3">
+                      {/* Bảng đối soát hóa đơn XML & Dư nợ gốc (nếu là tab Hóa đơn & UNC) */}
+                      {stagedDocCategory === 'INVOICE' &&
+                        renderInvoiceReconciliationCard(
+                          loanPrincipal,
+                          catExistingDocs,
+                          catStagedFiles
+                        )}
+
                       {/* Banner thông tin loại chứng từ */}
                       <div className="p-3 bg-white rounded-xl border border-indigo-100 shadow-2xs flex items-start gap-3">
                         <div className="w-8 h-8 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center text-indigo-600 flex-shrink-0 mt-0.5">
@@ -2729,6 +4549,9 @@ export const CreditStatementsPage: React.FC = () => {
                           {currentCategory.key === 'INVOICE' && <Receipt className="w-4 h-4" />}
                           {currentCategory.key === 'COLLATERAL' && <Shield className="w-4 h-4" />}
                           {currentCategory.key === 'OTHER' && <FolderArchive className="w-4 h-4" />}
+                          {!['CONTRACT', 'DEBT_NOTE', 'INVOICE', 'COLLATERAL', 'OTHER'].includes(currentCategory.key) && (
+                            <Tag className="w-4 h-4 text-purple-600" />
+                          )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="text-xs font-bold text-slate-900 flex items-center gap-2">
@@ -2736,6 +4559,11 @@ export const CreditStatementsPage: React.FC = () => {
                             <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.2 rounded-full border border-indigo-200">
                               Mục: {currentCategory.badgeLabel}
                             </span>
+                            {currentCategory.isCustom && (
+                              <span className="text-[10px] font-bold text-purple-700 bg-purple-50 px-2 py-0.2 rounded-full border border-purple-200">
+                                Tự định nghĩa
+                              </span>
+                            )}
                           </div>
                           <p className="text-[11px] text-slate-600 mt-0.5">
                             {currentCategory.description}
@@ -2755,7 +4583,7 @@ export const CreditStatementsPage: React.FC = () => {
                           <input
                             type="file"
                             multiple
-                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar"
+                            accept=".pdf,.xml,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.zip,.rar"
                             onChange={(e) => handleAddStagedFilesForCategory(e, stagedDocCategory)}
                             className="hidden"
                           />
@@ -2766,7 +4594,7 @@ export const CreditStatementsPage: React.FC = () => {
                             Bấm để chọn tệp hoặc kéo thả {currentCategory.shortLabel} vào đây
                           </p>
                           <p className="text-[10px] text-slate-500 mt-0.5 text-center">
-                            Tệp tải vào mục này sẽ tự động gán loại "{currentCategory.badgeLabel}" (Tối đa 50MB/file)
+                            Tệp tải vào mục này sẽ tự động gán loại "{currentCategory.badgeLabel}" (Hỗ trợ PDF, XML hóa đơn... Tối đa 50MB/file)
                           </p>
                         </label>
                       </div>
@@ -2803,6 +4631,20 @@ export const CreditStatementsPage: React.FC = () => {
                                     <X className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
+                                {(sf.invoice_number || sf.invoice_total_amount) && (
+                                  <div className="flex items-center gap-2 text-[11px] bg-indigo-50/80 p-1.5 rounded-md border border-indigo-100">
+                                    {sf.invoice_number && (
+                                      <span className="font-bold text-indigo-700 bg-white px-2 py-0.5 rounded border border-indigo-200">
+                                        HĐ #{sf.invoice_number}
+                                      </span>
+                                    )}
+                                    {sf.invoice_total_amount && (
+                                      <span className="font-bold text-emerald-700 bg-white px-2 py-0.5 rounded border border-emerald-200">
+                                        Tiền HĐ: {formatVND(sf.invoice_total_amount)}
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                   <div>
                                     <label className="block text-[10px] font-medium text-slate-600 mb-0.5">
@@ -2813,11 +4655,11 @@ export const CreditStatementsPage: React.FC = () => {
                                       onChange={(e) => handleUpdateStagedType(sf.id, e.target.value)}
                                       className="w-full text-xs bg-slate-50 border border-slate-200 rounded px-2 py-1 text-slate-800 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                     >
-                                      <option value="CONTRACT">Hợp đồng tín dụng</option>
-                                      <option value="DEBT_NOTE">Khế ước nhận nợ LD</option>
-                                      <option value="INVOICE">Hóa đơn / UNC</option>
-                                      <option value="COLLATERAL">Tài sản bảo đảm</option>
-                                      <option value="OTHER">Phê duyệt & Khác</option>
+                                      {dossierCategories.map((c) => (
+                                        <option key={c.key} value={c.key}>
+                                          {c.shortLabel}
+                                        </option>
+                                      ))}
                                     </select>
                                   </div>
                                   <div>
@@ -2867,10 +4709,20 @@ export const CreditStatementsPage: React.FC = () => {
                                       <span className="font-semibold text-slate-900 truncate max-w-xs block" title={doc.file_name}>
                                         {doc.file_name}
                                       </span>
-                                      <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5">
+                                      <div className="text-[10px] text-slate-400 flex items-center gap-2 mt-0.5 flex-wrap">
                                         <span>{(doc.file_size_bytes / 1024).toFixed(1)} KB</span>
                                         <span>•</span>
                                         <span>{new Date(doc.created_at).toLocaleDateString('vi-VN')}</span>
+                                        {doc.invoice_number && (
+                                          <span className="font-bold text-indigo-700 bg-indigo-50 px-1.5 py-0.2 rounded border border-indigo-200">
+                                            Số HĐ: {doc.invoice_number}
+                                          </span>
+                                        )}
+                                        {doc.invoice_total_amount && (
+                                          <span className="font-bold text-emerald-700 bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
+                                            {formatVND(Number(doc.invoice_total_amount))}
+                                          </span>
+                                        )}
                                         {doc.description && (
                                           <>
                                             <span>•</span>
@@ -2914,7 +4766,7 @@ export const CreditStatementsPage: React.FC = () => {
                 {stagedDocCategory === 'ALL' && (
                   <div className="space-y-3">
                     <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {DOSSIER_CATEGORIES.map((cat) => {
+                      {dossierCategories.map((cat) => {
                         const sCount = stagedFiles.filter(
                           (sf) => mapDocTypeToCategoryKey(sf.document_type) === cat.key
                         ).length;
@@ -2973,7 +4825,7 @@ export const CreditStatementsPage: React.FC = () => {
                               <div className="flex items-center space-x-2 min-w-0">
                                 <FileText className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
                                 <span className="font-semibold text-slate-900 truncate max-w-xs">{sf.file.name}</span>
-                                {renderDossierBadge(sf.document_type)}
+                                {renderDossierBadge(sf.document_type, dossierCategories)}
                                 <span className="text-[10px] text-amber-600 font-bold bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200">
                                   Chờ lưu
                                 </span>
@@ -2996,7 +4848,7 @@ export const CreditStatementsPage: React.FC = () => {
                               <div className="flex items-center space-x-2 min-w-0">
                                 <FileText className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
                                 <span className="font-semibold text-slate-900 truncate max-w-xs">{doc.file_name}</span>
-                                {renderDossierBadge(doc.document_type)}
+                                {renderDossierBadge(doc.document_type, dossierCategories)}
                                 <span className="text-[10px] text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.2 rounded border border-emerald-200">
                                   Đã lưu
                                 </span>
@@ -3098,6 +4950,169 @@ export const CreditStatementsPage: React.FC = () => {
               </div>
             </div>
           </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL BỔ SUNG LOẠI HỒ SƠ / CHỨNG TỪ MỚI */}
+      {/* ========================================================================= */}
+      {isAddCatModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-lg overflow-hidden flex flex-col">
+            {/* Header */}
+            <div className="px-5 py-4 bg-gradient-to-r from-indigo-900 via-indigo-800 to-slate-900 text-white flex items-center justify-between">
+              <div className="flex items-center space-x-2.5">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center border border-white/20">
+                  <Tag className="w-4 h-4 text-indigo-300" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold leading-tight">Bổ Sung Loại Hồ Sơ / Chứng Từ Mới</h3>
+                  <p className="text-[11px] text-indigo-200/90 mt-0.5">
+                    Thêm danh mục hồ sơ giải ngân tùy biến theo đặc thù hợp đồng tín dụng
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddCatModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Form */}
+            <form onSubmit={handleCreateCategorySubmit} className="p-5 space-y-4">
+              {newCatError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  <span>{newCatError}</span>
+                </div>
+              )}
+
+              {/* Quick suggestions pills */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Gợi ý nhanh loại hồ sơ phổ biến:
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {QUICK_CATEGORY_SUGGESTIONS.map((sug) => (
+                    <button
+                      key={sug.key}
+                      type="button"
+                      onClick={() => {
+                        setNewCatLabel(sug.label);
+                        setNewCatShortLabel(sug.shortLabel);
+                        setNewCatKey(sug.key);
+                        setNewCatDesc(sug.desc);
+                        setNewCatExamples(sug.examples);
+                        setNewCatError(null);
+                      }}
+                      className="px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-300 border border-slate-200 transition-all text-slate-700 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3 text-slate-400" />
+                      <span>{sug.shortLabel}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tên đầy đủ */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Tên đầy đủ của loại chứng từ <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="VD: Thư Bảo Lãnh Thanh Toán, Biên Bản Nghiệm Thu Khối Lượng..."
+                  value={newCatLabel}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setNewCatLabel(val);
+                    if (!newCatShortLabel) {
+                      setNewCatShortLabel(val);
+                    }
+                  }}
+                  className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Tên ngắn gọn & Mã định danh */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Tên hiển thị trên Tab & Badge
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="VD: Thư bảo lãnh, Nghiệm thu..."
+                    value={newCatShortLabel}
+                    onChange={(e) => setNewCatShortLabel(e.target.value)}
+                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Mã định danh (Key/Code)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="VD: GUARANTEE, ACCEPTANCE..."
+                    value={newCatKey}
+                    onChange={(e) => setNewCatKey(e.target.value.toUpperCase())}
+                    className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 font-mono uppercase text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+
+              {/* Mô tả loại chứng từ */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Mô tả & Hướng dẫn chứng từ
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Mô tả các tài liệu thuộc nhóm này, điều kiện giải ngân..."
+                  value={newCatDesc}
+                  onChange={(e) => setNewCatDesc(e.target.value)}
+                  className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Ví dụ tệp */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Ví dụ tên file mẫu
+                </label>
+                <input
+                  type="text"
+                  placeholder="VD: Bao_lanh_thanh_toan_CTG.pdf, BB_Nghiem_thu_giai_doan_1.pdf"
+                  value={newCatExamples}
+                  onChange={(e) => setNewCatExamples(e.target.value)}
+                  className="w-full text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-end space-x-2.5">
+                <button
+                  type="button"
+                  onClick={() => setIsAddCatModalOpen(false)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors cursor-pointer"
+                >
+                  Hủy bỏ
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Tạo loại hồ sơ</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

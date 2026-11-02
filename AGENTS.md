@@ -14,7 +14,7 @@ Khi thiết kế hoặc quản lý hệ thống Agent và Rules cho dự án, tr
   - Quy định về bộ nhớ và I/O (Streaming, chunking, cấm load OOM).
   - Quy định an toàn bảo mật (Injection, sanitization, RBAC).
   - Tiêu chuẩn tài liệu (YAML/JSON schema, Gherkin syntax).
-  - Tiêu chuẩn kiểm thử (Coverage, sandbox test data).
+  - Tiêu chuẩn kiểm thử (Coverage, sandbox test data, bắt buộc 100% teardown không để rò rỉ mock data ra CSDL dùng chung).
   - **TUYỆT ĐỐI KHÔNG:** Mô tả nghiệp vụ ngân hàng/tài chính, luồng màn hình người dùng, hoặc tính năng sản phẩm trong `rules.md`.
 
 ## 3. Nguồn Chân lý Nghiệp vụ & Bối cảnh Dự án (Docs & Product Spec as Single Source of Truth)

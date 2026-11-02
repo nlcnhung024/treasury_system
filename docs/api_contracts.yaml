@@ -1599,6 +1599,21 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreditFacilitySummary'
 
+  /loans/organizations:
+    get:
+      summary: Lấy danh sách các đơn vị cấp tín dụng / ngân hàng / công ty tài chính đã từng có khoản vay
+      tags:
+        - Credit Statements & Loans
+      responses:
+        '200':
+          description: Danh sách đơn vị cấp tín dụng đã lưu
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CreditOrganizationItem'
+
   /loans/repayment-plan:
     get:
       summary: Lấy kế hoạch phân bổ trả nợ tín dụng đến hạn và đề xuất trả trước hạn mặc định
@@ -1729,6 +1744,33 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /loans/{loan_id}/invoices/reconciliation:
+    get:
+      summary: Đối soát tổng giá trị hóa đơn điện tử XML với dư nợ gốc của khoản vay
+      description: Bóc tách và tính tổng số tiền thanh toán của các hóa đơn XML (theo NĐ 123/TT 78). Cảnh báo thiếu hóa đơn nếu tổng tiền hóa đơn bé hơn dư nợ gốc.
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID khoản vay cần đối soát hóa đơn
+      responses:
+        '200':
+          description: Kết quả đối soát hóa đơn giải ngân
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanInvoiceReconciliationResponse'
+        '404':
+          description: Không tìm thấy khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /loans/dossier/{document_id}/download:
     get:
       summary: Tải xuống tài liệu hồ sơ giải ngân từ Object Storage
@@ -1785,6 +1827,123 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/repayment-reconciliations/unreconciled:
+    get:
+      summary: Lấy danh sách giao dịch chi trả nợ chờ đối soát kèm gợi ý khế ước
+      tags:
+        - Debt Repayment Reconciliation
+      parameters:
+        - name: bank_code
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Lọc theo mã ngân hàng (CTG, MBB...)
+        - name: keyword
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Lọc theo từ khóa khế ước hoặc diễn giải
+      responses:
+        '200':
+          description: Danh sách giao dịch trả nợ chưa đối soát
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/UnreconciledDebtTransactionItem'
+                  total_count:
+                    type: integer
+                  total_unreconciled_amount:
+                    type: number
+                    format: decimal
+
+  /loans/repayment-reconciliations/reconcile:
+    post:
+      summary: Đối soát giao dịch trả nợ, chia gốc - lãi và giảm trừ nợ gốc
+      tags:
+        - Debt Repayment Reconciliation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepaymentReconcileRequest'
+      responses:
+        '200':
+          description: Đối soát thành công, nợ gốc đã được giảm trừ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepaymentReconcileResponse'
+        '400':
+          description: Lỗi kiểm tra tính hợp lệ (Gốc + Lãi không bằng tổng giao dịch, hoặc trả vượt dư nợ)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/repayment-reconciliations/{repayment_id}/rollback:
+    post:
+      summary: Hủy đối soát và hoàn trả dư nợ gốc ban đầu
+      tags:
+        - Debt Repayment Reconciliation
+      parameters:
+        - name: repayment_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Hoàn tác thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  restored_balance:
+                    type: number
+                    format: decimal
+
+  /loans/repayment-reconciliations/history:
+    get:
+      summary: Lấy danh sách lịch sử đối soát trả nợ
+      tags:
+        - Debt Repayment Reconciliation
+      parameters:
+        - name: loan_id
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: bank_code
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Danh sách lịch sử trả nợ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/LoanRepaymentHistoryItem'
+                  total_count:
+                    type: integer
 
 # =============================================================================
 # THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
@@ -2972,10 +3131,21 @@ components:
           type: string
           nullable: true
           example: "Hợp đồng tín dụng hạn mức 2026"
+        original_principal_balance:
+          type: number
+          format: decimal
+          example: 2000000000.00
+          description: "Dư nợ gốc ban đầu giải ngân (giá trị cố định không đổi)"
+        total_repaid_principal:
+          type: number
+          format: decimal
+          example: 150000000.00
+          description: "Tổng nợ gốc đã trả đối soát từ sao kê"
         current_principal_balance:
           type: number
           format: decimal
           example: 1850000000.00
+          description: "Dư nợ gốc hiện tại = Gốc ban đầu - Đã trả gốc (Mốc tính lãi)"
         accrued_interest:
           type: number
           format: decimal
@@ -3091,6 +3261,12 @@ components:
         loan_type:
           type: string
           default: "SHORT_TERM"
+        original_principal_balance:
+          type: number
+          format: decimal
+          nullable: true
+          example: 500000000.00
+          description: "Dư nợ gốc ban đầu (nếu để trống tự động nhận giá trị từ current_principal_balance)"
         current_principal_balance:
           type: number
           format: decimal
@@ -3170,6 +3346,12 @@ components:
           type: string
         loan_type:
           type: string
+        original_principal_balance:
+          type: number
+          format: decimal
+          nullable: true
+          example: 500000000.00
+          description: "Dư nợ gốc ban đầu giải ngân (cố định)"
         current_principal_balance:
           type: number
           format: decimal
@@ -3232,6 +3414,15 @@ components:
           type: string
           nullable: true
           example: "Giấy nhận nợ giải ngân đợt 1"
+        invoice_number:
+          type: string
+          nullable: true
+          example: "0000427"
+        invoice_total_amount:
+          type: number
+          format: float
+          nullable: true
+          example: 163671800.00
         uploaded_by:
           type: string
           example: "Chị Cẩm Nhung"
@@ -3250,6 +3441,54 @@ components:
           example: "Tải lên hồ sơ giải ngân thành công."
         document:
           $ref: '#/components/schemas/DisbursementDocumentItem'
+
+    LoanInvoiceReconciliationResponse:
+      type: object
+      properties:
+        loan_id:
+          type: integer
+          example: 912
+        contract_number:
+          type: string
+          example: "2200009133"
+        bank_code:
+          type: string
+          example: "EVF"
+        current_principal_balance:
+          type: number
+          format: float
+          example: 1000001000.00
+        total_invoice_amount:
+          type: number
+          format: float
+          example: 1489259199.00
+        shortage_amount:
+          type: number
+          format: float
+          example: 0.00
+        is_sufficient:
+          type: boolean
+          example: true
+        invoice_count:
+          type: integer
+          example: 7
+        warning_message:
+          type: string
+          nullable: true
+          example: null
+
+    CreditOrganizationItem:
+      type: object
+      properties:
+        bank_code:
+          type: string
+          example: "CTG"
+        bank_name:
+          type: string
+          example: "Ngân hàng TMCP Công Thương Việt Nam"
+        institution_type:
+          type: string
+          example: "BANK"
 
     BankDebtSummary:
       type: object
@@ -3356,6 +3595,14 @@ components:
         ctg_tenor_months:
           type: integer
           example: 4
+        reborrow_rate:
+          type: number
+          format: decimal
+          example: 100.00
+        reborrow_mode:
+          type: string
+          enum: [SRPR_OPTIMAL, LUMP_SUM_STANDARD, STAGGERED_SMOOTHING]
+          example: SRPR_OPTIMAL
 
     MonthlyRepaymentComparisonItem:
       type: object
@@ -3367,6 +3614,18 @@ components:
           type: number
           format: decimal
           example: 34435015000.00
+        reborrowed_new_due_amount:
+          type: number
+          format: decimal
+          example: 0.00
+        bridged_due_amount:
+          type: number
+          format: decimal
+          example: 0.00
+        intraday_reroute_cut_amount:
+          type: number
+          format: decimal
+          example: 0.00
         allocated_payment_amount:
           type: number
           format: decimal
@@ -3379,6 +3638,13 @@ components:
           type: number
           format: decimal
           example: 14000000000.00
+        closing_total_debt:
+          type: number
+          format: decimal
+          example: 79160540000.00
+        reroute_destination_note:
+          type: string
+          example: "CTG: 11.9T (1T), 13.0T (2T), 5.0T (3T), 3.44T (4T)"
         monthly_capacity:
           type: number
           format: decimal
@@ -3421,8 +3687,8 @@ components:
           example: "2027-03-10"
         action_type:
           type: string
-          enum: [PAY_ON_DUE, PARTIAL_PREPAYMENT, FULL_PREPAYMENT, ROLLOVER_REFINANCE]
-          example: PARTIAL_PREPAYMENT
+          enum: [PAY_ON_DUE, PARTIAL_PREPAYMENT, FULL_PREPAYMENT, ROLLOVER_REFINANCE, NEW_REBORROW_DRAWDOWN, STEPPED_BRIDGING_DRAWDOWN, INTRADAY_PREPAY_REROUTE, MATURITY_ROLLOVER]
+          example: INTRADAY_PREPAY_REROUTE
         payment_month:
           type: string
           example: "2026-12"

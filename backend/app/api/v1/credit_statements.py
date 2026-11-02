@@ -9,13 +9,13 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, and_, or_
+from sqlalchemy import select, desc, func, and_, or_, case
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import verify_file_magic_bytes
 from app.core.config import settings
-from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument
+from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument, LoanRepaymentHistory
 from app.models.audit_log import AuditLog
 from app.schemas.credit import (
     CreditStatementFileItem,
@@ -29,14 +29,23 @@ from app.schemas.credit import (
     CreditUploadResponse,
     DisbursementDocumentItem,
     DisbursementDocumentUploadResponse,
+    CreditOrganizationItem,
     RepaymentPlanSimulateRequest,
     DebtRepaymentPlanResponse,
+    UnreconciledDebtTransactionItem,
+    RepaymentReconcileRequest,
+    RepaymentReconcileResponse,
+    LoanRepaymentHistoryItem,
+    RepaymentRollbackResponse,
+    LoanInvoiceReconciliationResponse,
 )
 from app.schemas.common import PaginationMeta
 from app.services.credit_ingestion_service import ingest_credit_statement
 from app.services.storage_service import save_statement_bytes, read_statement_bytes
 from app.services.debt_repayment_service import DebtRepaymentService
 from app.services.loan_interest_service import calculate_loan_interest
+from app.services.debt_reconciliation_service import DebtReconciliationService
+from app.services.invoice_parser_service import parse_xml_invoice_bytes, calculate_loan_invoice_reconciliation
 
 logger = logging.getLogger(__name__)
 
@@ -217,19 +226,51 @@ async def list_loans(
     count_stmt = select(func.count(CreditFacility.loan_id)).where(*filters)
     total_count = (await db.execute(count_stmt)).scalar() or 0
 
-    # Subquery đếm số tài liệu hồ sơ giải ngân cho từng khoản vay
-    doc_count_subq = (
+    # Subquery đếm số tài liệu hồ sơ giải ngân và tổng tiền hóa đơn XML cho từng khoản vay
+    doc_agg_subq = (
         select(
             DisbursementDocument.loan_id,
             func.count(DisbursementDocument.document_id).label("doc_count"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (DisbursementDocument.invoice_total_amount.is_not(None), DisbursementDocument.invoice_total_amount),
+                        else_=Decimal("0.00"),
+                    )
+                ),
+                Decimal("0.00"),
+            ).label("total_invoices_amount"),
+            func.count(
+                case(
+                    (DisbursementDocument.invoice_total_amount.is_not(None), 1),
+                    else_=None,
+                )
+            ).label("xml_invoice_count"),
         )
         .group_by(DisbursementDocument.loan_id)
         .subquery()
     )
 
+    # Subquery tính tổng tiền đã trả nợ gốc
+    repay_agg_subq = (
+        select(
+            LoanRepaymentHistory.loan_id,
+            func.coalesce(func.sum(LoanRepaymentHistory.principal_amount), Decimal("0.00")).label("total_repaid_principal"),
+        )
+        .group_by(LoanRepaymentHistory.loan_id)
+        .subquery()
+    )
+
     stmt = (
-        select(CreditFacility, func.coalesce(doc_count_subq.c.doc_count, 0).label("dossier_count"))
-        .outerjoin(doc_count_subq, CreditFacility.loan_id == doc_count_subq.c.loan_id)
+        select(
+            CreditFacility,
+            func.coalesce(doc_agg_subq.c.doc_count, 0).label("dossier_count"),
+            func.coalesce(doc_agg_subq.c.total_invoices_amount, Decimal("0.00")).label("total_invoices_amount"),
+            func.coalesce(doc_agg_subq.c.xml_invoice_count, 0).label("xml_invoice_count"),
+            func.coalesce(repay_agg_subq.c.total_repaid_principal, Decimal("0.00")).label("total_repaid"),
+        )
+        .outerjoin(doc_agg_subq, CreditFacility.loan_id == doc_agg_subq.c.loan_id)
+        .outerjoin(repay_agg_subq, CreditFacility.loan_id == repay_agg_subq.c.loan_id)
         .where(*filters)
         .order_by(CreditFacility.next_repayment_date.asc().nullslast(), desc(CreditFacility.current_principal_balance))
         .offset(offset)
@@ -238,15 +279,34 @@ async def list_loans(
     rows = (await db.execute(stmt)).all()
 
     data_items = []
-    for loan, dossier_count in rows:
+    for loan, dossier_count, total_invoices, xml_inv_count, total_repaid in rows:
         item = CreditFacilityItem.model_validate(loan)
         item.dossier_files_count = dossier_count
+        item.total_invoices_amount = total_invoices
+        # Tính số tiền đã trả nợ gốc (từ subquery hoặc hiệu số giữa gốc ban đầu và gốc hiện tại)
+        calculated_repaid = total_repaid if total_repaid > 0 else max(
+            Decimal("0.00"),
+            (loan.original_principal_balance or loan.current_principal_balance) - loan.current_principal_balance
+        )
+        item.total_repaid_principal = calculated_repaid
+
+        if xml_inv_count > 0:
+            if total_invoices < loan.current_principal_balance:
+                item.invoice_reconciliation_status = "DEFICIENT"
+                item.invoice_shortage_amount = loan.current_principal_balance - total_invoices
+            else:
+                item.invoice_reconciliation_status = "SUFFICIENT"
+                item.invoice_shortage_amount = Decimal("0.00")
+        else:
+            item.invoice_reconciliation_status = "NO_INVOICE"
+            item.invoice_shortage_amount = Decimal("0.00")
+
         if item.calculated_interest_due == Decimal("0.00") and item.current_principal_balance > 0:
             item.calculated_interest_due = calculate_loan_interest(
                 principal_balance=loan.current_principal_balance,
                 annual_interest_rate=loan.interest_rate,
                 payment_method=loan.interest_payment_method or "MONTHLY",
-                monthly_due_day=loan.monthly_interest_due_day or 25,
+                monthly_due_day=loan.monthly_interest_due_day or (5 if loan.bank_code in ("CTG", "CTG_LEASING") else 25),
                 disbursement_date=loan.disbursement_date,
                 maturity_date=loan.maturity_date,
             )
@@ -292,10 +352,18 @@ async def create_manual_loan(
 
     due_day = payload.monthly_interest_due_day
     if not due_day:
-        due_day = payload.disbursement_date.day if payload.disbursement_date else 25
+        due_day = 5 if payload.bank_code.strip().upper() in ("CTG", "CTG_LEASING") else (payload.disbursement_date.day if payload.disbursement_date else 25)
+
+    orig_principal = payload.original_principal_balance
+    if orig_principal is None or orig_principal == Decimal("0.00"):
+        orig_principal = payload.current_principal_balance or Decimal("0.00")
+
+    curr_principal = payload.current_principal_balance
+    if curr_principal is None:
+        curr_principal = orig_principal
 
     calc_interest = calculate_loan_interest(
-        principal_balance=payload.current_principal_balance or Decimal("0.00"),
+        principal_balance=curr_principal,
         annual_interest_rate=payload.interest_rate or Decimal("0.0000"),
         payment_method=payload.interest_payment_method or "MONTHLY",
         monthly_due_day=due_day,
@@ -324,7 +392,8 @@ async def create_manual_loan(
         interest_payment_method=payload.interest_payment_method or "MONTHLY",
         monthly_interest_due_day=due_day,
         calculated_interest_due=calc_interest,
-        current_principal_balance=payload.current_principal_balance or Decimal("0.00"),
+        original_principal_balance=orig_principal,
+        current_principal_balance=curr_principal,
         accrued_interest=payload.accrued_interest or Decimal("0.00"),
         next_repayment_date=payload.next_repayment_date,
         next_principal_amount=payload.next_principal_amount or Decimal("0.00"),
@@ -457,6 +526,39 @@ async def get_loans_summary(
     )
 
 
+@router.get("/loans/organizations", response_model=List[CreditOrganizationItem])
+async def get_loan_organizations(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy danh sách các tổ chức cấp tín dụng / ngân hàng / cty tài chính / cho thuê
+    đã từng có khoản vay trong hệ thống để tự động gợi ý và bổ sung vào dropdown.
+    """
+    stmt = (
+        select(CreditFacility.bank_code, CreditFacility.bank_name, CreditFacility.institution_type)
+        .where(CreditFacility.is_active == True)
+        .distinct()
+    )
+    rows = (await db.execute(stmt)).all()
+
+    seen = set()
+    result = []
+    for row in rows:
+        b_code = (row[0] or "").strip().upper()
+        b_name = (row[1] or "").strip()
+        i_type = (row[2] or "OTHER").strip()
+        if b_code and b_code not in seen:
+            seen.add(b_code)
+            result.append(
+                CreditOrganizationItem(
+                    bank_code=b_code,
+                    bank_name=b_name or b_code,
+                    institution_type=i_type,
+                )
+            )
+    return result
+
+
 @router.get("/loans/repayment-plan", response_model=DebtRepaymentPlanResponse)
 async def get_default_repayment_plan(
     monthly_capacity: Optional[Decimal] = Query(None, description="Khả năng chi trả hàng tháng"),
@@ -500,17 +602,57 @@ async def get_loan_detail(
     if not loan:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khoản vay.")
 
-    count_stmt = select(func.count(DisbursementDocument.document_id)).where(DisbursementDocument.loan_id == loan_id)
-    dossier_count = (await db.execute(count_stmt)).scalar() or 0
+    # Thống kê hồ sơ và hóa đơn XML
+    agg_stmt = (
+        select(
+            func.count(DisbursementDocument.document_id).label("doc_count"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (DisbursementDocument.invoice_total_amount.is_not(None), DisbursementDocument.invoice_total_amount),
+                        else_=Decimal("0.00"),
+                    )
+                ),
+                Decimal("0.00"),
+            ).label("total_invoices"),
+            func.count(
+                case(
+                    (DisbursementDocument.invoice_total_amount.is_not(None), 1),
+                    else_=None,
+                )
+            ).label("xml_invoice_count"),
+        )
+        .where(DisbursementDocument.loan_id == loan_id)
+    )
+    agg_res = (await db.execute(agg_stmt)).one()
+    dossier_count, total_invoices, xml_inv_count = agg_res[0], agg_res[1], agg_res[2]
 
     item = CreditFacilityItem.model_validate(loan)
     item.dossier_files_count = dossier_count
+    item.total_invoices_amount = total_invoices
+
+    # Tính tổng tiền đã trả nợ gốc
+    repay_stmt = select(func.coalesce(func.sum(LoanRepaymentHistory.principal_amount), Decimal("0.00"))).where(LoanRepaymentHistory.loan_id == loan_id)
+    repaid_amount = (await db.execute(repay_stmt)).scalar() or Decimal("0.00")
+    if repaid_amount == Decimal("0.00") and loan.original_principal_balance > loan.current_principal_balance:
+        repaid_amount = loan.original_principal_balance - loan.current_principal_balance
+    item.total_repaid_principal = repaid_amount
+    if xml_inv_count > 0:
+        if total_invoices < loan.current_principal_balance:
+            item.invoice_reconciliation_status = "DEFICIENT"
+            item.invoice_shortage_amount = loan.current_principal_balance - total_invoices
+        else:
+            item.invoice_reconciliation_status = "SUFFICIENT"
+            item.invoice_shortage_amount = Decimal("0.00")
+    else:
+        item.invoice_reconciliation_status = "NO_INVOICE"
+        item.invoice_shortage_amount = Decimal("0.00")
     if item.calculated_interest_due == Decimal("0.00") and item.current_principal_balance > 0:
         item.calculated_interest_due = calculate_loan_interest(
             principal_balance=loan.current_principal_balance,
             annual_interest_rate=loan.interest_rate,
             payment_method=loan.interest_payment_method or "MONTHLY",
-            monthly_due_day=loan.monthly_interest_due_day or 25,
+            monthly_due_day=loan.monthly_interest_due_day or (5 if loan.bank_code in ("CTG", "CTG_LEASING") else 25),
             disbursement_date=loan.disbursement_date,
             maturity_date=loan.maturity_date,
         )
@@ -569,7 +711,7 @@ async def update_loan(
         principal_balance=loan.current_principal_balance,
         annual_interest_rate=loan.interest_rate,
         payment_method=loan.interest_payment_method or "MONTHLY",
-        monthly_due_day=loan.monthly_interest_due_day or 25,
+        monthly_due_day=loan.monthly_interest_due_day or (5 if loan.bank_code in ("CTG", "CTG_LEASING") else 25),
         disbursement_date=loan.disbursement_date,
         maturity_date=loan.maturity_date,
     )
@@ -684,6 +826,14 @@ async def upload_disbursement_document(
     # Lưu vào Object Storage (MinIO / Hybrid Local)
     save_statement_bytes(storage_path, content, content_type=content_type)
 
+    # Nếu là hóa đơn XML, bóc tách số hóa đơn và tổng tiền thanh toán
+    invoice_number = None
+    invoice_total_amount = None
+    if original_filename.lower().endswith(".xml") or content_type in ("application/xml", "text/xml"):
+        parsed_inv = parse_xml_invoice_bytes(content)
+        invoice_number = parsed_inv.get("invoice_number")
+        invoice_total_amount = parsed_inv.get("total_amount")
+
     doc_record = DisbursementDocument(
         document_uuid=doc_uuid,
         loan_id=loan_id,
@@ -694,6 +844,8 @@ async def upload_disbursement_document(
         mime_type=content_type,
         document_type=document_type,
         description=description,
+        invoice_number=invoice_number,
+        invoice_total_amount=invoice_total_amount,
         uploaded_by=uploaded_by,
     )
     db.add(doc_record)
@@ -712,6 +864,8 @@ async def upload_disbursement_document(
             "document_type": document_type,
             "storage_path": storage_path,
             "file_size": file_size,
+            "invoice_number": invoice_number,
+            "invoice_total_amount": str(invoice_total_amount) if invoice_total_amount else None,
         },
     )
     db.add(audit)
@@ -726,8 +880,30 @@ async def upload_disbursement_document(
         storage_path=doc_record.storage_path,
         file_size_bytes=doc_record.file_size_bytes,
         document_type=doc_record.document_type,
+        invoice_number=doc_record.invoice_number,
+        invoice_total_amount=doc_record.invoice_total_amount,
         message=f"Đã lưu thành công tài liệu '{original_filename}' vào bộ hồ sơ giải ngân khoản vay {loan.contract_number}.",
     )
+
+
+@router.get("/loans/{loan_id}/invoices/reconciliation", response_model=LoanInvoiceReconciliationResponse)
+async def get_loan_invoice_reconciliation(
+    loan_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Đối soát tổng giá trị hóa đơn XML với dư nợ gốc của khoản vay.
+    Cảnh báo thiếu hóa đơn nếu tổng tiền hóa đơn < dư nợ gốc.
+    """
+    stmt = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
+    loan = (await db.execute(stmt)).scalar_one_or_none()
+    if not loan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khoản vay.")
+
+    docs_stmt = select(DisbursementDocument).where(DisbursementDocument.loan_id == loan_id)
+    documents = (await db.execute(docs_stmt)).scalars().all()
+
+    return calculate_loan_invoice_reconciliation(loan, list(documents))
 
 
 @router.get("/loans/{loan_id}/dossier", response_model=List[DisbursementDocumentItem])
@@ -798,6 +974,116 @@ async def delete_disbursement_document(
     await db.commit()
 
     return {"message": f"Đã xóa thành công tài liệu ID #{document_id} khỏi hồ sơ giải ngân."}
+
+
+# =============================================================================
+# ENDPOINTS: ĐỐI SOÁT CHI TRẢ NỢ VÀ GIẢM TRỪ NỢ GỐC (US-07.9)
+# =============================================================================
+
+@router.get("/loans/repayment-reconciliations/unreconciled", response_model=dict)
+async def get_unreconciled_debt_transactions(
+    bank_code: Optional[str] = Query(None, description="Lọc theo mã ngân hàng (CTG, MBB...)"),
+    keyword: Optional[str] = Query(None, description="Lọc theo từ khóa khế ước hoặc diễn giải"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy danh sách các giao dịch chi từ sao kê ngân hàng đã phân loại là "Trả nợ"
+    chưa được đối soát, kèm thông tin gợi ý khế ước bóc tách được từ Regex.
+    """
+    return await DebtReconciliationService.get_unreconciled_transactions(
+        db=db,
+        bank_code=bank_code,
+        keyword=keyword,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post(
+    "/loans/repayment-reconciliations/reconcile",
+    response_model=RepaymentReconcileResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def reconcile_debt_transaction(
+    payload: RepaymentReconcileRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Thực hiện đối soát giao dịch chi trả nợ:
+    - Ràng buộc: Số tiền trả gốc + trả lãi = Tổng số tiền giao dịch
+    - Giảm trừ dư nợ gốc tương ứng trên CreditFacility
+    - Tự động chuyển trạng thái SETTLED khi dư nợ = 0
+    - Ghi nhận vào LoanRepaymentHistory với repayment_date = transaction.transaction_date
+    """
+    return await DebtReconciliationService.reconcile_transaction(
+        db=db,
+        payload=payload,
+        actor="Chị Cẩm Nhung",
+    )
+
+
+@router.post(
+    "/loans/repayment-reconciliations/{repayment_id}/rollback",
+    response_model=RepaymentRollbackResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def rollback_debt_reconciliation(
+    repayment_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Hoàn tác (Rollback) một lần đối soát:
+    - Khôi phục lại dư nợ gốc trên khoản vay
+    - Khôi phục trạng thái ACTIVE nếu khoản vay đã bị tất toán
+    - Xóa bản ghi lịch sử trả nợ
+    - Ghi nhận AuditLog
+    """
+    return await DebtReconciliationService.rollback_repayment(
+        db=db,
+        repayment_id=repayment_id,
+        actor="Chị Cẩm Nhung",
+    )
+
+
+@router.get("/loans/repayment-reconciliations/history", response_model=dict)
+async def get_repayment_reconciliation_history(
+    loan_id: Optional[int] = Query(None, description="Lọc theo ID khoản vay"),
+    bank_code: Optional[str] = Query(None, description="Lọc theo mã ngân hàng"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy danh sách nhật ký lịch sử các lần đối soát trả nợ trên toàn hệ thống.
+    """
+    return await DebtReconciliationService.list_repayment_history(
+        db=db,
+        loan_id=loan_id,
+        bank_code=bank_code,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/loans/{loan_id}/repayments", response_model=dict)
+async def get_loan_repayments(
+    loan_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy danh sách lịch sử trả nợ riêng của một khoản vay cụ thể.
+    """
+    return await DebtReconciliationService.list_repayment_history(
+        db=db,
+        loan_id=loan_id,
+        limit=limit,
+        offset=offset,
+    )
+
 
 
 

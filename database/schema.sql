@@ -306,11 +306,12 @@ CREATE TABLE credit_facilities (
     
     -- Hình thức trả lãi & Lịch trả lãi (Thông tư 14/2017/TT-NHNN)
     interest_payment_method VARCHAR(20) NOT NULL DEFAULT 'MONTHLY' CHECK (interest_payment_method IN ('MONTHLY', 'END_OF_TERM')), -- 'MONTHLY' (Hằng tháng), 'END_OF_TERM' (Cuối kỳ)
-    monthly_interest_due_day INT CHECK (monthly_interest_due_day IS NULL OR (monthly_interest_due_day >= 1 AND monthly_interest_due_day <= 31)), -- Ngày trả lãi trong tháng (1-31)
+    monthly_interest_due_day INT CHECK (monthly_interest_due_day IS NULL OR (monthly_interest_due_day >= 1 AND monthly_interest_due_day <= 31)), -- Ngày trả lãi trong tháng (1-31, VietinBank mặc định ngày 5)
     calculated_interest_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Số lãi cần trả tính theo quy định pháp luật (TT 14/2017/TT-NHNN Actual/365)
 
     -- Số dư & nghĩa vụ trả nợ
-    current_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc hiện tại
+    original_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc ban đầu (không đổi)
+    current_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc hiện tại (sau khi trừ các lần trả nợ gốc)
     accrued_interest DECIMAL(18, 2) DEFAULT 0.00,           -- Lãi cộng dồn
     next_repayment_date DATE,                               -- Ngày đến hạn tiếp theo
     next_principal_amount DECIMAL(18, 2) DEFAULT 0.00,      -- Số tiền gốc đến hạn gần nhất
@@ -382,6 +383,8 @@ CREATE TABLE disbursement_documents (
     document_type VARCHAR(50) NOT NULL DEFAULT 'DISBURSEMENT_RECORD',
     -- 'CONTRACT' (Hợp đồng tín dụng), 'DISBURSEMENT_RECORD' (Hồ sơ/Biên bản giải ngân), 'DEBT_NOTE' (Khế ước nhận nợ), 'INVOICE' (Hóa đơn/chứng từ sử dụng vốn/UNC), 'COLLATERAL' (Tài sản bảo đảm/thế chấp), 'APPROVAL' (Phê duyệt tín dụng), 'OTHER' (Khác)
     description TEXT,                                       -- Mô tả hoặc ghi chú chứng từ
+    invoice_number VARCHAR(50),                             -- Số hóa đơn điện tử bóc tách từ file XML (SHDon)
+    invoice_total_amount NUMERIC(18, 2),                    -- Tổng số tiền thanh toán trên hóa đơn XML (TgTTTBSo)
     uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -407,5 +410,35 @@ SELECT
 FROM credit_facilities cf
 WHERE cf.is_active = TRUE AND cf.status = 'ACTIVE'
 GROUP BY cf.bank_code, cf.bank_name;
+
+-- =============================================================================
+-- 14. BẢNG NHẬT KÝ ĐỐI SOÁT & LỊCH SỬ TRẢ NỢ (LOAN REPAYMENT HISTORY)
+-- Lưu vết chi tiết từng lần trả nợ gốc/lãi từ sao kê ngân hàng đối chiếu với khế ước
+-- =============================================================================
+CREATE TABLE loan_repayment_history (
+    repayment_id BIGSERIAL PRIMARY KEY,
+    loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE RESTRICT,
+    transaction_id BIGINT NOT NULL UNIQUE REFERENCES bank_transactions(transaction_id) ON DELETE RESTRICT,
+    contract_number VARCHAR(50) NOT NULL,
+    bank_code VARCHAR(20) NOT NULL,
+    repayment_date TIMESTAMP WITH TIME ZONE NOT NULL,       -- Thời điểm trả nợ ĐÚNG BẰNG transaction_date trên sao kê
+    principal_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,  -- Số tiền trả nợ gốc
+    interest_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số tiền trả nợ lãi
+    total_amount DECIMAL(18, 2) NOT NULL,                  -- Tổng số tiền (principal_amount + interest_amount == debit_amount)
+    previous_principal_balance DECIMAL(18, 2) NOT NULL,     -- Dư nợ gốc trước khi giảm trừ
+    remaining_principal_balance DECIMAL(18, 2) NOT NULL,    -- Dư nợ gốc sau khi giảm trừ
+    notes TEXT,                                             -- Ghi chú đối soát
+    reconciled_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT chk_repayment_split CHECK (principal_amount + interest_amount = total_amount),
+    CONSTRAINT chk_repayment_amounts_non_negative CHECK (principal_amount >= 0 AND interest_amount >= 0)
+);
+
+CREATE INDEX idx_repay_hist_loan ON loan_repayment_history(loan_id);
+CREATE INDEX idx_repay_hist_trans ON loan_repayment_history(transaction_id);
+CREATE INDEX idx_repay_hist_contract ON loan_repayment_history(contract_number);
+CREATE INDEX idx_repay_hist_date ON loan_repayment_history(repayment_date DESC);
+
 
 

@@ -6,6 +6,7 @@ import { UploadPage } from './pages/UploadPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { CreditStatementsPage } from './pages/CreditStatementsPage';
 import { LoanRepaymentPlanPage } from './pages/LoanRepaymentPlanPage';
+import { LoanRepaymentReconcilePage } from './pages/LoanRepaymentReconcilePage';
 import { CFODashboardPage } from './pages/CFODashboardPage';
 import { CEOWaterfallPage } from './pages/CEOWaterfallPage';
 import { RuleManagementPage } from './pages/RuleManagementPage';
@@ -23,11 +24,12 @@ export const App: React.FC = () => {
         <div className="flex-1 flex flex-col min-w-0">
           <TopHeader onToggleSidebar={() => setMobileOpen(true)} />
 
-          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <main className="flex-1 w-full px-4 sm:px-6 lg:px-8 py-6">
             <Routes>
               <Route path="/" element={<UploadPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/credit-statements" element={<CreditStatementsPage />} />
+              <Route path="/loan-repayments" element={<LoanRepaymentReconcilePage />} />
               <Route path="/loan-repayment-plan" element={<LoanRepaymentPlanPage />} />
               <Route path="/cfo-dashboard" element={<CFODashboardPage />} />
               <Route path="/ceo-waterfall" element={<CEOWaterfallPage />} />

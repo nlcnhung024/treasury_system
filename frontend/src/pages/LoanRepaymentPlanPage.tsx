@@ -35,7 +35,7 @@ export const LoanRepaymentPlanPage: React.FC = () => {
 
   // New Re-borrowing States
   const [reborrowRate, setReborrowRate] = useState<number>(100); // 100% mặc định
-  const [reborrowMode, setReborrowMode] = useState<ReborrowMode>('STAGGERED_SMOOTHING');
+  const [reborrowMode, setReborrowMode] = useState<ReborrowMode>('SRPR_OPTIMAL');
 
   // Seasonal capacities dictionary
   const [seasonalCapacities, setSeasonalCapacities] = useState<Record<string, number>>({
@@ -100,7 +100,7 @@ export const LoanRepaymentPlanPage: React.FC = () => {
     setMbTenor(6);
     setCtgTenor(4);
     setReborrowRate(100);
-    setReborrowMode('STAGGERED_SMOOTHING');
+    setReborrowMode('SRPR_OPTIMAL');
     setSeasonalCapacities({
       '2026-11': 14000000000,
       '2026-12': 16000000000,
@@ -135,9 +135,9 @@ export const LoanRepaymentPlanPage: React.FC = () => {
 
       const matchAction =
         actionFilter === 'ALL' ||
-        (actionFilter === 'PREPAYMENT' && (item.action_type === 'PARTIAL_PREPAYMENT' || item.action_type === 'FULL_PREPAYMENT')) ||
-        (actionFilter === 'ROLLOVER' && item.action_type === 'ROLLOVER_REFINANCE') ||
-        (actionFilter === 'REBORROW' && item.action_type === 'NEW_REBORROW_DRAWDOWN') ||
+        (actionFilter === 'PREPAYMENT' && (item.action_type === 'PARTIAL_PREPAYMENT' || item.action_type === 'FULL_PREPAYMENT' || item.action_type === 'INTRADAY_PREPAY_REROUTE')) ||
+        (actionFilter === 'ROLLOVER' && (item.action_type === 'ROLLOVER_REFINANCE' || item.action_type === 'MATURITY_ROLLOVER')) ||
+        (actionFilter === 'REBORROW' && (item.action_type === 'NEW_REBORROW_DRAWDOWN' || item.action_type === 'STEPPED_BRIDGING_DRAWDOWN')) ||
         (actionFilter === 'REGULAR' && item.action_type === 'PAY_ON_DUE');
 
       return matchSearch && matchBank && matchAction;
@@ -210,24 +210,26 @@ export const LoanRepaymentPlanPage: React.FC = () => {
           {/* Toggle 2 Reborrow Scenarios */}
           <div className="inline-flex p-1 bg-slate-800/90 rounded-xl border border-slate-700 self-start md:self-auto">
             <button
-              onClick={() => setReborrowMode('LUMP_SUM_STANDARD')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${reborrowMode === 'LUMP_SUM_STANDARD'
-                  ? 'bg-rose-600 text-white shadow-md'
-                  : 'text-slate-300 hover:text-white'
-                }`}
-            >
-              <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Kịch bản 1: Vay lại nguyên khối 4T (Nguy cơ dồn nợ T03)</span>
-            </button>
-            <button
-              onClick={() => setReborrowMode('STAGGERED_SMOOTHING')}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${reborrowMode === 'STAGGERED_SMOOTHING'
+              onClick={() => setReborrowMode('SRPR_OPTIMAL')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                reborrowMode === 'SRPR_OPTIMAL' || reborrowMode === 'STAGGERED_SMOOTHING'
                   ? 'bg-emerald-600 text-white shadow-md'
                   : 'text-slate-300 hover:text-white'
-                }`}
+              }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>Kịch bản 2: Vay lại phân kỳ lệch pha (Khuyến nghị)</span>
+              <span>⭐ Thuật toán SRPR v2.0 (Khuyến nghị: Bắc cầu CTG & Vay lại đúng gốc)</span>
+            </button>
+            <button
+              onClick={() => setReborrowMode('LUMP_SUM_STANDARD')}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-lg transition-all ${
+                reborrowMode === 'LUMP_SUM_STANDARD'
+                  ? 'bg-rose-600 text-white shadow-md'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <AlertTriangle className="w-3.5 h-3.5" />
+              <span>Kịch bản 1: Tái vay nguyên khối 4T (Cảnh báo nợ dồn T03 lên 73.76 tỷ)</span>
             </button>
           </div>
         </div>
@@ -238,17 +240,20 @@ export const LoanRepaymentPlanPage: React.FC = () => {
             <div className="text-rose-200 flex items-start gap-2.5">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
               <div>
-                <strong>Cảnh báo Kịch bản 1 (Vay lại nguyên khối 4 tháng):</strong> Khoản nợ CTG trả ở Tháng 11 khi được vay lại nguyên cục 14 tỷ sẽ đáo hạn đúng 4 tháng sau vào <strong>Tháng 03/2027</strong>.
-                Hệ quả: Nợ tự nhiên Tháng 03/2027 vọt lên tới <strong>{formatBillion(planData?.monthly_schedule.find(m => m.month === '2027-03')?.natural_due_amount)}</strong> (đè thêm nợ lên 40.4 tỷ của MB).
-                Công ty sẽ phải tận dụng tối đa tiền trả sớm ở T12, T01, T02 để cứu nguy dòng tiền Tháng 3!
+                <strong>Cảnh báo Kịch bản 1 (Tái vay thụ động 4 tháng CTG):</strong> Khi 33.34 tỷ nợ CTG ở Tháng 11 được tái vay nguyên khối 4T, toàn bộ sẽ đáo hạn vào <strong>Tháng 03/2027</strong>.
+                Hệ quả: Nợ đáo hạn Tháng 03/2027 vọt lên kỷ lục <strong>73.76 tỷ VND</strong> (40.43 tỷ MBB + 33.34 tỷ CTG), gây tê liệt hoàn toàn khả năng quay vòng vốn!
               </div>
             </div>
           ) : (
             <div className="text-emerald-200 flex items-start gap-2.5">
               <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <strong>Giải pháp Kịch bản 2 (Vay lại phân kỳ lệch pha thông minh):</strong> Thay vì dồn cả cục vay lại vào Tháng 3, thuật toán đề xuất <strong>chia nhỏ các khế ước vay lại và phân kỳ giải ngân</strong> để ngày đáo hạn rải đều vào các tháng trống (T01, T02, T04, T05).
-                Hệ quả: <strong>Né hoàn toàn đỉnh nợ Tháng 03/2027</strong>, giúp mọi tháng đều giữ mức thanh toán an toàn dưới 14 tỷ!
+                <strong>Thuật toán Tối ưu SRPR v2.0 (Cam kết vay lại đúng số tiền gốc sau khi cắt nợ):</strong>
+                <ul className="mt-1 list-disc list-inside space-y-0.5 text-[11px] text-emerald-100">
+                  <li><strong>Bắc cầu kỳ hạn cho CTG:</strong> Chia nhỏ 33.34 tỷ nợ T11 thành 4 nhánh (1T, 2T, 3T, 4T); khi đến trạm T12, T01, T02 tiếp tục tái vay đúng gốc 4T để đẩy nợ sang T04, T05, T06/2027 mà không vi phạm quy định 4 tháng của VietinBank.</li>
+                  <li><strong>Trả sớm & Vay lại ngay trong ngày cho MBB:</strong> Cắt $29.87$ tỷ nợ MBB ở đỉnh T03/2027 tại T12, T01, T02 và vay lại đúng số tiền gốc với kỳ hạn mới 5–6 tháng (đẩy sang T05–T08/2027).</li>
+                  <li><strong>Triệt tiêu đỉnh nợ T03/2027:</strong> Đưa nghĩa vụ nợ T03 từ 73.76 tỷ về đúng bằng trần an toàn <strong>14.00 tỷ VND</strong> ($10.56$ tỷ MBB + $3.44$ tỷ CTG).</li>
+                </ul>
               </div>
             </div>
           )}
@@ -676,63 +681,83 @@ export const LoanRepaymentPlanPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 6. Monthly Execution Schedule Table */}
+      {/* 6. Monthly Execution Schedule Table: Revolving Liquidity Matrix */}
       <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/60 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-bold text-slate-900">Bảng Tổng Hợp Dòng Tiền & Kế Hoạch Thanh Toán Hàng Tháng</h2>
-            <p className="text-xs text-slate-500">Chi tiết số tiền nợ định kỳ và các khoản nợ tái vay đến hạn</p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-bold text-slate-900">Ma Trận Điều Phối Dòng Tiền & Tái Định Tuyến Kỳ Hạn (7 Tháng)</h2>
+              <span className="px-2 py-0.5 rounded text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                ✓ Cam kết vay lại 100% gốc đã cắt
+              </span>
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">Bảng đối soát dòng tiền tuần hoàn: Nợ tự nhiên, nợ bắc cầu đổ về, lượng cắt đỉnh T03 trong ngày và hướng tái định tuyến</p>
           </div>
-          <span className="px-2.5 py-1 text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-lg">
-            7 Tháng Kế Hoạch (11/2026 – 05/2027)
+          <span className="px-3 py-1.5 text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-xl whitespace-nowrap self-start sm:self-auto">
+            Dư Nợ Luân Chuyển: {formatBillion(planData?.total_principal_debt)}
           </span>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
-                <th className="py-3 px-4">Tháng</th>
-                <th className="py-3 px-4 text-right">Tổng Nợ Đến Hạn</th>
-                <th className="py-3 px-4 text-right text-purple-700">Trong Đó Nợ Tái Vay</th>
-                <th className="py-3 px-4 text-right">Trả Đúng Hạn</th>
-                <th className="py-3 px-4 text-right">Trả Trước Hạn (Gom nợ)</th>
-                <th className="py-3 px-4 text-right text-indigo-700">Tổng Trả Đề Xuất</th>
-                <th className="py-3 px-4 text-right">Khả Năng Chi Trả</th>
-                <th className="py-3 px-4 text-center">Trạng Thái</th>
+              <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
+                <th className="py-3 px-3.5 whitespace-nowrap">Tháng</th>
+                <th className="py-3 px-3.5 text-right whitespace-nowrap">Nợ Tự Nhiên Ban Đầu</th>
+                <th className="py-3 px-3.5 text-right text-purple-700 whitespace-nowrap">Nợ Bắc Cầu Đổ Về</th>
+                <th className="py-3 px-3.5 text-right text-rose-700 whitespace-nowrap">Cắt Đỉnh T03 (Trong Ngày)</th>
+                <th className="py-3 px-3.5 text-right text-indigo-700 whitespace-nowrap font-black">Nợ Đáo Hạn Thực Tế</th>
+                <th className="py-3 px-3.5 text-right whitespace-nowrap">Trần Chi Trả</th>
+                <th className="py-3 px-3.5 whitespace-nowrap">Hướng Tái Định Tuyến Kỳ Hạn Mới</th>
+                <th className="py-3 px-3 text-center whitespace-nowrap">Trạng Thái</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {planData?.monthly_schedule.map((m) => (
                 <tr key={m.month} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3 px-4 font-bold text-slate-900">{m.month}</td>
-                  <td className="py-3 px-4 text-right font-medium text-slate-700">
+                  <td className="py-3 px-3.5 font-bold text-slate-900 whitespace-nowrap">{m.month}</td>
+                  <td className="py-3 px-3.5 text-right font-medium text-slate-700 whitespace-nowrap">
                     {formatVND(m.natural_due_amount)}
                   </td>
-                  <td className="py-3 px-4 text-right font-bold text-purple-700">
-                    {(m.reborrowed_new_due_amount || 0) > 0 ? `+${formatVND(m.reborrowed_new_due_amount)}` : '—'}
+                  <td className="py-3 px-3.5 text-right font-bold text-purple-700 whitespace-nowrap">
+                    {(m.bridged_due_amount || m.reborrowed_new_due_amount || 0) > 0
+                      ? `+${formatVND(m.bridged_due_amount || m.reborrowed_new_due_amount)}`
+                      : '—'}
                   </td>
-                  <td className="py-3 px-4 text-right font-medium text-slate-700">
-                    {formatVND(m.regular_principal_amount)}
+                  <td className="py-3 px-3.5 text-right font-bold whitespace-nowrap">
+                    {m.intraday_reroute_cut_amount && m.intraday_reroute_cut_amount > 0 ? (
+                      <span className="text-amber-600">+{formatVND(m.intraday_reroute_cut_amount)} (Cắt & Vay lại)</span>
+                    ) : m.intraday_reroute_cut_amount && m.intraday_reroute_cut_amount < 0 ? (
+                      <span className="text-emerald-700">{formatVND(m.intraday_reroute_cut_amount)} (Đã triệt tiêu)</span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
                   </td>
-                  <td className="py-3 px-4 text-right font-bold text-amber-600">
-                    {m.prepaid_principal_amount > 0 ? `+${formatVND(m.prepaid_principal_amount)}` : '—'}
-                  </td>
-                  <td className="py-3 px-4 text-right font-black text-indigo-600 text-sm">
+                  <td className="py-3 px-3.5 text-right font-black text-indigo-700 text-sm whitespace-nowrap">
                     {formatVND(m.allocated_payment_amount)}
                   </td>
-                  <td className="py-3 px-4 text-right font-semibold text-slate-800">
+                  <td className="py-3 px-3.5 text-right font-semibold text-slate-700 whitespace-nowrap">
                     {formatVND(m.monthly_capacity)}
                   </td>
-                  <td className="py-3 px-4 text-center">
+                  <td className="py-3 px-3.5 text-slate-600 text-[11px] leading-snug">
+                    {m.reroute_destination_note ? (
+                      <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded text-slate-700 font-medium">
+                        {m.reroute_destination_note}
+                      </span>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-center whitespace-nowrap">
                     <span
-                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${m.is_safe
+                      className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                        m.is_safe
                           ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                           : 'bg-rose-50 text-rose-700 border border-rose-200'
-                        }`}
+                      }`}
                     >
                       <CheckCircle2 className="w-3 h-3" />
-                      <span>{m.status_label === 'REFINANCED' ? 'Đã Đảo Nợ' : 'Kiểm Soát Tốt'}</span>
+                      <span>{m.status_label === 'REFINANCED' ? 'Đã Đảo Nợ' : 'An Toàn'}</span>
                     </span>
                   </td>
                 </tr>
@@ -836,17 +861,27 @@ export const LoanRepaymentPlanPage: React.FC = () => {
                     </td>
                     <td className="py-3 px-3 text-center">
                       <span
-                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${isReborrow
+                        className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                          alc.action_type === 'STEPPED_BRIDGING_DRAWDOWN'
+                            ? 'bg-purple-100 text-purple-800 border border-purple-300'
+                            : alc.action_type === 'INTRADAY_PREPAY_REROUTE'
+                            ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                            : alc.action_type === 'MATURITY_ROLLOVER'
+                            ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                            : isReborrow
                             ? 'bg-purple-100 text-purple-700 border border-purple-200'
                             : alc.action_type === 'FULL_PREPAYMENT'
-                              ? 'bg-purple-100 text-purple-700'
-                              : alc.action_type === 'PARTIAL_PREPAYMENT'
-                                ? 'bg-amber-100 text-amber-800'
-                                : isRollover
-                                  ? 'bg-blue-100 text-blue-700'
-                                  : 'bg-emerald-100 text-emerald-700'
-                          }`}
+                            ? 'bg-purple-100 text-purple-700'
+                            : alc.action_type === 'PARTIAL_PREPAYMENT'
+                            ? 'bg-amber-100 text-amber-800'
+                            : isRollover
+                            ? 'bg-blue-100 text-blue-700'
+                            : 'bg-emerald-100 text-emerald-700'
+                        }`}
                       >
+                        {alc.action_type === 'STEPPED_BRIDGING_DRAWDOWN' && '🌉 Bắc cầu (Vay lại đúng gốc)'}
+                        {alc.action_type === 'INTRADAY_PREPAY_REROUTE' && '🔄 Cắt nợ & Vay lại trong ngày'}
+                        {alc.action_type === 'MATURITY_ROLLOVER' && '🔁 Tái vay 4T tại trạm'}
                         {isReborrow && 'Tái giải ngân vay lại'}
                         {alc.action_type === 'FULL_PREPAYMENT' && 'Tất toán sớm'}
                         {alc.action_type === 'PARTIAL_PREPAYMENT' && 'Trả trước một phần'}

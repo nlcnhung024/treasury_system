@@ -151,6 +151,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 - **Hình Thức Trả Lãi & Ngày Trả Lãi Hằng Tháng:**
   - Bổ sung trường Hình thức trả lãi (`interest_payment_method`): `MONTHLY` (Hằng tháng) hoặc `END_OF_TERM` (Cuối kỳ khi đáo hạn).
   - Bổ sung trường Ngày trả lãi hằng tháng (`monthly_interest_due_day`): Số nguyên từ 1 đến 31 (chỉ định ngày chốt trả lãi trong tháng đối với hình thức Hằng tháng).
+  - **Quy định đối với VietinBank (CTG):** Toàn bộ các khoản vay của VietinBank có hình thức trả lãi là Hằng tháng (`MONTHLY`), ngày trả lãi định kỳ cố định là ngày 5 hằng tháng (`monthly_interest_due_day = 5`). Hệ thống tự động áp dụng ngày 5 khi bóc tách từ file sao kê khoản vay VietinBank eFAST (`CTG_LOAN_XLS`) và khi thêm mới/chỉnh sửa khoản nợ CTG.
 - **Tính Toán Số Lãi Cần Trả Theo Quy Định Hiện Hành của Pháp Luật (Thông tư 14/2017/TT-NHNN):**
   - Căn cứ pháp lý: Điều 5 Thông tư 14/2017/TT-NHNN ngày 29/09/2017 của Ngân hàng Nhà nước Việt Nam về phương pháp tính lãi trong hoạt động cấp tín dụng.
   - Cơ sở thời gian: Một năm chuẩn là 365 ngày (`Actual / 365`).
@@ -164,9 +165,43 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - Mỗi khoản vay tín dụng bắt buộc liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage (MinIO On-Premise kết hợp Local Disk).
   - Đường dẫn lưu trữ chuẩn: `disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{sanitized_filename}`.
   - Bảng quản lý siêu dữ liệu: `disbursement_documents` (`document_id`, `document_uuid`, `loan_id`, `file_name`, `storage_path`, `file_size_bytes`, `file_sha256`, `mime_type`, `document_type`, `description`, `uploaded_by`).
-  - Hỗ trợ đa dạng loại tài liệu phân tách rành mạch: `CONTRACT` (Hợp đồng tín dụng / Thỏa thuận vay), `DEBT_NOTE` / `DISBURSEMENT_RECORD` (Khế ước nhận nợ / Giấy đề nghị giải ngân LD), `INVOICE` (Chứng từ sử dụng vốn: Hóa đơn GTGT / UNC thanh toán), `COLLATERAL` (Hồ sơ tài sản bảo đảm & Thế chấp), `OTHER` / `APPROVAL` (Thông báo phê duyệt / Chứng từ khác) với dung lượng tối đa 50MB/file.
-  - Phân chia khu vực nhập và quản lý bộ hồ sơ giải ngân theo từng danh mục loại chứng từ độc lập, tuyệt đối không gom chung toàn bộ hồ sơ vào một phân vùng duy nhất. Giao diện cung cấp điều hướng Tab/Section theo từng loại chứng từ, tự động gán phân loại khi tải lên, hiển thị số lượng file theo từng loại, xem/tải xuống an toàn từ Object Storage và Audit Log chi tiết.
-  - Giao diện bảng danh mục khoản vay tối giản, tinh gọn: Mỗi hàng chỉ duy trì duy nhất một nút "Sửa" (Edit) ở cột Thao Tác cố định bên phải (không bố trí nhiều nút "Nhập bộ hồ sơ" trùng lặp trên các cột). Khi bấm "Sửa", modal mở ra tích hợp đầy đủ cả thông tin hợp đồng và phân vùng tải lên/quản lý Bộ hồ sơ giải ngân phân theo 5 loại chứng từ cho đúng khoản vay đó. Trên thanh công cụ chính vẫn có nút tập trung "+ Nhập Bộ Hồ Sơ Cho Khoản Vay" khi cần nạp nhanh theo lô.
+  - Hỗ trợ đa dạng loại tài liệu phân tách rành mạch: mặc định gồm `CONTRACT` (Hợp đồng tín dụng / Thỏa thuận vay), `DEBT_NOTE` / `DISBURSEMENT_RECORD` (Khế ước nhận nợ / Giấy đề nghị giải ngân LD), `INVOICE` (Chứng từ sử dụng vốn: Hóa đơn GTGT / UNC thanh toán), `COLLATERAL` (Hồ sơ tài sản bảo đảm & Thế chấp), `OTHER` / `APPROVAL` (Thông báo phê duyệt / Chứng từ khác) cùng **khả năng bổ sung loại hồ sơ tùy biến động** (như Thư bảo lãnh, Biên bản nghiệm thu, Hồ sơ pháp lý, Bảo hiểm công trình, v.v.), tự động lưu trữ và ghi nhớ đồng bộ trên client & database với dung lượng tối đa 50MB/file.
+  - Phân chia khu vực nhập và quản lý bộ hồ sơ giải ngân theo từng danh mục loại chứng từ độc lập (bao gồm các loại hồ sơ mặc định và các loại hồ sơ do người dùng tự bổ sung), tuyệt đối không gom chung toàn bộ hồ sơ vào một phân vùng duy nhất. Giao diện cung cấp điều hướng Tab/Section theo từng loại chứng từ, nút "+ Thêm loại hồ sơ" với gợi ý nhanh các nhóm hồ sơ thông dụng, tự động gán phân loại khi tải lên, hiển thị số lượng file theo từng loại, xem/tải xuống an toàn từ Object Storage và Audit Log chi tiết.
+  - Giao diện bảng danh mục khoản vay tối giản, tinh gọn và đa năng:
+    - **Phân tách rành mạch 3 cột Số dư Gốc & Cơ chế Tính Lãi:**
+      1. **Dư Nợ Gốc Ban Đầu (`original_principal_balance`):** Giá trị giải ngân ghi nhận theo Hợp đồng tín dụng / Khế ước nhận nợ, cố định bất biến trong suốt vòng đời khoản vay.
+      2. **Đã Trả Gốc (`total_repaid_principal`):** Tổng lũy kế số tiền nợ gốc đã thanh toán, đối soát tự động từ các giao dịch chi trả nợ trên sao kê tài khoản ngân hàng.
+      3. **Dư Nợ Gốc Hiện Tại (`current_principal_balance`):** Dư nợ gốc còn lại thực tế ($\text{Gốc hiện tại} = \text{Gốc ban đầu} - \text{Đã trả gốc}$). **Đây là mốc chuẩn duy nhất theo thời gian để tính số tiền lãi cần trả theo quy định pháp luật (Thông tư 14/2017/TT-NHNN)**.
+    - **Header hỗ trợ sắp xếp (Sort 2 chiều):** Click vào bất kỳ tiêu đề cột nào (Số HĐ, Ngân hàng, Dư nợ gốc ban đầu, Đã trả gốc, Dư nợ gốc hiện tại, Lãi suất, Ngày giải ngân, Đáo hạn, v.v.) để sắp xếp tăng dần hoặc giảm dần với icon trực quan.
+    - **Cột Ngày Giải Ngân độc lập:** Hiển thị rõ ràng ngày giải ngân kèm biểu tượng lịch, phân tách mạch lạc với cột Ngày Đáo Hạn / Thời Hạn.
+    - **Icon nhận diện hồ sơ đầu Số HĐ:** Trang giấy có chữ (`FileText`, xanh tím) khi khoản vay đã có bộ hồ sơ/chứng từ sao kê đính kèm; Trang giấy trắng (`File`, xám nhạt) khi khoản vay chưa nạp hồ sơ chứng từ. Click vào icon để mở nhanh modal nạp/xem hồ sơ.
+    - **Mỗi hàng duy trì đúng 1 nút "Sửa" (Edit) duy nhất:** Ở cột Thao Tác cố định mép phải (`sticky right-0`), modal mở ra tích hợp cả thông tin hợp đồng và phân vùng tải lên/quản lý Bộ hồ sơ giải ngân phân theo 5 loại chứng từ, kèm nút xóa khoản vay an toàn ở chân modal. Trên thanh công cụ chính vẫn có nút tập trung "+ Nhập Bộ Hồ Sơ Cho Khoản Vay" khi cần nạp nhanh theo lô.
+    - **Khung nhìn chuẩn 1 trang & Phân trang thông minh:** Cố định chiều cao nội bộ (`max-h-[calc(100vh-320px)]`), khóa cố định tiêu đề (`sticky top-0`) và cột Số HĐ (`sticky left-0`). Tích hợp thanh phân trang (mặc định 10 dòng/trang vừa khít màn hình, tùy chọn 15, 20, 50 hoặc Tất cả) đảm bảo toàn bộ bảng dữ liệu luôn nằm gọn trong đúng 1 trang màn hình mà không bao giờ làm trôi kéo giãn toàn bộ trang web.
+- **Tab Phân Tích Đa Chiều (Interactive Pivot Table) cho Danh Mục Khoản Vay:**
+  - Tab điều hướng thứ 4: `Phân Tích Đa Chiều (Pivot)` trên trang Sao Kê Tín Dụng & Danh Mục Khoản Vay (`/credit-statements`).
+  - **Tùy biến Chiều Phân tích linh hoạt:**
+    - **Chiều Dòng (Row Dimensions):** Ngân hàng / TCTD, Loại tổ chức tín dụng (`BANK`, `FINANCE_COMPANY`, `LEASING_COMPANY`, `OTHER`), Nhóm nợ (Nhóm 1 đến 5), Hình thức trả lãi (Hàng tháng, Cuối kỳ/Đáo hạn), Kỳ hạn (`term`), Tháng giải ngân (`disbursement_month` YYYY-MM), Tháng đáo hạn (`maturity_month` YYYY-MM), Nguồn dữ liệu (Nhập thủ công vs Bóc tách từ sao kê), Tình trạng hồ sơ giải ngân (Đã có hồ sơ vs Chưa có hồ sơ).
+    - **Chiều Cột (Column Dimensions):** Hỗ trợ chế độ Ma trận 2 Chiều (Dòng × Cột) hoặc Bảng 1 Chiều (`NONE` - Không phân chia cột).
+    - **Chỉ Số Tổng Hợp (Aggregation Metrics):**
+      - Tổng Dư Nợ Gốc (VNĐ - Sum).
+      - Tổng Tiền Lãi Dự Trả TT14 (VNĐ - Sum).
+      - Gốc Đến Hạn Kỳ Tới (VNĐ - Sum).
+      - Lãi Suất Bình Quân Gia Quyền (WAIR %/năm - Weighted Average theo dư nợ gốc).
+      - Số Lượng Hợp Đồng / Khế Ước (HĐ - Count).
+  - **6 Mẫu Xem Nhanh (1-Click Presets):**
+    - Ngân hàng × Nhóm nợ (Dư nợ gốc).
+    - Ngân hàng × Hình thức trả lãi (Lãi dự trả TT14).
+    - Loại TCTD × Kỳ hạn (Dư nợ gốc).
+    - Tháng đáo hạn × Ngân hàng (Gốc đến hạn kỳ tới).
+    - Ngân hàng × Hồ sơ giải ngân (Số lượng HĐ).
+    - Tổng hợp theo Ngân hàng (Bảng 1D Dư nợ gốc).
+  - **Trực Quan Hóa & Xuất Dữ Liệu:**
+    - Tự động đồng bộ với bộ lọc toàn cục ở đầu trang (`filteredLoans`).
+    - Thanh tìm kiếm nội bộ ma trận (lọc nhanh theo tên dòng/cột).
+    - 4 Thẻ KPI tóm tắt tức thì (Tổng Dư Nợ, Lãi Dự Trả, WAIR, Tổng HĐ).
+    - Dải nhiệt màu (Heatmap Bar) hiển thị tỷ trọng đóng góp của từng ô trên ma trận.
+    - Dòng & Cột Tổng Cộng Toàn Bộ (Grand Total Row & Column).
+    - Nút xuất file CSV tương thích Microsoft Excel với UTF-8 BOM (`\uFEFF`).
 - **Giao diện Nhập Lẻ Khoản Vay & Quản Lý Nợ Ngoài Sao Kê File:**
   - Hỗ trợ nhập trực tiếp các khoản nợ lẻ từ các Ngân hàng thương mại, Công ty tài chính (FE Credit, Home Credit, HD SAISON, Shinhan Finance, Mcredit, Mirae Asset...), Công ty cho thuê tài chính (VietinBank Leasing, BIDV-SuMi TRUST Leasing, Chailease, ACB Leasing...) hoặc đối tác tín dụng khác.
   - Phân loại tổ chức tín dụng: `BANK` (Ngân hàng), `FINANCE_COMPANY` (Công ty tài chính), `LEASING_COMPANY` (Cho thuê tài chính), `OTHER` (Khác).
@@ -177,13 +212,35 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - Lịch đến hạn trả nợ gốc và lãi (trong 7 ngày, 30 ngày tới).
   - Tự động tính Lãi suất bình quân gia quyền của toàn bộ danh mục nợ vay.
   - Tích hợp số liệu vào CFO Dashboard phục vụ giám sát Thanh khoản Ròng.
-- **Phân Hệ Kế Hoạch Trả Nợ & Làm Phẳng Dòng Tiền Tín Dụng (`/loan-repayment-plan`):**
+- **Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn (`/loan-repayment-plan`):**
   - Màn hình chuyên dụng cho CFO và Kế toán nằm dưới mục *Theo dõi khoản vay*.
-  - Thuật toán *Debt Smoothing Engine* tự động san phẳng áp lực nợ đến hạn bằng cơ chế trả trước hạn (Early Repayment) và đảo nợ tối đa kỳ hạn (MB 6 tháng, CTG 4 tháng).
+  - Thuật toán *SRPR Engine v2.0 (Stepped Rollover & Prepay-to-Reroute)*:
+    - **Bảo đảm hoàn lại gốc 100% sau khi cắt nợ:** Mọi khoản nợ bị cắt/trả (dù là trả trước hạn để tái định tuyến hay trả đúng hạn) đều được giải ngân vay lại đúng bằng số tiền gốc đã cắt.
+    - **Bắc cầu kỳ hạn cho VietinBank (CTG):** Chia nhỏ nợ T11 thành 4 nhánh (1T, 2T, 3T, 4T); khi đáo hạn tại trạm T12, T01, T02 tiếp tục tái vay đúng gốc 4T sang T04, T05, T06/2027 mà không vi phạm quy định 4 tháng của VietinBank.
+    - **Cắt nợ & Vay lại ngay trong ngày cho MBBank (MBB):** Cắt trước hạn 29.87 tỷ nợ MBB ở đỉnh T03/2027 tại T12, T01, T02 và vay lại đúng số tiền gốc với kỳ hạn mới 5–6 tháng (đẩy sang T05–T08/2027).
+    - **Triệt tiêu đỉnh nợ T03/2027:** Đưa tổng nợ thực tế T03 từ 73.76 tỷ về đúng bằng trần an toàn **14.00 tỷ VND** ($10.56$ tỷ MBB + $3.44$ tỷ CTG).
   - Hỗ trợ 2 chế độ thiết lập ngân sách: *Cố định đều các tháng* (mặc định 14 tỷ VND/tháng) và *Tùy chỉnh theo mùa vụ kinh doanh*.
-  - Chiến lược ưu tiên: Trả trước một phần các khoản nợ lớn (SPLIT_LARGE_LOANS) để chia nhỏ dư nợ gốc các món 10.7 tỷ, 9.5 tỷ, 7.7 tỷ sang các tháng dồi dào ngân quỹ (T12, T01, T02).
-  - Biểu đồ so sánh cột kép: Dư nợ đến hạn tự nhiên (Trước phân bổ) vs Dư nợ thanh toán đề xuất (Sau phân bổ) cùng Đường trần khả năng chi trả hàng tháng (bảo đảm 100% các tháng đều nằm dưới ngưỡng an toàn).
-  - Bảng tổng hợp dòng tiền hàng tháng và Bảng lịch trình chi tiết từng hợp đồng (73 hành động thanh toán, ngày đáo hạn mới sau đảo nợ, số ngày rút ngắn và tiền lãi tiết kiệm được).
+  - Biểu đồ Cột Stacked Bar: Phân tách minh bạch nợ gốc tự nhiên cũ (cam/xám), nợ bắc cầu đổ về (tím) và nợ thanh toán đề xuất (xanh), đảm bảo 100% các tháng nằm an toàn dưới đường trần chi trả.
+  - Ma trận Điều phối Dòng tiền 7 Tháng (7 cột chuẩn CFO) và Bảng lịch trình chi tiết từng khế ước (70+ hành động thực thi, ghi chú nghiệp vụ và tiền lãi tiết kiệm được).
+- **Phân hệ 7.9: Đối soát Giao dịch Chi Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9):**
+  - **Lọc tự động:** Quét toàn bộ giao dịch chi (`debit_amount > 0`) đã phân loại là "Trả nợ" (Category ID 25) trên các tài khoản ngân hàng doanh nghiệp, loại trừ các giao dịch đã đối soát.
+  - **Gợi ý khế ước thông minh:** Tự động trích xuất số khế ước (VietinBank 12 số, MBBank `LD...`, `040MAZS...`) và số tiền gốc/lãi gợi ý từ nội dung diễn giải sao kê ngân hàng (`description`).
+  - **Khung chia Gốc & Lãi trực quan:** Đảm bảo đẳng thức $\text{Số tiền trả gốc} + \text{Số tiền trả lãi} = \text{Tổng tiền giao dịch chi}$. Cung cấp nút 1-click **[100% Trả Gốc]** để gán toàn bộ số tiền là trả gốc một chạm, nút [100% Trả Lãi] và cơ chế tự động cân bằng 2 chiều giữa 2 ô nhập.
+  - **Tự động giảm trừ nợ gốc & Tất toán:** Giảm trừ tức thì `current_principal_balance = current_principal_balance - principal_amount`. Tự động chuyển trạng thái khoản vay sang `SETTLED` khi dư nợ gốc về 0.
+  - **Lịch sử trả nợ chuẩn kiểm toán:** Bảng `loan_repayment_history` ghi nhận trường `repayment_date` **chính xác bằng thời điểm giao dịch trên sao kê** (`transaction_date`).
+  - **Cơ chế Hoàn tác (Rollback):** Cho phép kế toán hủy đối soát nếu thao tác nhầm, khôi phục lại dư nợ gốc ban đầu và ghi nhận `audit_logs`.
+- **Phân hệ 7.10: Bóc tách Hóa đơn Điện tử XML & Đối soát Hóa đơn Giải ngân (US-07.10):**
+  - **Hỗ trợ định dạng Hóa đơn:** Hồ sơ dạng hóa đơn giải ngân lưu trữ gồm cả file XML và PDF theo quy chuẩn Nghị định 123/2020/NĐ-CP và Thông tư 78/2021/TT-BTC.
+  - **Bóc tách tự động file XML:** Tự động đọc nội dung file XML để trích xuất số hóa đơn (`<SHDon>`), ký hiệu (`<KHHDon>`), ngày lập (`<NLap>`), người bán/người mua, và tổng tiền thanh toán (`<TgTTTBSo>` hoặc `<TotalPayment>` / `<TgTToan>` / tổng tiền chưa thuế + thuế).
+  - **Cộng dồn & Đối soát với Dư nợ gốc:**
+    - Tính tổng số tiền trên toàn bộ các hóa đơn XML của khoản vay.
+    - So sánh với dư nợ gốc của khoản vay (`current_principal_balance`).
+    - **Cảnh báo thiếu hóa đơn (Deficiency Warning):** Nếu tổng số tiền trên hóa đơn nhỏ hơn dư nợ gốc ($\text{Tổng tiền HĐ XML} < \text{Dư nợ gốc}$), hệ thống hiển thị cảnh báo đỏ/vàng nổi bật **"⚠️ Thiếu hóa đơn giải ngân"**, hiển thị chi tiết số tiền còn thiếu để kế toán bổ sung chứng từ sử dụng vốn hợp lệ.
+    - **Thông báo đủ hóa đơn (Sufficiency Notice):** Nếu tổng tiền hóa đơn $\ge \text{Dư nợ gốc}$, hiển thị nhãn xanh **"✅ Đủ hóa đơn giải ngân (100% bao phủ)"**.
+  - **Giao diện đa tầng (Multi-tier UI):**
+    - Trực quan hóa cảnh báo ngay tại bảng danh sách khoản vay (Cột *Hồ sơ Giải ngân* với badge `⚠️ Thiếu HĐ` kèm số tiền thiếu và tooltip chi tiết).
+    - Hiển thị *Bảng Đối Soát Hóa Đơn Điện Tử XML* chuyên dụng trong tab *Hóa đơn & UNC* tại cả Modal quản lý hồ sơ giải ngân và Form tạo/sửa khoản vay.
+    - Hiển thị chi tiết số hóa đơn và số tiền trên từng dòng chứng từ XML (cả tệp chuẩn bị nạp và tệp đã lưu trong CSDL).
 
 ### Phân hệ 8: Trải nghiệm Người dùng & Điều hướng theo Vai trò (Role Navigation & Personas)
 - Cung cấp thanh chuyển đổi vai trò (Persona Switcher) linh hoạt trên thanh Sidebar:

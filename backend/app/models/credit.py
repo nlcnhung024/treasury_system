@@ -71,6 +71,7 @@ class CreditFacility(Base):
     monthly_interest_due_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     calculated_interest_due: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
 
+    original_principal_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
     current_principal_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
     accrued_interest: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     next_repayment_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True, index=True)
@@ -86,6 +87,7 @@ class CreditFacility(Base):
     # Relationships
     items: Mapped[List["CreditStatementItem"]] = relationship("CreditStatementItem", back_populates="loan")
     dossier_documents: Mapped[List["DisbursementDocument"]] = relationship("DisbursementDocument", back_populates="loan", cascade="all, delete-orphan")
+    repayments: Mapped[List["LoanRepaymentHistory"]] = relationship("LoanRepaymentHistory", back_populates="loan", cascade="all, delete-orphan")
 
 
 class CreditStatementItem(Base):
@@ -133,10 +135,36 @@ class DisbursementDocument(Base):
     mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
     document_type: Mapped[str] = mapped_column(String(50), nullable=False, default="DISBURSEMENT_RECORD")
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    invoice_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    invoice_total_amount: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
     uploaded_by: Mapped[str] = mapped_column(String(100), nullable=False, default="SYSTEM")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
     loan: Mapped["CreditFacility"] = relationship("CreditFacility", back_populates="dossier_documents")
+
+
+class LoanRepaymentHistory(Base):
+    __tablename__ = "loan_repayment_history"
+
+    repayment_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    loan_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("credit_facilities.loan_id", ondelete="RESTRICT"), nullable=False, index=True)
+    transaction_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("bank_transactions.transaction_id", ondelete="RESTRICT"), unique=True, nullable=False, index=True)
+    contract_number: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    bank_code: Mapped[str] = mapped_column(String(20), nullable=False)
+    repayment_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    principal_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
+    interest_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    previous_principal_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    remaining_principal_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    reconciled_by: Mapped[str] = mapped_column(String(100), nullable=False, default="SYSTEM")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    loan: Mapped["CreditFacility"] = relationship("CreditFacility", back_populates="repayments")
+    transaction: Mapped["BankTransaction"] = relationship("BankTransaction")
+
 

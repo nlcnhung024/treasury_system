@@ -12,6 +12,7 @@ import {
   CheckSquare,
   ChevronLeft,
   ChevronRight,
+  CheckCheck,
 } from 'lucide-react';
 import api from '../services/api';
 import { Transaction, Category, BankAccount } from '../types';
@@ -539,6 +540,16 @@ export const TransactionsPage: React.FC = () => {
                           ))}
                         </select>
                       </div>
+                      {tx.category_name === 'Trả nợ' && Number(tx.debit_amount) > 0 && (
+                        <a
+                          href="/loan-repayments"
+                          className="inline-flex items-center space-x-1 text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-1.5 py-0.5 rounded mt-1 transition-colors"
+                          title="Chuyển sang trang Đối soát Trả nợ & Giảm trừ nợ gốc"
+                        >
+                          <CheckCheck className="w-3 h-3 text-indigo-500" />
+                          <span>Đối soát nợ</span>
+                        </a>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 min-w-[170px]">
                       {editingNoteId === tx.transaction_id ? (

@@ -4,7 +4,7 @@ from app.models.category_rule import Category, ClassificationRule
 from app.models.transaction import BankTransaction
 from app.models.cash_ledger import CashLedger
 from app.models.audit_log import AuditLog
-from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument
+from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument, LoanRepaymentHistory
 
 __all__ = [
     "BankAccount",
@@ -18,5 +18,6 @@ __all__ = [
     "CreditFacility",
     "CreditStatementItem",
     "DisbursementDocument",
+    "LoanRepaymentHistory",
 ]
 

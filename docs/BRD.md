@@ -23,6 +23,9 @@
 | **1.6.0** | 2026-11-02 | `@BusinessAnalyst` | Mở rộng EPIC-07 bổ sung US-07.4: Giao diện Nhập Lẻ Khoản Vay & Quản lý nợ từ các Ngân hàng, Công ty tài chính, Công ty cho thuê tài chính ngoài các file sao kê tự động; hỗ trợ đa dạng loại hình cấp tín dụng và bộ lọc đa chiều. |
 | **1.7.0** | 2026-11-02 | `@BusinessAnalyst` | Mở rộng EPIC-07 bổ sung US-07.5 (Hình thức trả lãi MONTHLY/END_OF_TERM & Ngày trả lãi hằng tháng), US-07.6 (Tính toán số lãi cần trả theo quy định hiện hành Thông tư 14/2017/TT-NHNN Actual/365), và US-07.7 (Liên kết Bộ hồ sơ giải ngân khoản vay lưu trữ tại Object Storage). |
 | **1.8.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung `US-07.8` (Phân hệ Kế hoạch Trả nợ & Làm phẳng Dòng tiền Tín dụng - Debt Smoothing Engine): Tự động phân bổ nợ đến hạn hàng tháng, hỗ trợ chế độ Cố định đều & Tùy chỉnh theo mùa vụ kinh doanh, chiến lược chia nhỏ khoản nợ lớn, đảo nợ với thời hạn tối đa (MB 6T, CTG 4T), phí phạt trả trước mặc định 0%, bảo đảm dư nợ mọi tháng luôn nằm an toàn dưới trần khả năng chi trả. |
+| **1.9.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung `US-07.9` (Phân hệ Đối soát Giao dịch Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi - Debt Repayment Reconciliation Engine): Tự động lọc các khoản chi từ sao kê ngân hàng đã phân loại Trả nợ, đối chiếu với khoản vay qua số khế ước, khung chia gốc - lãi thông minh (nút chọn 100% gốc), tự động giảm trừ nợ gốc tương ứng, và lưu nhật ký lịch sử trả nợ theo đúng thời điểm giao dịch thực tế. |
+| **1.10.0** | 2026-11-02 | `@BusinessAnalyst` | Tối ưu hóa toàn diện `US-07.8` theo Thuật toán SRPR v2.0 (Stepped Rollover & Prepay-to-Reroute Engine): Cam kết sau khi cắt nợ (trả trước hạn/trả đúng hạn) đều được giải ngân vay lại đúng bằng số tiền gốc đã cắt; cơ chế Bắc cầu kỳ hạn CTG (1T, 2T, 3T, 4T) né trần 4 tháng và Cắt nợ MBB trong ngày ở các tháng trũng (T12, T01, T02), triệt tiêu đỉnh nợ T03/2027 từ 73.76 tỷ về đúng 14.00 tỷ VND. |
+| **1.11.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung `US-07.10` (Bóc tách Hóa đơn Điện tử XML & Đối soát Hóa đơn Giải ngân) và `US-07.11` (Chuẩn hóa 3 Cột Dư Nợ Gốc Ban Đầu, Đã Trả Gốc, Dư Nợ Gốc Hiện Tại và Ghi nhớ Tự động Danh mục Tổ chức / Loại Hồ sơ Mới). |
 
 ---
 
@@ -500,9 +503,9 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
   Scenario: [REQ-CREDIT-005] Thiết lập hình thức trả lãi hằng tháng hoặc cuối kỳ
     Given Khoản vay tín dụng đang hoạt động trong danh mục theo dõi khoản vay
     When Người dùng mở form chỉnh sửa hoặc thêm khoản vay
-    And Chọn Hình thức trả lãi là "MONTHLY" (Hằng tháng) và nhập Ngày trả lãi hằng tháng là 25
-    Then Hệ thống lưu trữ interest_payment_method="MONTHLY" và monthly_interest_due_day=25
-    And Bảng danh mục hiển thị huy hiệu "Hằng tháng (ngày 25)"
+    And Chọn Hình thức trả lãi là "MONTHLY" (Hằng tháng) và nhập Ngày trả lãi hằng tháng là 25 (hoặc chọn VietinBank mặc định cố định ngày 5)
+    Then Hệ thống lưu trữ interest_payment_method="MONTHLY" và monthly_interest_due_day=25 (hoặc 5 đối với CTG)
+    And Bảng danh mục hiển thị huy hiệu "Hằng tháng (ngày 25)" (hoặc "Hằng tháng (ngày 5)")
     When Người dùng đổi sang hình thức "END_OF_TERM" (Cuối kỳ)
     Then Hệ thống cập nhật interest_payment_method="END_OF_TERM"
     And Bảng danh mục hiển thị huy hiệu "Cuối kỳ"
@@ -540,33 +543,126 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
     And Thông tin tài liệu được ghi nhận vào bảng "disbursement_documents"
     And Số lượng tài liệu hiển thị trên badge "Hồ sơ (1)" và badge danh mục "Hóa đơn & UNC (1)" được cập nhật ngay lập tức
     And Cho phép tải xuống (Download) hoặc xóa tài liệu có ghi nhận Audit Log
+
+  Scenario: [REQ-CREDIT-008] Bổ sung loại hồ sơ / chứng từ mới tùy biến linh hoạt
+    Given Người dùng đang mở Bộ hồ sơ giải ngân tại form Khoản vay hoặc modal Nhập hồ sơ
+    When Người dùng nhấn nút "+ Thêm loại hồ sơ" trên thanh tab danh mục
+    Then Hệ thống hiển thị modal cho phép nhập Tên chứng từ, Tên viết tắt, Mã định danh và kèm gợi ý nhanh các nhóm phổ biến (Thư bảo lãnh, Biên bản nghiệm thu, Hồ sơ pháp lý, Bảo hiểm, Phương án KD)
+    When Người dùng xác nhận tạo loại chứng từ mới
+    Then Hệ thống tự động bổ sung danh mục mới vào thanh Tab, ghi nhớ vào bộ lưu trữ và kích hoạt tab này để người dùng tải tệp lên ngay lập tức
   ```
 
-#### US-07.8: Phân Hệ Kế Hoạch Trả Nợ & Làm Phẳng Dòng Tiền Tín Dụng (Debt Smoothing & Early Repayment Planner)
-* **User Story:** Là một *Giám đốc Tài chính (Ông Trần Ngọc Tuấn - CFO)* và *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *hệ thống gợi ý kế hoạch phân bổ trả nợ đến hạn hàng tháng, tự động tính toán đề xuất trả trước hạn hoặc đảo nợ tối đa kỳ hạn*, để *sau khi thực thi, dư nợ đến hạn của mỗi tháng luôn nằm dưới trần khả năng chi trả của công ty, khắc phục triệt để tình trạng đỉnh nợ lệch pha (chữ U) và tiết kiệm tối đa chi phí lãi vay*.
+#### US-07.8: Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn (SRPR Debt Smoothing & Re-borrowing Engine v2.0)
+* **User Story:** Là một *Giám đốc Tài chính (Ông Trần Ngọc Tuấn - CFO)* và *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *hệ thống ứng dụng thuật toán Dịch chuyển Kỳ hạn Bậc thang & Trả sớm Tái định tuyến trong ngày (SRPR), đảm bảo sau khi cắt nợ (trả trước hạn/trả đúng hạn) vẫn vay lại đúng số tiền gốc đó với kỳ hạn phù hợp*, để *sau khi thực thi, dư nợ đến hạn của mỗi tháng luôn nằm dưới trần khả năng chi trả của công ty, khắc phục triệt để tình trạng đỉnh nợ lệch pha (chữ U), hóa giải cạm bẫy tái vay 4 tháng của VietinBank và bảo toàn vốn lưu động phục vụ kinh doanh*.
 * **Độ ưu tiên:** Must Have (`P0`)
 * **Quy tắc Nghiệp vụ (Business Rules):**
-  1. **Khả năng chi trả hàng tháng ($C_t$):**
-     - Hỗ trợ 2 chế độ: *Cố định đều các tháng* (mặc định 14.0 tỷ VND/tháng) và *Tùy chỉnh theo mùa vụ kinh doanh* (nhập trần chi trả riêng cho từng tháng $11/2026 \dots 05/2027$).
-  2. **Chiến lược Phân bổ:** Mặc định ưu tiên *Trả trước hạn một phần các khoản nợ lớn (SPLIT_LARGE_LOANS)* để chia nhỏ quy mô nợ gốc (như các món 10.7 tỷ, 9.5 tỷ, 7.7 tỷ) sang các tháng dồi dào ngân quỹ (T12/2026, T01/2027, T02/2027). Hỗ trợ thêm các chiến lược *Avalanche* (lãi cao trước), *Snowball* (nợ nhỏ trước) và *Balanced* (chia đều).
-  3. **Thời hạn vay tối đa khi Đảo Nợ:**
-     - MBBank (MBB): Tối đa **6 tháng** (kéo dài từ 11/2026 sang 05/2027).
-     - VietinBank (CTG): Tối đa **4 tháng** (kéo dài từ 11/2026 sang 03/2027).
-  4. **Phí phạt trả nợ trước hạn:** Mặc định **0.0%** (cho phép cấu hình linh hoạt nếu ngân hàng thay đổi biểu phí).
+  1. **Nguyên tắc Vay lại Đúng Gốc sau khi Cắt nợ (100% Re-borrowing Match):**
+     - Mọi khoản nợ bị cắt/trả (dù là trả trước hạn để tái định tuyến hay tất toán đúng hạn) đều phải được giải ngân vay lại đúng bằng số tiền gốc đã cắt ($R_{\text{reborrow}} = P_{\text{cut}}$) với khế ước mới kèm ngày đáo hạn tương ứng.
+  2. **Cơ chế Bắc cầu Kỳ hạn (Stepped Bridging) cho VietinBank (CTG):**
+     - Tại Tháng 11/2026, 33.34 tỷ nợ CTG đáo hạn được tái vay thành 4 nhánh kỳ hạn hợp lệ: $1T \to T12$ (11.90 tỷ), $2T \to T01$ (13.00 tỷ), $3T \to T02$ (5.00 tỷ) và $4T \to T03$ (3.44 tỷ).
+     - Khi các khoản ngắn hạn này đáo hạn tại trạm T12, T01, T02, tiếp tục tái vay chuẩn 4 tháng để đẩy nợ sang Tháng 04, 05, 06/2027, né hoàn toàn đỉnh nợ Tháng 03/2027 mà không vi phạm quy định 4 tháng của VietinBank.
+  3. **Cơ chế Cắt nợ & Vay lại ngay trong ngày (Intraday Prepay-to-Reroute) cho MBBank (MBB):**
+     - Tận dụng dòng tiền bán hàng Tết dồi dào ở các tháng trũng (T12, T01, T02) và phí phạt 0% để cắt trước hạn 29.87 tỷ nợ MBB (đang nằm ở T03), và ngay trong ngày giải ngân vay lại đúng số tiền gốc với kỳ hạn mới 5–6 tháng (đẩy sang T05–T08/2027).
+  4. **Triệt tiêu hoàn toàn đỉnh nợ Tháng 03/2027:**
+     - Nợ MBB tại T03 còn $40.43 - 29.87 = 10.56$ tỷ; Nợ CTG đổ về: 3.44 tỷ $\to$ Tổng nợ đáo hạn T03/2027 = đúng **14.00 tỷ VND** (bằng đúng trần an toàn).
   5. **Bảo đảm trần an toàn (Safety Invariant):** Tại mọi tháng $t$, dư nợ thanh toán thực tế sau phân bổ luôn thỏa mãn $D_t^{\text{allocated}} \le C_t$.
 * **Tiêu chí chấp nhận (AC - Gherkin):**
   ```gherkin
-  Scenario: [REQ-CREDIT-008] Mô phỏng Kế hoạch trả nợ tín dụng với trần chi trả 14 tỷ/tháng
+  Scenario: [REQ-CREDIT-008] Mô phỏng Kế hoạch trả nợ tín dụng tuần hoàn SRPR v2.0
     Given Danh mục 37 khoản vay với tổng dư nợ 79,160,540,000 VND
-    And Đỉnh nợ gốc tự nhiên ban đầu tại Tháng 03/2027 là 40,425,525,000 VND
-    When Người dùng mở màn hình "Kế hoạch trả nợ" với ngưỡng chi trả 14 tỷ VND/tháng
-    Then Hệ thống thực hiện đảo nợ phần nợ vượt trần tháng 11/2026 (CTG 4 tháng, MB 6 tháng)
-    And Đề xuất trả trước hạn 12.9 tỷ vào Tháng 12/2026, 14 tỷ vào Tháng 01/2027, 14 tỷ vào Tháng 02/2027
-    And Đỉnh nợ sau phân bổ giảm từ 40.43 tỷ xuống còn đúng 14.0 tỷ (Giảm 65.37%)
-    And Tiết kiệm hơn 865,000,000 VND tiền lãi vay cho doanh nghiệp
+    And Đỉnh nợ gốc nếu tái vay thụ động tại Tháng 03/2027 là 73,760,540,000 VND
+    When Người dùng chọn kịch bản "SRPR_OPTIMAL" với ngưỡng chi trả 14 tỷ VND/tháng
+    Then Hệ thống thực hiện bắc cầu kỳ hạn nợ CTG tại T11 sang T12, T01, T02 và T03
+    And Cắt nợ và vay lại ngay trong ngày 29.87 tỷ nợ MBB trong các tháng T12, T01, T02
+    And Toàn bộ số tiền gốc đã cắt đều được giải ngân vay lại đúng bằng số tiền đó
+    And Đỉnh nợ T03/2027 giảm từ 73.76 tỷ xuống còn đúng 14.00 tỷ VND (Giảm 81.02%)
     And Toàn bộ 7 tháng kế hoạch đều đạt chuẩn trạng thái "An toàn" (is_safe = True)
   ```
 
+### US-07.9: Đối soát Giao dịch Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (Debt Repayment Reconciliation & Balance Reduction Engine)
+* **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)* và *Giám đốc Tài chính (CFO - Ông Trần Ngọc Tuấn)*, tôi muốn *hệ thống tự động lọc các giao dịch chi từ sao kê ngân hàng đã phân loại là "Trả nợ", cung cấp giao diện trực quan đối chiếu với khoản vay qua số khế ước kèm khung chia Gốc - Lãi thông minh (nút chọn 100% gốc), tự động giảm trừ nợ gốc tương ứng và ghi nhận nhật ký lịch sử trả nợ theo đúng thời điểm giao dịch thực tế*, để *dư nợ các khoản vay luôn được cập nhật chính xác, không cần tính toán thủ công và đảm bảo tính toàn vẹn kiểm toán*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Lọc tự động giao dịch chi Trả nợ:**
+     - Tự động quét và hiển thị các khoản chi (`debit_amount > 0`) đã được phân loại vào danh mục `Trả nợ` (Category ID = 25 hoặc tên danh mục chứa "Trả nợ").
+     - Loại trừ các giao dịch đã được đối soát thành công (dựa trên bảng `loan_repayment_history`).
+  2. **Gợi ý khế ước thông minh (Regex Parser):**
+     - Quét nội dung `description` để bóc tách số khế ước (VietinBank 12 số `80xxxxxxxxxx`, MBBank `LDxxxxxxxxxx`, `040MAZS...`) và số tiền gốc/lãi có sẵn trong diễn giải.
+     - Tự động hiển thị huy hiệu gợi ý và gán khế ước tương ứng trong danh mục `credit_facilities`.
+  3. **Khung chia Gốc & Lãi (Split Principal & Interest):**
+     - Đẳng thức bắt buộc: $\text{Số tiền trả gốc} + \text{Số tiền trả lãi} = \text{Tổng tiền giao dịch chi}$ (`DECIMAL(18, 2)`).
+     - Cung cấp nút tiện ích 1-click **[100% Trả Gốc]**: Gán toàn bộ số tiền là trả nợ gốc một chạm (`principal_amount = debit_amount`, `interest_amount = 0.00`).
+     - Cung cấp nút tiện ích 1-click **[100% Trả Lãi]**: Gán toàn bộ số tiền là trả lãi một chạm (`interest_amount = debit_amount`, `principal_amount = 0.00`).
+     - Cơ chế cân bằng tự động 2 chiều: Khi người dùng sửa ô Gốc thì ô Lãi tự động cập nhật và ngược lại.
+  4. **Tự động giảm trừ dư nợ gốc & Tất toán:**
+     - $\text{current\_principal\_balance}_{\text{new}} = \text{current\_principal\_balance}_{\text{old}} - \text{principal\_amount}$.
+     - Ràng buộc: Số tiền trả gốc không được vượt quá dư nợ gốc hiện tại ($\text{principal\_amount} \le \text{current\_principal\_balance}_{\text{old}}$).
+     - Khi dư nợ gốc giảm về đúng bằng 0 VND: Tự động chuyển trạng thái khoản vay sang `status = 'SETTLED'` (Tất toán).
+  5. **Nhật ký Lịch sử Trả nợ chuẩn kiểm toán:**
+     - Ghi nhận vào bảng `loan_repayment_history` với trường `repayment_date` **chính xác bằng thời điểm giao dịch trên sao kê** (`transaction_date`), bảo toàn đúng thời gian phát sinh dòng tiền thực tế.
+     - Ghi nhận `AuditLog` hệ thống với action `REPAYMENT_RECONCILED`.
+  6. **Cơ chế Hoàn tác Đối soát (Rollback):**
+     - Cho phép kế toán hủy đối soát: Khôi phục lại dư nợ gốc ($\text{current\_principal\_balance} += \text{principal\_amount}$), phục hồi trạng thái `ACTIVE` nếu khoản vay đang `SETTLED`, xóa bản ghi `loan_repayment_history` và ghi `AuditLog` với action `REPAYMENT_ROLLBACK`.
+* **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
+  ```gherkin
+  Scenario: Đối soát giao dịch chi trả nợ và giảm trừ nợ gốc thành công với nút 100% Gốc
+    Given Giao dịch sao kê ID 3045 có số tiền chi 5,000,000,000 VND phân loại danh mục "Trả nợ"
+    And Khoản vay khế ước "805007289545" đang có dư nợ gốc hiện tại là 5,000,000,000 VND
+    When Kế toán mở modal đối soát và bấm nút "[100% Trả Gốc]"
+    Then Trường trả gốc tự động điền 5,000,000,000 VND và trường trả lãi tự động điền 0 VND
+    When Kế toán bấm "Xác nhận đối soát & Giảm nợ"
+    Then Dư nợ gốc của khoản vay "805007289545" giảm về 0 VND và trạng thái chuyển sang "SETTLED"
+    And Hệ thống ghi nhận vào "loan_repayment_history" với repayment_date đúng bằng transaction_date của giao dịch 3045
+    And Giao dịch 3045 chuyển sang trạng thái đã đối soát và không còn xuất hiện trong danh sách chờ
+  ```
+
+### US-07.10: Bóc tách Hóa Đơn Điện Tử XML & Đối Soát Hóa Đơn Giải Ngân
+* **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)*, tôi muốn *khi tải lên hồ sơ giải ngân dạng hóa đơn (file XML và PDF), hệ thống tự động đọc nội dung file XML để cộng tổng số tiền thanh toán trên hóa đơn và đối soát với dư nợ gốc của khoản vay, nếu tổng tiền hóa đơn nhỏ hơn dư nợ gốc thì hiển thị cảnh báo thiếu hóa đơn*, để *kịp thời bổ sung hồ sơ chứng minh mục đích sử dụng vốn vay theo quy định của ngân hàng và tránh rủi ro bị thu hồi nợ trước hạn*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Định dạng file hóa đơn:** Hồ sơ chứng minh mục đích sử dụng vốn giải ngân bao gồm cả file XML và PDF (theo chuẩn NĐ 123/2020/NĐ-CP và TT 78/2021/TT-BTC).
+  2. **Bóc tách XML tự động:** Hệ thống tự động đọc nội dung file XML để trích xuất số hóa đơn (`SHDon`), ký hiệu (`KHHDon`), ngày lập (`NLap`), người bán, và tổng số tiền thanh toán (`TgTTTBSo` hoặc `TotalPayment` / `TgTToan` / tổng tiền chưa thuế + thuế).
+  3. **Đối soát & Báo động thiếu hóa đơn:**
+     - Tính tổng số tiền trên toàn bộ các hóa đơn XML đính kèm khoản vay.
+     - So sánh với dư nợ gốc ban đầu giải ngân (`original_principal_balance`) hoặc dư nợ gốc hiện tại.
+     - Nếu $\text{Tổng tiền HĐ XML} < \text{Dư nợ gốc}$: Hệ thống hiển thị cảnh báo đỏ/vàng `⚠️ Cảnh báo: Thiếu hóa đơn giải ngân! Còn thiếu X đồng` kèm số tiền thiếu hụt chính xác.
+     - Nếu $\text{Tổng tiền HĐ XML} \ge \text{Dư nợ gốc}$: Hệ thống hiển thị trạng thái `✅ Đủ HĐ XML (100% bao phủ)`.
+* **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
+  ```gherkin
+  Scenario: Cảnh báo thiếu hóa đơn giải ngân khi tổng tiền hóa đơn XML nhỏ hơn dư nợ gốc
+    Given Khoản vay khế ước "805007289545" có dư nợ gốc là 5,000,000,000 VND
+    When Kế toán tải lên file hóa đơn XML "HD_001.xml" với tổng tiền thanh toán là 3,200,000,000 VND
+    Then Hệ thống tự động đọc file XML và ghi nhận tổng tiền hóa đơn là 3,200,000,000 VND
+    And Bảng danh sách khoản vay hiển thị cảnh báo "⚠️ Thiếu HĐ (-1,800,000,000 ₫)"
+    When Kế toán tải bổ sung file hóa đơn XML "HD_002.xml" với số tiền 2,000,000,000 VND
+    Then Tổng tiền hóa đơn nâng lên 5,200,000,000 VND (lớn hơn dư nợ gốc 5 tỷ)
+    And Cảnh báo thiếu hóa đơn biến mất, thay bằng huy hiệu xanh "✅ Đủ HĐ XML"
+  ```
+
+### US-07.11: Chuẩn Hóa 3 Cột Dư Nợ Gốc & Ghi Nhớ Tự Động Danh Mục Tổ Chức / Loại Hồ Sơ Mới
+* **User Story:** Là một *Giám đốc Tài chính (CFO)* và *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn:
+  1. *Trên bảng danh mục khoản vay, cột Dư nợ gốc ban đầu là không đổi, giá trị thay đổi là Dư nợ gốc hiện tại (Gốc hiện tại = Gốc ban đầu - Đã trả gốc), và Dư nợ gốc hiện tại theo thời gian là mốc chuẩn để tính tiền lãi*;
+  2. *Khi tôi đã nhập một tổ chức tín dụng mới hoặc bổ sung một loại hồ sơ mới, hệ thống phải tự động lưu và bổ sung tổ chức/loại hồ sơ đó vào danh sách gợi ý cho các lần sau*,
+  để *thông tin nợ luôn phản ánh đúng bản chất tài chính và việc nhập liệu ngày càng tiện lợi, nhanh chóng*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Bộ ba cột số dư nợ gốc trên bảng:**
+     - **Dư Nợ Gốc Ban Đầu (`original_principal_balance`):** Giá trị cố định không đổi kể từ thời điểm giải ngân.
+     - **Đã Trả Gốc (`total_repaid_principal`):** Tổng lũy kế số tiền nợ gốc đã trả từ các giao dịch sao kê ngân hàng.
+     - **Dư Nợ Gốc Hiện Tại (`current_principal_balance`):** $\text{Gốc hiện tại} = \text{Gốc ban đầu} - \text{Đã trả gốc}$.
+  2. **Mốc tính lãi theo thời gian:** Tiền lãi phát sinh theo Thông tư 14/2017/TT-NHNN được tính toán chuẩn xác trên cơ sở `current_principal_balance` theo số ngày thực tế trong kỳ tính lãi.
+  3. **Tự động ghi nhớ tổ chức tín dụng:** Khi kế toán lưu một khoản vay lẻ với đơn vị cấp tín dụng mới (Ngân hàng, Cty tài chính, Cho thuê tài chính, Tổ chức khác), hệ thống tự động ghi nhớ và đưa vào danh sách gợi ý cho tất cả các lần tạo/lọc khoản vay tiếp theo.
+  4. **Tự do bổ sung loại hồ sơ giải ngân:** Cho phép kế toán bấm "+ Thêm loại hồ sơ" để tạo các nhóm chứng từ tùy biến ngoài 5 loại mặc định, hệ thống tự động tạo tab độc lập và ghi nhớ vào danh mục.
+* **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
+  ```gherkin
+  Scenario: Hiển thị 3 cột dư nợ gốc và tính lãi trên dư nợ gốc hiện tại
+    Given Khoản vay "HD-2026-01" có dư nợ gốc ban đầu 10,000,000,000 VND
+    And Kế toán đã đối soát giao dịch trả gốc 2,000,000,000 VND
+    Then Cột "Dư Nợ Gốc Ban Đầu" hiển thị cố định "10,000,000,000 ₫"
+    And Cột "Đã Trả Gốc" hiển thị "-2,000,000,000 ₫"
+    And Cột "Dư Nợ Gốc Hiện Tại" hiển thị "8,000,000,000 ₫ (Còn 80.0%)"
+    And Tiền lãi dự trả theo Thông tư 14 được tính toán trên mốc 8,000,000,000 VND thay vì 10 tỷ ban đầu
+  ```
 
 ---
 

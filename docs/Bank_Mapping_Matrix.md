@@ -1036,4 +1036,7 @@ Feature: Bóc tách, Chuẩn hóa và Đối soát Đa Mẫu Sao kê Ngân hàng
   - `next_principal_due_date`: Cột `N` (Ngày thu gốc gần nhất)
   - `next_interest_amount`: Cột `O` (Số tiền lãi phải trả gần nhất)
   - `next_interest_due_date`: Cột `Q` (Ngày trả lãi gần nhất)
+  - `interest_payment_method`: Mặc định `'MONTHLY'` (Hằng tháng)
+  - `monthly_interest_due_day`: Mặc định cố định ngày `5` hằng tháng theo quy định kỳ trả lãi VietinBank
+  - `calculated_interest_due`: Tự động tính theo Thông tư 14/2017/TT-NHNN (Actual/365) dựa trên chu kỳ trả lãi ngày 5 hằng tháng
 ```

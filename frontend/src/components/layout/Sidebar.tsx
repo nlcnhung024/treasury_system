@@ -15,6 +15,7 @@ import {
   X,
   Building2,
   CalendarClock,
+  CheckCheck,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -88,6 +89,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
 
   const khoanVayNavItems = [
     { to: '/credit-statements', label: 'Sao Kê Tín Dụng', icon: Landmark },
+    { to: '/loan-repayments', label: 'Đối soát trả nợ', icon: CheckCheck },
     { to: '/loan-repayment-plan', label: 'Kế hoạch trả nợ', icon: CalendarClock },
   ];
 

@@ -62,9 +62,23 @@ export interface DisbursementDocument {
   mime_type: string;
   document_type: string; // 'CONTRACT', 'DEBT_NOTE', 'DISBURSEMENT_RECORD', 'INVOICE', 'COLLATERAL', 'APPROVAL', 'OTHER'
   description?: string | null;
+  invoice_number?: string | null;
+  invoice_total_amount?: number | null;
   uploaded_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface LoanInvoiceReconciliation {
+  loan_id: number;
+  contract_number: string;
+  bank_code: string;
+  current_principal_balance: number;
+  total_invoice_amount: number;
+  shortage_amount: number;
+  is_sufficient: boolean;
+  invoice_count: number;
+  warning_message?: string | null;
 }
 
 export interface CreditFacility {
@@ -88,6 +102,8 @@ export interface CreditFacility {
   interest_payment_method: InterestPaymentMethod;
   monthly_interest_due_day?: number | null;
   calculated_interest_due: number;
+  original_principal_balance?: number;
+  total_repaid_principal?: number;
   current_principal_balance: number;
   accrued_interest: number;
   next_repayment_date?: string | null;
@@ -95,6 +111,9 @@ export interface CreditFacility {
   next_interest_amount: number;
   total_repayment_amount: number;
   dossier_files_count?: number;
+  total_invoices_amount?: number;
+  invoice_reconciliation_status?: 'SUFFICIENT' | 'DEFICIENT' | 'NO_INVOICE';
+  invoice_shortage_amount?: number;
   status: string;
   is_active: boolean;
   created_at: string;
@@ -118,7 +137,8 @@ export interface CreditFacilityCreatePayload {
   loan_type?: string;
   interest_payment_method?: InterestPaymentMethod;
   monthly_interest_due_day?: number | null;
-  current_principal_balance: number;
+  original_principal_balance?: number;
+  current_principal_balance?: number;
   accrued_interest?: number;
   next_repayment_date?: string | null;
   next_principal_amount?: number;
@@ -145,6 +165,7 @@ export interface CreditFacilityUpdatePayload {
   loan_type?: string;
   interest_payment_method?: InterestPaymentMethod;
   monthly_interest_due_day?: number | null;
+  original_principal_balance?: number;
   current_principal_balance?: number;
   accrued_interest?: number;
   next_repayment_date?: string | null;
@@ -180,15 +201,19 @@ export interface CreditFacilitySummary {
 
 export type CapacityMode = 'UNIFORM' | 'SEASONAL';
 export type RepaymentStrategy = 'SPLIT_LARGE_LOANS' | 'AVALANCHE' | 'SNOWBALL' | 'BALANCED';
-export type ReborrowMode = 'LUMP_SUM_STANDARD' | 'STAGGERED_SMOOTHING';
+export type ReborrowMode = 'SRPR_OPTIMAL' | 'LUMP_SUM_STANDARD' | 'STAGGERED_SMOOTHING';
 
 export interface MonthlyRepaymentComparisonItem {
   month: string;
   natural_due_amount: number;
   reborrowed_new_due_amount?: number;
+  bridged_due_amount?: number;
+  intraday_reroute_cut_amount?: number;
   allocated_payment_amount: number;
   prepaid_principal_amount: number;
   regular_principal_amount: number;
+  closing_total_debt?: number;
+  reroute_destination_note?: string;
   monthly_capacity: number;
   remaining_capacity: number;
   is_safe: boolean;
@@ -202,7 +227,7 @@ export interface LoanAllocationActionItem {
   original_balance: number;
   interest_rate: number;
   original_due_date?: string | null;
-  action_type: 'PAY_ON_DUE' | 'PARTIAL_PREPAYMENT' | 'FULL_PREPAYMENT' | 'ROLLOVER_REFINANCE' | 'NEW_REBORROW_DRAWDOWN';
+  action_type: 'PAY_ON_DUE' | 'PARTIAL_PREPAYMENT' | 'FULL_PREPAYMENT' | 'ROLLOVER_REFINANCE' | 'NEW_REBORROW_DRAWDOWN' | 'STEPPED_BRIDGING_DRAWDOWN' | 'INTRADAY_PREPAY_REROUTE' | 'MATURITY_ROLLOVER';
   payment_month: string;
   payment_amount: number;
   remaining_balance_after: number;
@@ -223,6 +248,7 @@ export interface DebtRepaymentPlanResponse {
   reborrow_rate: number;
   reborrow_mode: ReborrowMode;
   total_reborrowed_amount: number;
+  total_cut_and_reborrowed_amount?: number;
   reborrow_summary_note: string;
   peak_debt_before: number;
   peak_debt_after: number;
@@ -245,4 +271,82 @@ export interface RepaymentPlanSimulateRequest {
   reborrow_rate: number;
   reborrow_mode: ReborrowMode;
 }
+
+export interface UnreconciledDebtTransaction {
+  transaction_id: number;
+  account_id: number;
+  bank_code: string;
+  account_number?: string;
+  account_holder?: string;
+  transaction_date: string;
+  reference_number?: string;
+  counter_party?: string;
+  description: string;
+  debit_amount: number;
+  category_id?: number;
+  category_name?: string;
+
+  suggested_contract_number?: string;
+  suggested_loan_id?: number;
+  suggested_bank_code?: string;
+  suggested_borrower_name?: string;
+  suggested_principal_balance?: number;
+  suggested_interest_rate?: number;
+  suggested_principal_amount?: number;
+  suggested_interest_amount?: number;
+  match_confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+}
+
+export interface RepaymentReconcilePayload {
+  transaction_id: number;
+  loan_id: number;
+  principal_amount: number;
+  interest_amount: number;
+  notes?: string;
+}
+
+export interface RepaymentReconcileResult {
+  repayment_id: number;
+  loan_id: number;
+  transaction_id: number;
+  contract_number: string;
+  bank_code: string;
+  repayment_date: string;
+  principal_amount: number;
+  interest_amount: number;
+  total_amount: number;
+  previous_principal_balance: number;
+  remaining_principal_balance: number;
+  loan_status: string;
+  message: string;
+}
+
+export interface LoanRepaymentHistoryRecord {
+  repayment_id: number;
+  loan_id: number;
+  transaction_id: number;
+  contract_number: string;
+  bank_code: string;
+  repayment_date: string;
+  principal_amount: number;
+  interest_amount: number;
+  total_amount: number;
+  previous_principal_balance: number;
+  remaining_principal_balance: number;
+  notes?: string;
+  reconciled_by: string;
+  created_at: string;
+  transaction_description?: string;
+  reference_number?: string;
+}
+
+export interface RepaymentRollbackResult {
+  repayment_id: number;
+  loan_id: number;
+  contract_number: string;
+  restored_balance: number;
+  loan_status: string;
+  message: string;
+}
+
 

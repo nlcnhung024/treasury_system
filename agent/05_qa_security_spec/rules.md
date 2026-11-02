@@ -13,7 +13,7 @@
 
 ## 2. Tiêu chuẩn Cô lập Môi trường & Dữ liệu Kiểm thử (Test Data & Sandbox Isolation)
 - **Cô lập tuyệt đối:** Quá trình kiểm thử tự động chỉ được phép thực thi trên Cơ sở dữ liệu Test cô lập hoặc Mock Server. TUYỆT ĐỐI CẤM chạy dữ liệu test trên CSDL Staging/Production.
-- **Cơ chế Dọn dẹp (Teardown):** Mọi test case sau khi thực thi xong phải tự động rollback transaction hoặc xóa sạch file rác sinh ra trong thư mục kiểm thử.
+- **Cơ chế Dọn dẹp (Teardown):** Mọi test case sau khi thực thi xong phải tự động rollback transaction hoặc dọn dẹp sạch sẽ (delete) các tài khoản ngân hàng thử nghiệm (`bank_accounts`), tệp sao kê tải lên (`credit_statement_files`, `bank_statement_files`), và các giao dịch/khoản vay mock. Tuyệt đối không để dữ liệu test tồn đọng trong CSDL làm sai lệch thông tin hiển thị trên UI.
 - **Bảo mật Dữ liệu Sao kê Mẫu:** Không sử dụng dữ liệu sao kê thật chứa số tài khoản, danh tính thật của cá nhân/doanh nghiệp. Toàn bộ file mock data phải được ẩn danh hóa (Anonymized / Fuzzed Data).
 
 ## 3. Tiêu chuẩn Kiểm thử Biên Kỹ thuật (Boundary & Negative Testing)
