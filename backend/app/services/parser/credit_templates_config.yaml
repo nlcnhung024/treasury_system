@@ -43,9 +43,9 @@ templates:
       accrued_interest: "J"
       total_repayment_amount: "K"
 
-  BIDV_LOAN_LD_XLSX:
-    bank_code: "BIDV"
-    bank_name: "Ngân hàng TMCP Đầu tư và Phát triển Việt Nam (BIDV)"
+  MBB_LOAN_LD_XLSX:
+    bank_code: "MBB"
+    bank_name: "Ngân hàng TMCP Quân Đội (MB)"
     file_format: "XLSX"
     detection_rules:
       - cell: "G1"

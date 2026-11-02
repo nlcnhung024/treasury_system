@@ -153,7 +153,7 @@ def detect_credit_template(
 
     raise ValueError(
         f"Không nhận diện được mẫu sao kê tín dụng phù hợp cho file '{filename}'. "
-        "Hỗ trợ: VietinBank eFAST Báo cáo khoản vay (XLS) và BIDV Vay/LD (XLSX)."
+        "Hỗ trợ: VietinBank eFAST Báo cáo khoản vay (XLS) và MB Báo cáo Vay/LD (XLSX)."
     )
 
 
@@ -222,11 +222,11 @@ def parse_credit_statement_file(
             total_interest_amount = clean_currency(rows[12][5] if len(rows[12]) > 5 else None)
             total_payable_amount = clean_currency(rows[12][6] if len(rows[12]) > 6 else None)
 
-    elif template_code == "BIDV_LOAN_LD_XLSX":
+    elif template_code in ("MBB_LOAN_LD_XLSX", "BIDV_LOAN_LD_XLSX"):
         # statement_date: N3 (r_idx = 2, c_idx = 13)
         if len(rows) > 2 and len(rows[2]) > 13 and rows[2][13]:
             statement_date = _parse_flexible_date(rows[2][13])
-        borrower_name = "Khách hàng vay vốn BIDV"
+        borrower_name = "Doanh nghiệp vay vốn MB"
         # Tìm dòng Tổng
         for row in rows:
             if len(row) > 2 and str(row[2]).strip() == "Tổng":
@@ -289,7 +289,7 @@ def parse_credit_statement_file(
                 "currency": currency,
             })
 
-        elif template_code == "BIDV_LOAN_LD_XLSX":
+        elif template_code in ("MBB_LOAN_LD_XLSX", "BIDV_LOAN_LD_XLSX"):
             # col C: index 2 is Số LD
             ld_val = row[2] if len(row) > 2 else None
             contract_number = normalize_whitespace(ld_val)

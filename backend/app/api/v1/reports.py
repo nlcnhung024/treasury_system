@@ -775,6 +775,7 @@ async def export_excel(
         "Số tài khoản",
         "Ngày giao dịch",
         "Số bút toán",
+        "Đối tác (Thụ hưởng/Chuyển)",
         "Nội dung diễn giải",
         "Danh mục",
         "Phát sinh Nợ (VND)",
@@ -820,7 +821,12 @@ async def export_excel(
     if to_date:
         stmt = stmt.where(BankTransaction.transaction_date <= datetime.combine(to_date, time.max, tzinfo=VN_TZ))
     if keyword and keyword.strip():
-        stmt = stmt.where(BankTransaction.description.ilike(f"%{keyword.strip()}%"))
+        stmt = stmt.where(
+            or_(
+                BankTransaction.description.ilike(f"%{keyword.strip()}%"),
+                BankTransaction.counter_party.ilike(f"%{keyword.strip()}%"),
+            )
+        )
 
     res = await db.execute(stmt)
     transactions = list(res.scalars().all())
@@ -837,25 +843,26 @@ async def export_excel(
         ws.cell(row=row_idx, column=3, value=sanitize_excel_cell(acc.account_number if acc else ""))
         ws.cell(row=row_idx, column=4, value=t.transaction_date.astimezone(VN_TZ).strftime("%d/%m/%Y %H:%M"))
         ws.cell(row=row_idx, column=5, value=sanitize_excel_cell(t.reference_number or ""))
-        ws.cell(row=row_idx, column=6, value=sanitize_excel_cell(t.description))
-        ws.cell(row=row_idx, column=7, value=sanitize_excel_cell(cat.category_name if cat else "Chưa phân loại"))
+        ws.cell(row=row_idx, column=6, value=sanitize_excel_cell(t.counter_party or ""))
+        ws.cell(row=row_idx, column=7, value=sanitize_excel_cell(t.description))
+        ws.cell(row=row_idx, column=8, value=sanitize_excel_cell(cat.category_name if cat else "Chưa phân loại"))
 
-        c_debit = ws.cell(row=row_idx, column=8, value=t.debit_amount)
-        c_credit = ws.cell(row=row_idx, column=9, value=t.credit_amount)
-        c_bal = ws.cell(row=row_idx, column=10, value=t.running_balance)
+        c_debit = ws.cell(row=row_idx, column=9, value=t.debit_amount)
+        c_credit = ws.cell(row=row_idx, column=10, value=t.credit_amount)
+        c_bal = ws.cell(row=row_idx, column=11, value=t.running_balance)
         c_debit.number_format = "#,##0.00"
         c_credit.number_format = "#,##0.00"
         c_bal.number_format = "#,##0.00"
 
-        ws.cell(row=row_idx, column=11, value=sanitize_excel_cell(t.internal_note or ""))
+        ws.cell(row=row_idx, column=12, value=sanitize_excel_cell(t.internal_note or ""))
 
         total_debit += t.debit_amount
         total_credit += t.credit_amount
 
     summary_row = len(transactions) + 2
-    ws.cell(row=summary_row, column=6, value="TỔNG CỘNG").font = Font(bold=True)
-    s_debit = ws.cell(row=summary_row, column=8, value=total_debit)
-    s_credit = ws.cell(row=summary_row, column=9, value=total_credit)
+    ws.cell(row=summary_row, column=7, value="TỔNG CỘNG").font = Font(bold=True)
+    s_debit = ws.cell(row=summary_row, column=9, value=total_debit)
+    s_credit = ws.cell(row=summary_row, column=10, value=total_credit)
     s_debit.font = Font(bold=True)
     s_credit.font = Font(bold=True)
     s_debit.number_format = "#,##0.00"

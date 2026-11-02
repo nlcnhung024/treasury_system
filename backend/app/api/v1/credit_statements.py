@@ -1,8 +1,13 @@
+import io
+import re
+import uuid
+import hashlib
 import logging
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional, List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, and_, or_
 from sqlalchemy.orm import selectinload
@@ -10,19 +15,28 @@ from sqlalchemy.orm import selectinload
 from app.core.database import get_db
 from app.core.security import verify_file_magic_bytes
 from app.core.config import settings
-from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem
+from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument
 from app.models.audit_log import AuditLog
 from app.schemas.credit import (
     CreditStatementFileItem,
     CreditStatementFileDetail,
     CreditStatementItemResponse,
     CreditFacilityItem,
+    CreditFacilityCreate,
+    CreditFacilityUpdate,
     CreditFacilitySummary,
     BankDebtSummary,
     CreditUploadResponse,
+    DisbursementDocumentItem,
+    DisbursementDocumentUploadResponse,
+    RepaymentPlanSimulateRequest,
+    DebtRepaymentPlanResponse,
 )
 from app.schemas.common import PaginationMeta
 from app.services.credit_ingestion_service import ingest_credit_statement
+from app.services.storage_service import save_statement_bytes, read_statement_bytes
+from app.services.debt_repayment_service import DebtRepaymentService
+from app.services.loan_interest_service import calculate_loan_interest
 
 logger = logging.getLogger(__name__)
 
@@ -151,14 +165,20 @@ async def delete_credit_statement(
     return {"message": f"Đã xóa thành công file sao kê tín dụng ID #{file_id}."}
 
 
+# =============================================================================
+# KHOẢN VAY & KHẾ ƯỚC NHẬN NỢ (CREDIT FACILITIES)
+# =============================================================================
+
 @router.get("/loans", response_model=dict)
 async def list_loans(
     bank_code: Optional[str] = Query(None),
+    institution_type: Optional[str] = Query(None),
+    is_manual: Optional[bool] = Query(None),
     debt_group: Optional[str] = Query(None),
     status_filter: Optional[str] = Query("ACTIVE"),
     search: Optional[str] = Query(None),
     due_within_days: Optional[int] = Query(None),
-    limit: int = Query(50, ge=1, le=100),
+    limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
@@ -168,6 +188,10 @@ async def list_loans(
         filters.append(CreditFacility.status == status_filter)
     if bank_code:
         filters.append(CreditFacility.bank_code == bank_code)
+    if institution_type:
+        filters.append(CreditFacility.institution_type == institution_type)
+    if is_manual is not None:
+        filters.append(CreditFacility.is_manual == is_manual)
     if debt_group:
         filters.append(CreditFacility.debt_group == debt_group)
     if search:
@@ -177,6 +201,7 @@ async def list_loans(
                 CreditFacility.contract_number.ilike(search_pattern),
                 CreditFacility.loan_purpose.ilike(search_pattern),
                 CreditFacility.borrower_name.ilike(search_pattern),
+                CreditFacility.bank_name.ilike(search_pattern),
             )
         )
     if due_within_days is not None:
@@ -192,17 +217,43 @@ async def list_loans(
     count_stmt = select(func.count(CreditFacility.loan_id)).where(*filters)
     total_count = (await db.execute(count_stmt)).scalar() or 0
 
+    # Subquery đếm số tài liệu hồ sơ giải ngân cho từng khoản vay
+    doc_count_subq = (
+        select(
+            DisbursementDocument.loan_id,
+            func.count(DisbursementDocument.document_id).label("doc_count"),
+        )
+        .group_by(DisbursementDocument.loan_id)
+        .subquery()
+    )
+
     stmt = (
-        select(CreditFacility)
+        select(CreditFacility, func.coalesce(doc_count_subq.c.doc_count, 0).label("dossier_count"))
+        .outerjoin(doc_count_subq, CreditFacility.loan_id == doc_count_subq.c.loan_id)
         .where(*filters)
         .order_by(CreditFacility.next_repayment_date.asc().nullslast(), desc(CreditFacility.current_principal_balance))
         .offset(offset)
         .limit(limit)
     )
-    records = (await db.execute(stmt)).scalars().all()
+    rows = (await db.execute(stmt)).all()
+
+    data_items = []
+    for loan, dossier_count in rows:
+        item = CreditFacilityItem.model_validate(loan)
+        item.dossier_files_count = dossier_count
+        if item.calculated_interest_due == Decimal("0.00") and item.current_principal_balance > 0:
+            item.calculated_interest_due = calculate_loan_interest(
+                principal_balance=loan.current_principal_balance,
+                annual_interest_rate=loan.interest_rate,
+                payment_method=loan.interest_payment_method or "MONTHLY",
+                monthly_due_day=loan.monthly_interest_due_day or 25,
+                disbursement_date=loan.disbursement_date,
+                maturity_date=loan.maturity_date,
+            )
+        data_items.append(item)
 
     return {
-        "data": [CreditFacilityItem.model_validate(r) for r in records],
+        "data": data_items,
         "pagination": PaginationMeta(
             page=(offset // limit) + 1,
             page_size=limit,
@@ -210,6 +261,108 @@ async def list_loans(
             total_pages=(total_count + limit - 1) // limit if limit > 0 else 1,
         ),
     }
+
+
+@router.post("/loans", response_model=CreditFacilityItem, status_code=status.HTTP_201_CREATED)
+async def create_manual_loan(
+    payload: CreditFacilityCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Tạo mới một khoản nợ / khoản vay lẻ thủ công từ các ngân hàng,
+    công ty tài chính, công ty cho thuê tài chính.
+    """
+    # 1. Kiểm tra xem cặp (bank_code, contract_number) đã tồn tại và đang active chưa
+    exist_stmt = select(CreditFacility).where(
+        CreditFacility.bank_code == payload.bank_code,
+        CreditFacility.contract_number == payload.contract_number,
+        CreditFacility.is_active == True,
+    )
+    existing_loan = (await db.execute(exist_stmt)).scalar_one_or_none()
+    if existing_loan:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Khoản vay số hợp đồng '{payload.contract_number}' tại đơn vị '{payload.bank_name}' ({payload.bank_code}) đã tồn tại trong danh mục.",
+        )
+
+    # 2. Tính toán tổng số tiền phải trả kỳ tới nếu chưa truyền
+    total_repayment = payload.total_repayment_amount
+    if total_repayment is None or total_repayment == Decimal("0.00"):
+        total_repayment = (payload.next_principal_amount or Decimal("0.00")) + (payload.next_interest_amount or Decimal("0.00"))
+
+    due_day = payload.monthly_interest_due_day
+    if not due_day:
+        due_day = payload.disbursement_date.day if payload.disbursement_date else 25
+
+    calc_interest = calculate_loan_interest(
+        principal_balance=payload.current_principal_balance or Decimal("0.00"),
+        annual_interest_rate=payload.interest_rate or Decimal("0.0000"),
+        payment_method=payload.interest_payment_method or "MONTHLY",
+        monthly_due_day=due_day,
+        disbursement_date=payload.disbursement_date,
+        maturity_date=payload.maturity_date,
+    )
+
+    # 3. Tạo record khoản vay mới
+    loan = CreditFacility(
+        bank_code=payload.bank_code.strip().upper(),
+        bank_name=payload.bank_name.strip(),
+        institution_type=payload.institution_type or "BANK",
+        contract_number=payload.contract_number.strip(),
+        borrower_name=payload.borrower_name.strip(),
+        cif_number=payload.cif_number.strip() if payload.cif_number else None,
+        loan_purpose=payload.loan_purpose.strip() if payload.loan_purpose else None,
+        currency=payload.currency or "VND",
+        disbursement_date=payload.disbursement_date,
+        maturity_date=payload.maturity_date,
+        term=payload.term.strip() if payload.term else None,
+        interest_rate=payload.interest_rate or Decimal("0.0000"),
+        debt_group=payload.debt_group or "1",
+        loan_type=payload.loan_type or "SHORT_TERM",
+        is_manual=True,
+        note=payload.note,
+        interest_payment_method=payload.interest_payment_method or "MONTHLY",
+        monthly_interest_due_day=due_day,
+        calculated_interest_due=calc_interest,
+        current_principal_balance=payload.current_principal_balance or Decimal("0.00"),
+        accrued_interest=payload.accrued_interest or Decimal("0.00"),
+        next_repayment_date=payload.next_repayment_date,
+        next_principal_amount=payload.next_principal_amount or Decimal("0.00"),
+        next_interest_amount=payload.next_interest_amount or Decimal("0.00"),
+        total_repayment_amount=total_repayment,
+        status=payload.status or "ACTIVE",
+        is_active=True,
+    )
+
+    db.add(loan)
+    await db.flush()
+
+    # 4. Ghi nhận Audit Log
+    audit = AuditLog(
+        actor="Chị Cẩm Nhung",
+        action="CREATE_MANUAL_LOAN",
+        target_entity="credit_facilities",
+        target_id=str(loan.loan_id),
+        details={
+            "contract_number": loan.contract_number,
+            "bank_name": loan.bank_name,
+            "current_principal_balance": float(loan.current_principal_balance),
+            "interest_payment_method": loan.interest_payment_method,
+            "monthly_interest_due_day": loan.monthly_interest_due_day,
+            "calculated_interest_due": float(loan.calculated_interest_due),
+            "institution_type": loan.institution_type,
+        },
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(loan)
+
+    res_item = CreditFacilityItem.model_validate(loan)
+    res_item.dossier_files_count = 0
+    return res_item
+
+    return CreditFacilityItem.model_validate(loan)
 
 
 @router.get("/loans/summary", response_model=CreditFacilitySummary)
@@ -302,4 +455,350 @@ async def get_loans_summary(
         weighted_avg_interest_rate=overall_weighted_rate,
         by_bank=by_bank_list,
     )
+
+
+@router.get("/loans/repayment-plan", response_model=DebtRepaymentPlanResponse)
+async def get_default_repayment_plan(
+    monthly_capacity: Optional[Decimal] = Query(None, description="Khả năng chi trả hàng tháng"),
+    strategy: str = Query("SPLIT_LARGE_LOANS", description="Chiến lược phân bổ: SPLIT_LARGE_LOANS, AVALANCHE, SNOWBALL, BALANCED"),
+    prepayment_penalty_rate: Decimal = Query(Decimal("0.00"), description="Tỷ lệ phí phạt trả trước hạn (mặc định 0%)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy kế hoạch phân bổ trả nợ tín dụng đến hạn và đề xuất trả trước hạn.
+    """
+    req = RepaymentPlanSimulateRequest(
+        capacity_mode="UNIFORM",
+        uniform_monthly_capacity=monthly_capacity or Decimal("14000000000.00"),
+        strategy=strategy,
+        prepayment_penalty_rate=prepayment_penalty_rate,
+        mb_tenor_months=6,
+        ctg_tenor_months=4,
+    )
+    return await DebtRepaymentService.simulate_plan(db, req)
+
+
+@router.post("/loans/repayment-plan/simulate", response_model=DebtRepaymentPlanResponse)
+async def simulate_repayment_plan(
+    payload: RepaymentPlanSimulateRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Mô phỏng kế hoạch phân bổ trả nợ tín dụng theo kịch bản tùy chỉnh linh hoạt
+    (hỗ trợ khả năng chi trả thay đổi theo mùa vụ từng tháng, điều chỉnh kỳ hạn đảo nợ MB 6T, CTG 4T).
+    """
+    return await DebtRepaymentService.simulate_plan(db, payload)
+
+
+@router.get("/loans/{loan_id}", response_model=CreditFacilityItem)
+async def get_loan_detail(
+    loan_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
+    loan = (await db.execute(stmt)).scalar_one_or_none()
+    if not loan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khoản vay.")
+
+    count_stmt = select(func.count(DisbursementDocument.document_id)).where(DisbursementDocument.loan_id == loan_id)
+    dossier_count = (await db.execute(count_stmt)).scalar() or 0
+
+    item = CreditFacilityItem.model_validate(loan)
+    item.dossier_files_count = dossier_count
+    if item.calculated_interest_due == Decimal("0.00") and item.current_principal_balance > 0:
+        item.calculated_interest_due = calculate_loan_interest(
+            principal_balance=loan.current_principal_balance,
+            annual_interest_rate=loan.interest_rate,
+            payment_method=loan.interest_payment_method or "MONTHLY",
+            monthly_due_day=loan.monthly_interest_due_day or 25,
+            disbursement_date=loan.disbursement_date,
+            maturity_date=loan.maturity_date,
+        )
+    return item
+
+
+@router.put("/loans/{loan_id}", response_model=CreditFacilityItem)
+async def update_loan(
+    loan_id: int,
+    payload: CreditFacilityUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cập nhật thông tin khoản nợ / khoản vay lẻ.
+    Tự động tính toán lại số lãi cần trả theo quy định pháp luật (Thông tư 14/2017/TT-NHNN).
+    """
+    stmt = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
+    loan = (await db.execute(stmt)).scalar_one_or_none()
+    if not loan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khoản vay để cập nhật.")
+
+    update_data = payload.model_dump(exclude_unset=True)
+
+    # Nếu cập nhật bank_code hoặc contract_number, kiểm tra trùng lặp
+    target_bank = update_data.get("bank_code", loan.bank_code)
+    target_contract = update_data.get("contract_number", loan.contract_number)
+    if target_bank != loan.bank_code or target_contract != loan.contract_number:
+        chk_stmt = select(CreditFacility).where(
+            CreditFacility.bank_code == target_bank,
+            CreditFacility.contract_number == target_contract,
+            CreditFacility.loan_id != loan_id,
+            CreditFacility.is_active == True,
+        )
+        if (await db.execute(chk_stmt)).scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Số hợp đồng '{target_contract}' tại đơn vị '{target_bank}' đã tồn tại trong hệ thống.",
+            )
+
+    for field, val in update_data.items():
+        if field == "bank_code" and val:
+            setattr(loan, field, val.strip().upper())
+        elif field in ("bank_name", "contract_number", "borrower_name") and val:
+            setattr(loan, field, val.strip())
+        elif field == "interest_payment_method" and val:
+            setattr(loan, field, val.strip().upper())
+        else:
+            setattr(loan, field, val)
+
+    # Tự động tính toán lại total_repayment_amount nếu không truyền
+    if "total_repayment_amount" not in update_data:
+        loan.total_repayment_amount = (loan.next_principal_amount or Decimal("0.00")) + (loan.next_interest_amount or Decimal("0.00"))
+
+    # Tự động tính toán lại số lãi cần trả theo quy định pháp luật (Thông tư 14/2017/TT-NHNN)
+    loan.calculated_interest_due = calculate_loan_interest(
+        principal_balance=loan.current_principal_balance,
+        annual_interest_rate=loan.interest_rate,
+        payment_method=loan.interest_payment_method or "MONTHLY",
+        monthly_due_day=loan.monthly_interest_due_day or 25,
+        disbursement_date=loan.disbursement_date,
+        maturity_date=loan.maturity_date,
+    )
+
+    # Ghi nhận Audit Log
+    audit = AuditLog(
+        actor="Chị Cẩm Nhung",
+        action="UPDATE_LOAN",
+        target_entity="credit_facilities",
+        target_id=str(loan.loan_id),
+        details={
+            "contract_number": loan.contract_number,
+            "interest_payment_method": loan.interest_payment_method,
+            "monthly_interest_due_day": loan.monthly_interest_due_day,
+            "calculated_interest_due": float(loan.calculated_interest_due),
+        },
+    )
+    db.add(audit)
+
+    await db.commit()
+    await db.refresh(loan)
+
+    count_stmt = select(func.count(DisbursementDocument.document_id)).where(DisbursementDocument.loan_id == loan_id)
+    dossier_count = (await db.execute(count_stmt)).scalar() or 0
+
+    res_item = CreditFacilityItem.model_validate(loan)
+    res_item.dossier_files_count = dossier_count
+    return res_item
+
+
+@router.delete("/loans/{loan_id}")
+async def delete_loan(
+    loan_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Xóa hoặc tất toán khoản vay.
+    """
+    stmt = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
+    loan = (await db.execute(stmt)).scalar_one_or_none()
+    if not loan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khoản vay.")
+
+    contract_no = loan.contract_number
+
+    # Kiểm tra xem khoản vay có liên kết tới credit_statement_items không
+    item_chk_stmt = select(func.count(CreditStatementItem.item_id)).where(CreditStatementItem.loan_id == loan_id)
+    items_count = (await db.execute(item_chk_stmt)).scalar() or 0
+
+    if items_count > 0:
+        # Nếu đã có snapshot bóc tách từ file sao kê, chuyển sang trạng thái SETTLED / Inactive để bảo toàn kiểm toán
+        loan.is_active = False
+        loan.status = "SETTLED"
+    else:
+        # Nếu là khoản nợ nhập lẻ hoặc chưa có snapshot, xóa hoàn toàn
+        await db.delete(loan)
+
+    # Ghi nhận Audit Log
+    audit = AuditLog(
+        actor="Chị Cẩm Nhung",
+        action="DELETE_LOAN",
+        target_entity="credit_facilities",
+        target_id=str(loan_id),
+        details={"contract_number": contract_no},
+    )
+    db.add(audit)
+
+    await db.commit()
+    return {"message": f"Đã xóa thành công khoản vay ID #{loan_id}."}
+
+
+# =============================================================================
+# HỒ SƠ GIẢI NGÂN KHOẢN VAY (DISBURSEMENT DOSSIERS & OBJECT STORAGE)
+# =============================================================================
+
+@router.post("/loans/{loan_id}/dossier/upload", response_model=DisbursementDocumentUploadResponse, status_code=status.HTTP_201_CREATED)
+async def upload_disbursement_document(
+    loan_id: int,
+    file: UploadFile = File(...),
+    document_type: str = Form("DISBURSEMENT_RECORD"),
+    description: Optional[str] = Form(None),
+    uploaded_by: str = Form("Chị Cẩm Nhung"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Tải lên tài liệu chứng từ thuộc Bộ hồ sơ giải ngân của khoản vay lên Object Storage.
+    Mỗi khoản vay liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage.
+    Hỗ trợ: PDF, JPG, PNG, DOCX, XLSX, ZIP... tối đa 25MB.
+    """
+    stmt = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
+    loan = (await db.execute(stmt)).scalar_one_or_none()
+    if not loan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khoản vay để đính kèm hồ sơ giải ngân.")
+
+    content = await file.read()
+    file_size = len(content)
+    if file_size > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dung lượng file vượt quá giới hạn 25MB.")
+
+    if file_size == 0:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File tải lên không có nội dung (0 bytes).")
+
+    file_sha256 = hashlib.sha256(content).hexdigest()
+    doc_uuid = uuid.uuid4()
+    original_filename = file.filename or "disbursement_document.pdf"
+    clean_name = re.sub(r'[^a-zA-Z0-9_.-]', '_', original_filename)
+
+    # Đường dẫn lưu trữ chuẩn Object Storage: disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{clean_name}
+    storage_path = f"disbursement_dossiers/{loan.bank_code}/{loan.contract_number}/{doc_uuid}_{clean_name}"
+    content_type = file.content_type or "application/octet-stream"
+
+    # Lưu vào Object Storage (MinIO / Hybrid Local)
+    save_statement_bytes(storage_path, content, content_type=content_type)
+
+    doc_record = DisbursementDocument(
+        document_uuid=doc_uuid,
+        loan_id=loan_id,
+        file_name=original_filename,
+        storage_path=storage_path,
+        file_size_bytes=file_size,
+        file_sha256=file_sha256,
+        mime_type=content_type,
+        document_type=document_type,
+        description=description,
+        uploaded_by=uploaded_by,
+    )
+    db.add(doc_record)
+    await db.flush()
+
+    audit = AuditLog(
+        actor=uploaded_by,
+        action="UPLOAD_DISBURSEMENT_DOCUMENT",
+        target_entity="disbursement_documents",
+        target_id=str(doc_record.document_id),
+        details={
+            "loan_id": loan_id,
+            "contract_number": loan.contract_number,
+            "bank_code": loan.bank_code,
+            "file_name": original_filename,
+            "document_type": document_type,
+            "storage_path": storage_path,
+            "file_size": file_size,
+        },
+    )
+    db.add(audit)
+    await db.commit()
+    await db.refresh(doc_record)
+
+    return DisbursementDocumentUploadResponse(
+        document_id=doc_record.document_id,
+        document_uuid=doc_record.document_uuid,
+        loan_id=loan_id,
+        file_name=doc_record.file_name,
+        storage_path=doc_record.storage_path,
+        file_size_bytes=doc_record.file_size_bytes,
+        document_type=doc_record.document_type,
+        message=f"Đã lưu thành công tài liệu '{original_filename}' vào bộ hồ sơ giải ngân khoản vay {loan.contract_number}.",
+    )
+
+
+@router.get("/loans/{loan_id}/dossier", response_model=List[DisbursementDocumentItem])
+async def list_disbursement_documents(
+    loan_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy danh sách các tài liệu thuộc bộ hồ sơ giải ngân của một khoản vay.
+    """
+    stmt = (
+        select(DisbursementDocument)
+        .where(DisbursementDocument.loan_id == loan_id)
+        .order_by(desc(DisbursementDocument.created_at))
+    )
+    records = (await db.execute(stmt)).scalars().all()
+    return [DisbursementDocumentItem.model_validate(r) for r in records]
+
+
+@router.get("/loans/dossier/{document_id}/download")
+async def download_disbursement_document(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Tải file tài liệu chứng từ giải ngân từ Object Storage.
+    """
+    stmt = select(DisbursementDocument).where(DisbursementDocument.document_id == document_id)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu giải ngân.")
+
+    try:
+        data = read_statement_bytes(doc.storage_path)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tài liệu không còn tồn tại trên kho lưu trữ Object Storage.")
+
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=doc.mime_type or "application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{doc.file_name}"'},
+    )
+
+
+@router.delete("/loans/dossier/{document_id}")
+async def delete_disbursement_document(
+    document_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Xóa tài liệu khỏi bộ hồ sơ giải ngân của khoản vay.
+    """
+    stmt = select(DisbursementDocument).where(DisbursementDocument.document_id == document_id)
+    doc = (await db.execute(stmt)).scalar_one_or_none()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu giải ngân để xóa.")
+
+    await db.delete(doc)
+
+    audit = AuditLog(
+        actor="Chị Cẩm Nhung",
+        action="DELETE_DISBURSEMENT_DOCUMENT",
+        target_entity="disbursement_documents",
+        target_id=str(document_id),
+        details={"storage_path": doc.storage_path, "file_name": doc.file_name, "loan_id": doc.loan_id},
+    )
+    db.add(audit)
+    await db.commit()
+
+    return {"message": f"Đã xóa thành công tài liệu ID #{document_id} khỏi hồ sơ giải ngân."}
+
+
+
 

@@ -24,6 +24,7 @@ export interface Transaction {
   transaction_date: string;
   value_date?: string;
   reference_number?: string;
+  counter_party?: string | null;
   description: string;
   debit_amount: number;
   credit_amount: number;

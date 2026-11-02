@@ -11,6 +11,7 @@ from app.models.credit import CreditStatementFile, CreditFacility, CreditStateme
 from app.models.audit_log import AuditLog
 from app.services.storage_service import save_statement_bytes
 from app.services.parser.credit_stream_parser import parse_credit_statement_file, ParsedCreditPackage
+from app.services.loan_interest_service import calculate_loan_interest
 
 logger = logging.getLogger(__name__)
 
@@ -78,28 +79,58 @@ async def ingest_credit_statement(
         facility = (await db.execute(fac_stmt)).scalar_one_or_none()
 
         next_rep_date = item.get("next_principal_due_date") or item.get("next_interest_due_date")
+        disb_date = item.get("disbursement_date")
+        mat_date = item.get("maturity_date")
+        prin_balance = item.get("principal_balance", Decimal("0.00"))
+        rate = item.get("interest_rate", Decimal("0.0000"))
+
         if facility:
             # Cập nhật số dư và nghĩa vụ mới nhất
-            facility.current_principal_balance = item["principal_balance"]
+            facility.current_principal_balance = prin_balance
             facility.accrued_interest = item["accrued_interest"]
             facility.next_principal_amount = item["next_principal_amount"]
             facility.next_interest_amount = item["next_interest_amount"]
             facility.next_repayment_date = next_rep_date
             facility.total_repayment_amount = item["total_due_amount"]
-            facility.interest_rate = item["interest_rate"]
+            facility.interest_rate = rate
             facility.debt_group = item["debt_group"]
             facility.borrower_name = pkg.borrower_name
-            if item.get("disbursement_date"):
-                facility.disbursement_date = item["disbursement_date"]
-            if item.get("maturity_date"):
-                facility.maturity_date = item["maturity_date"]
+            if disb_date:
+                facility.disbursement_date = disb_date
+            if mat_date:
+                facility.maturity_date = mat_date
             if item.get("term"):
                 facility.term = item["term"]
             if item.get("loan_purpose"):
                 facility.loan_purpose = item["loan_purpose"]
             facility.status = "ACTIVE"
+
+            if not facility.monthly_interest_due_day:
+                facility.monthly_interest_due_day = disb_date.day if disb_date else 25
+
+            # Tính số lãi cần trả theo quy định hiện hành của pháp luật (Thông tư 14/2017/TT-NHNN)
+            calc_interest = calculate_loan_interest(
+                principal_balance=facility.current_principal_balance,
+                annual_interest_rate=facility.interest_rate,
+                payment_method=facility.interest_payment_method or "MONTHLY",
+                monthly_due_day=facility.monthly_interest_due_day,
+                disbursement_date=facility.disbursement_date,
+                maturity_date=facility.maturity_date,
+            )
+            facility.calculated_interest_due = calc_interest
             loan_id = facility.loan_id
+            curr_payment_method = facility.interest_payment_method
+            curr_due_day = facility.monthly_interest_due_day
         else:
+            default_due_day = disb_date.day if disb_date else 25
+            calc_interest = calculate_loan_interest(
+                principal_balance=prin_balance,
+                annual_interest_rate=rate,
+                payment_method="MONTHLY",
+                monthly_due_day=default_due_day,
+                disbursement_date=disb_date,
+                maturity_date=mat_date,
+            )
             facility = CreditFacility(
                 bank_code=pkg.bank_code,
                 bank_name=pkg.bank_name,
@@ -108,13 +139,16 @@ async def ingest_credit_statement(
                 cif_number=pkg.cif_number,
                 loan_purpose=item.get("loan_purpose"),
                 currency=item.get("currency", "VND"),
-                disbursement_date=item.get("disbursement_date"),
-                maturity_date=item.get("maturity_date"),
+                disbursement_date=disb_date,
+                maturity_date=mat_date,
                 term=item.get("term"),
-                interest_rate=item.get("interest_rate", Decimal("0.0000")),
+                interest_rate=rate,
                 debt_group=item.get("debt_group", "1"),
                 loan_type="SHORT_TERM",
-                current_principal_balance=item.get("principal_balance", Decimal("0.00")),
+                interest_payment_method="MONTHLY",
+                monthly_interest_due_day=default_due_day,
+                calculated_interest_due=calc_interest,
+                current_principal_balance=prin_balance,
                 accrued_interest=item.get("accrued_interest", Decimal("0.00")),
                 next_repayment_date=next_rep_date,
                 next_principal_amount=item.get("next_principal_amount", Decimal("0.00")),
@@ -125,19 +159,24 @@ async def ingest_credit_statement(
             db.add(facility)
             await db.flush()
             loan_id = facility.loan_id
+            curr_payment_method = "MONTHLY"
+            curr_due_day = default_due_day
 
         # Thêm snapshot item
         snapshot = CreditStatementItem(
             file_id=file_record.file_id,
             loan_id=loan_id,
             contract_number=contract_number,
-            disbursement_date=item.get("disbursement_date"),
-            maturity_date=item.get("maturity_date"),
+            disbursement_date=disb_date,
+            maturity_date=mat_date,
             term=item.get("term"),
-            interest_rate=item.get("interest_rate", Decimal("0.0000")),
+            interest_rate=rate,
             debt_group=item.get("debt_group", "1"),
             loan_purpose=item.get("loan_purpose"),
-            principal_balance=item.get("principal_balance", Decimal("0.00")),
+            interest_payment_method=curr_payment_method,
+            monthly_interest_due_day=curr_due_day,
+            calculated_interest_due=calc_interest,
+            principal_balance=prin_balance,
             principal_balance_vnd=item.get("principal_balance_vnd", Decimal("0.00")),
             accrued_interest=item.get("accrued_interest", Decimal("0.00")),
             next_principal_due_date=item.get("next_principal_due_date"),

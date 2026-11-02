@@ -408,7 +408,8 @@ export const TransactionsPage: React.FC = () => {
                 </th>
                 <th className="px-3 py-3">Ngày giờ GD</th>
                 <th className="px-3 py-3">NH / Số TK</th>
-                <th className="px-3 py-3">Nội dung Diễn giải</th>
+                <th className="px-3 py-3 min-w-[180px]">Đối tác (Thụ hưởng/Chuyển)</th>
+                <th className="px-3 py-3 min-w-[260px]">Nội dung Diễn giải</th>
                 <th className="px-3 py-3 text-right">Phát sinh Nợ (-)</th>
                 <th className="px-3 py-3 text-right">Phát sinh Có (+)</th>
                 <th className="px-3 py-3 text-right">Số dư Lũy kế</th>
@@ -420,13 +421,13 @@ export const TransactionsPage: React.FC = () => {
             <tbody className="divide-y divide-slate-200">
               {transactions.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-400 text-sm">
+                  <td colSpan={11} className="px-4 py-8 text-center text-slate-400 text-sm">
                     {loading ? 'Đang tải dữ liệu...' : 'Không có giao dịch nào khớp điều kiện lọc.'}
                   </td>
                 </tr>
               ) : (
                 transactions.map((tx) => (
-                  <tr key={tx.transaction_id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={tx.transaction_id} className="hover:bg-slate-50 transition-colors align-top">
                     <td className="px-3 py-2.5 text-center">
                       <input
                         type="checkbox"
@@ -443,12 +444,21 @@ export const TransactionsPage: React.FC = () => {
                       <div className="font-bold text-slate-800">{tx.bank_code || 'MBB'}</div>
                       <div className="font-mono text-[11px] text-slate-400">{tx.account_number}</div>
                     </td>
-                    <td className="px-3 py-2.5 max-w-xs">
-                      <div className="text-slate-800 line-clamp-2" title={tx.description}>
+                    <td className="px-3 py-2.5 min-w-[180px] max-w-xs">
+                      {tx.counter_party ? (
+                        <div className="font-semibold text-slate-900 break-words leading-snug">
+                          {tx.counter_party}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300 italic">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 min-w-[260px] max-w-lg">
+                      <div className="text-slate-800 whitespace-normal break-words leading-relaxed" title={tx.description}>
                         {tx.description}
                       </div>
                       {tx.reference_number && (
-                        <div className="font-mono text-[10px] text-slate-400 mt-0.5">
+                        <div className="font-mono text-[10px] text-slate-400 mt-1 break-all">
                           Mã GD: {tx.reference_number}
                         </div>
                       )}

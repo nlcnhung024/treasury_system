@@ -16,6 +16,7 @@ class BankTransaction(Base):
     transaction_date: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
     value_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     reference_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    counter_party: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
     debit_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))

@@ -241,6 +241,7 @@ async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, An
                 transaction_date=tx_data["transaction_date"],
                 value_date=tx_data["value_date"],
                 reference_number=tx_data["reference_number"],
+                counter_party=tx_data.get("counter_party"),
                 description=tx_data["description"],
                 debit_amount=tx_data["debit_amount"],
                 credit_amount=tx_data["credit_amount"],

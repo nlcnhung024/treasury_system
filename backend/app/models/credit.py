@@ -62,6 +62,14 @@ class CreditFacility(Base):
     interest_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False, default=Decimal("0.0000"))
     debt_group: Mapped[str] = mapped_column(String(10), nullable=False, default="1")
     loan_type: Mapped[str] = mapped_column(String(30), nullable=False, default="SHORT_TERM")
+    institution_type: Mapped[str] = mapped_column(String(30), nullable=False, default="BANK", index=True)
+    is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
+    note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    # Hình thức trả lãi & Lịch trả lãi (Thông tư 14/2017/TT-NHNN)
+    interest_payment_method: Mapped[str] = mapped_column(String(20), nullable=False, default="MONTHLY")
+    monthly_interest_due_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    calculated_interest_due: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
 
     current_principal_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
     accrued_interest: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
@@ -77,6 +85,7 @@ class CreditFacility(Base):
 
     # Relationships
     items: Mapped[List["CreditStatementItem"]] = relationship("CreditStatementItem", back_populates="loan")
+    dossier_documents: Mapped[List["DisbursementDocument"]] = relationship("DisbursementDocument", back_populates="loan", cascade="all, delete-orphan")
 
 
 class CreditStatementItem(Base):
@@ -92,6 +101,9 @@ class CreditStatementItem(Base):
     interest_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), nullable=False, default=Decimal("0.0000"))
     debt_group: Mapped[str] = mapped_column(String(10), default="1")
     loan_purpose: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    interest_payment_method: Mapped[Optional[str]] = mapped_column(String(20), default="MONTHLY")
+    monthly_interest_due_day: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    calculated_interest_due: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
     principal_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
     principal_balance_vnd: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
     accrued_interest: Mapped[Decimal] = mapped_column(Numeric(18, 2), default=Decimal("0.00"))
@@ -106,4 +118,25 @@ class CreditStatementItem(Base):
     # Relationships
     statement_file: Mapped["CreditStatementFile"] = relationship("CreditStatementFile", back_populates="items")
     loan: Mapped[Optional["CreditFacility"]] = relationship("CreditFacility", back_populates="items")
+
+
+class DisbursementDocument(Base):
+    __tablename__ = "disbursement_documents"
+
+    document_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    document_uuid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False, index=True)
+    loan_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("credit_facilities.loan_id", ondelete="CASCADE"), nullable=False, index=True)
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    file_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    document_type: Mapped[str] = mapped_column(String(50), nullable=False, default="DISBURSEMENT_RECORD")
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    uploaded_by: Mapped[str] = mapped_column(String(100), nullable=False, default="SYSTEM")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    loan: Mapped["CreditFacility"] = relationship("CreditFacility", back_populates="dossier_documents")
 

@@ -16,6 +16,7 @@ class TransactionItem(BaseModel):
     transaction_date: datetime
     value_date: Optional[date] = None
     reference_number: Optional[str] = None
+    counter_party: Optional[str] = None
     description: str
     debit_amount: Decimal
     credit_amount: Decimal

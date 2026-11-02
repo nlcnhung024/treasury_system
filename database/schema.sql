@@ -143,6 +143,7 @@ CREATE TABLE bank_transactions (
     transaction_date TIMESTAMP WITH TIME ZONE NOT NULL,     -- Ngày giờ giao dịch chuẩn hóa ISO 8601
     value_date DATE,                                        -- Ngày hiệu lực / giá trị
     reference_number VARCHAR(100),                          -- Số tham chiếu / Mã bút toán ngân hàng
+    counter_party VARCHAR(255),                             -- Đối tượng thụ hưởng hoặc đối tượng chuyển (để trống nếu không có trong sao kê)
     description TEXT NOT NULL,                              -- Nội dung diễn giải nguyên bản từ sao kê
     
     -- Số tiền chính xác cao (DECIMAL 18, 2)
@@ -170,6 +171,7 @@ CREATE INDEX idx_trans_file_id ON bank_transactions(file_id);
 CREATE INDEX idx_trans_account_date ON bank_transactions(account_id, transaction_date DESC);
 CREATE INDEX idx_trans_date ON bank_transactions(transaction_date DESC);
 CREATE INDEX idx_trans_category ON bank_transactions(category_id);
+CREATE INDEX idx_trans_counter_party ON bank_transactions(counter_party);
 CREATE INDEX idx_trans_manual_override ON bank_transactions(is_manual_override);
 CREATE INDEX idx_trans_search_desc ON bank_transactions USING gin(to_tsvector('simple', description));
 
@@ -246,8 +248,8 @@ SELECT
 CREATE TABLE credit_statement_files (
     file_id BIGSERIAL PRIMARY KEY,
     file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
-    bank_code VARCHAR(20) NOT NULL,                         -- CTG, BIDV, ...
-    template_code VARCHAR(50) NOT NULL,                     -- CTG_LOAN_XLS, BIDV_LOAN_LD_XLSX
+    bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB, BIDV...
+    template_code VARCHAR(50) NOT NULL,                     -- CTG_LOAN_XLS, MBB_LOAN_LD_XLSX
     original_filename VARCHAR(255) NOT NULL,                -- Tên file gốc người dùng tải lên (.xlsx, .xls)
     storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: /credit_statements/{bank}/{YYYY}/{uuid}.ext
     file_size_bytes BIGINT NOT NULL,                        -- Dung lượng file (Bytes)
@@ -285,7 +287,7 @@ CREATE INDEX idx_credit_files_created ON credit_statement_files(created_at DESC)
 -- =============================================================================
 CREATE TABLE credit_facilities (
     loan_id BIGSERIAL PRIMARY KEY,
-    bank_code VARCHAR(20) NOT NULL,                         -- CTG, BIDV, ...
+    bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB, ...
     bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng
     contract_number VARCHAR(50) NOT NULL,                   -- Số tài khoản vay / Số LD / Số HĐ tín dụng
     borrower_name VARCHAR(150) NOT NULL,                    -- Tên đơn vị vay (Doanh nghiệp)
@@ -297,8 +299,16 @@ CREATE TABLE credit_facilities (
     term VARCHAR(20),                                       -- Kỳ hạn (4M, 6M...)
     interest_rate DECIMAL(6, 4) NOT NULL DEFAULT 0.0000,    -- Lãi suất (%/năm)
     debt_group VARCHAR(10) NOT NULL DEFAULT '1',            -- Nhóm nợ (1: Đủ tiêu chuẩn, 2, 3...)
-    loan_type VARCHAR(30) NOT NULL DEFAULT 'SHORT_TERM',    -- 'SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM'
+    loan_type VARCHAR(30) NOT NULL DEFAULT 'SHORT_TERM',    -- 'SHORT_TERM', 'MEDIUM_TERM', 'LONG_TERM', 'FINANCIAL_LEASE'
+    institution_type VARCHAR(30) NOT NULL DEFAULT 'BANK',   -- 'BANK', 'FINANCE_COMPANY', 'LEASING_COMPANY', 'OTHER'
+    is_manual BOOLEAN NOT NULL DEFAULT FALSE,               -- TRUE nếu nhập lẻ thủ công, FALSE nếu bóc tách từ file sao kê
+    note TEXT,                                              -- Ghi chú nội bộ
     
+    -- Hình thức trả lãi & Lịch trả lãi (Thông tư 14/2017/TT-NHNN)
+    interest_payment_method VARCHAR(20) NOT NULL DEFAULT 'MONTHLY' CHECK (interest_payment_method IN ('MONTHLY', 'END_OF_TERM')), -- 'MONTHLY' (Hằng tháng), 'END_OF_TERM' (Cuối kỳ)
+    monthly_interest_due_day INT CHECK (monthly_interest_due_day IS NULL OR (monthly_interest_due_day >= 1 AND monthly_interest_due_day <= 31)), -- Ngày trả lãi trong tháng (1-31)
+    calculated_interest_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Số lãi cần trả tính theo quy định pháp luật (TT 14/2017/TT-NHNN Actual/365)
+
     -- Số dư & nghĩa vụ trả nợ
     current_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc hiện tại
     accrued_interest DECIMAL(18, 2) DEFAULT 0.00,           -- Lãi cộng dồn
@@ -315,6 +325,8 @@ CREATE TABLE credit_facilities (
 );
 
 CREATE INDEX idx_credit_facilities_bank ON credit_facilities(bank_code);
+CREATE INDEX idx_credit_facilities_institution_type ON credit_facilities(institution_type);
+CREATE INDEX idx_credit_facilities_is_manual ON credit_facilities(is_manual);
 CREATE INDEX idx_credit_facilities_maturity ON credit_facilities(maturity_date);
 CREATE INDEX idx_credit_facilities_next_repayment ON credit_facilities(next_repayment_date);
 CREATE INDEX idx_credit_facilities_status ON credit_facilities(status);
@@ -334,6 +346,9 @@ CREATE TABLE credit_statement_items (
     interest_rate DECIMAL(6, 4) NOT NULL DEFAULT 0.0000,
     debt_group VARCHAR(10) DEFAULT '1',
     loan_purpose TEXT,
+    interest_payment_method VARCHAR(20) DEFAULT 'MONTHLY',
+    monthly_interest_due_day INT,
+    calculated_interest_due DECIMAL(18, 2) DEFAULT 0.00,
     principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
     principal_balance_vnd DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
     accrued_interest DECIMAL(18, 2) DEFAULT 0.00,
@@ -351,7 +366,32 @@ CREATE INDEX idx_credit_items_loan ON credit_statement_items(loan_id);
 CREATE INDEX idx_credit_items_contract ON credit_statement_items(contract_number);
 
 -- =============================================================================
--- 12. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG & THANH KHOẢN RÒNG CFO
+-- 12. BẢNG HỒ SƠ GIẢI NGÂN KHOẢN VAY (DISBURSEMENT DOCUMENTS / DOSSIER)
+-- Mỗi khoản vay liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage
+-- Đường dẫn Object Storage: /disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{filename}
+-- =============================================================================
+CREATE TABLE disbursement_documents (
+    document_id BIGSERIAL PRIMARY KEY,
+    document_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE CASCADE,
+    file_name VARCHAR(255) NOT NULL,                        -- Tên file tài liệu gốc (.pdf, .jpg, .docx, .zip...)
+    storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: disbursement_dossiers/{bank}/{contract}/{uuid}_{name}
+    file_size_bytes BIGINT NOT NULL,                        -- Kích thước file (bytes)
+    file_sha256 CHAR(64) NOT NULL,                          -- Mã băm SHA-256 toàn vẹn tài liệu
+    mime_type VARCHAR(100) NOT NULL,                        -- MIME type tài liệu
+    document_type VARCHAR(50) NOT NULL DEFAULT 'DISBURSEMENT_RECORD',
+    -- 'CONTRACT' (Hợp đồng tín dụng), 'DISBURSEMENT_RECORD' (Hồ sơ/Biên bản giải ngân), 'DEBT_NOTE' (Khế ước nhận nợ), 'INVOICE' (Hóa đơn/chứng từ sử dụng vốn/UNC), 'COLLATERAL' (Tài sản bảo đảm/thế chấp), 'APPROVAL' (Phê duyệt tín dụng), 'OTHER' (Khác)
+    description TEXT,                                       -- Mô tả hoặc ghi chú chứng từ
+    uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_disburse_docs_loan_id ON disbursement_documents(loan_id);
+CREATE INDEX idx_disburse_docs_uuid ON disbursement_documents(document_uuid);
+
+-- =============================================================================
+-- 13. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG & THANH KHOẢN RÒNG CFO
 -- =============================================================================
 CREATE OR REPLACE VIEW v_cfo_debt_obligations AS
 SELECT 

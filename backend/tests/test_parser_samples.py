@@ -94,9 +94,19 @@ def test_parse_and_reconcile_all_7_samples(
     assert len(hashes) == len(set(hashes)), f"Phát hiện xung đột dedup_hash trong file {filename}"
 
     # Kiểm tra running_balance luôn có kiểu Decimal và không bị None
+    # Đồng thời kiểm tra trường counter_party: đối tượng thụ hưởng/chuyển (để trống/None nếu file không có)
+    has_counter_party_count = 0
     for tx in pkg.transactions:
         assert isinstance(tx["debit_amount"], Decimal)
         assert isinstance(tx["credit_amount"], Decimal)
         assert isinstance(tx["running_balance"], Decimal)
         assert len(tx["dedup_hash"]) == 64
+        assert "counter_party" in tx
+        if tx["counter_party"] is not None:
+            assert isinstance(tx["counter_party"], str)
+            assert len(tx["counter_party"].strip()) > 0
+            has_counter_party_count += 1
+
+    if expected_template in ["MBB_CORP_XLSX", "MBB_PERSONAL_XLSX", "MBV_CORP_XLSX", "TPB_CORP_XLSX", "CTG_EFAST_XLS", "VPB_CORP_XLSX", "SHB_CORP_XLS"]:
+        assert has_counter_party_count > 0, f"Mẫu {expected_template} phải trích xuất được counter_party"
 

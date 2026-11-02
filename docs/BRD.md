@@ -18,7 +18,11 @@
 | **1.1.0** | 2026-10-29 | `@BusinessAnalyst` | Đồng bộ với `docs/Bank_Mapping_Matrix.md`: Cập nhật 7 mẫu sao kê thực tế (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`), 5 chế độ đối soát (`MODE_1`..`MODE_5`), công thức `dedup_hash` 6 thành phần, trạng thái `BALANCED`/`DISCREPANCY`, và cơ chế Mở rộng Đa Doanh nghiệp (Multi-Entity Isolation) |
 | **1.2.0** | 2026-10-30 | `@BusinessAnalyst` | Bổ sung `US-04.9`: Cho phép chỉnh sửa trực tiếp Số dư Lũy kế (`running_balance`) tại một dòng giao dịch bất kỳ trên Bảng Giao dịch làm mốc chuẩn (Anchor Balance) để tự động tính toán lan truyền 2 chiều (xuôi & ngược) cho toàn bộ chuỗi giao dịch của tài khoản đó, giải quyết triệt để bài toán Sổ phụ Cá nhân MBBank (`MODE_4_TOTAL_FLOW_ONLY`) không in số dư trên file |
 | **1.3.0** | 2026-10-30 | `@BusinessAnalyst` | Nâng cấp toàn diện `US-06.2` (Báo cáo Tồn quỹ & Điều hành Thanh khoản CFO): Hỗ trợ đa kỳ (`TODAY`, `YESTERDAY`, `WTD`, `MTD`, `ALL`, `CUSTOM`) với 5 cột biến động (`opening_balance`, `total_inflow`, `total_outflow`, `closing_balance`, `net_change`), phân cấp 2 Khối nguồn tiền (`CORPORATE`, `SPECIAL_CASH`, loại bỏ quỹ tiền mặt khỏi tổng tồn quỹ), loại trừ luân chuyển nội bộ trên KPI hợp nhất, bộ 3 chỉ số quản trị (Tỷ trọng %, Trạng thái Đối soát, Độ tươi dữ liệu), Biểu đồ phân bổ, Drill-down giao dịch tại chỗ và Xuất Excel Báo cáo Tồn quỹ (`/reports/cfo/export-excel`) |
-| **1.4.0** | 2026-10-31 | `@BusinessAnalyst` | Đồng bộ toàn diện theo sản phẩm thực tế: Chuẩn hóa 2 Khối nguồn tiền tồn quỹ CFO, bổ sung đầy đủ EPIC-07 (Quản lý & Đối soát Sao kê Khoản vay Tín dụng `CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`), hoàn thiện US-07.1..US-07.3 và tích hợp chỉ số Thanh khoản Ròng (Net Liquidity) trước 9h sáng |
+| **1.4.0** | 2026-10-31 | `@BusinessAnalyst` | Đồng bộ toàn diện theo sản phẩm thực tế: Chuẩn hóa 2 Khối nguồn tiền tồn quỹ CFO, bổ sung đầy đủ EPIC-07 (Quản lý & Đối soát Sao kê Khoản vay Tín dụng `CTG_LOAN_XLS`, `MBB_LOAN_LD_XLSX`), hoàn thiện US-07.1..US-07.3 và tích hợp chỉ số Thanh khoản Ròng (Net Liquidity) trước 9h sáng |
+| **1.5.0** | 2026-11-02 | `@BusinessAnalyst` | Đính chính phân loại mẫu sao kê tín dụng `Vay_LD (1).xlsx`: Cập nhật mã mẫu từ `BIDV_LOAN_LD_XLSX` (BIDV) thành `MBB_LOAN_LD_XLSX` (Ngân hàng TMCP Quân Đội - MB) theo phản hồi người dùng. |
+| **1.6.0** | 2026-11-02 | `@BusinessAnalyst` | Mở rộng EPIC-07 bổ sung US-07.4: Giao diện Nhập Lẻ Khoản Vay & Quản lý nợ từ các Ngân hàng, Công ty tài chính, Công ty cho thuê tài chính ngoài các file sao kê tự động; hỗ trợ đa dạng loại hình cấp tín dụng và bộ lọc đa chiều. |
+| **1.7.0** | 2026-11-02 | `@BusinessAnalyst` | Mở rộng EPIC-07 bổ sung US-07.5 (Hình thức trả lãi MONTHLY/END_OF_TERM & Ngày trả lãi hằng tháng), US-07.6 (Tính toán số lãi cần trả theo quy định hiện hành Thông tư 14/2017/TT-NHNN Actual/365), và US-07.7 (Liên kết Bộ hồ sơ giải ngân khoản vay lưu trữ tại Object Storage). |
+| **1.8.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung `US-07.8` (Phân hệ Kế hoạch Trả nợ & Làm phẳng Dòng tiền Tín dụng - Debt Smoothing Engine): Tự động phân bổ nợ đến hạn hàng tháng, hỗ trợ chế độ Cố định đều & Tùy chỉnh theo mùa vụ kinh doanh, chiến lược chia nhỏ khoản nợ lớn, đảo nợ với thời hạn tối đa (MB 6T, CTG 4T), phí phạt trả trước mặc định 0%, bảo đảm dư nợ mọi tháng luôn nằm an toàn dưới trần khả năng chi trả. |
 
 ---
 
@@ -56,7 +60,7 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 | **Tổng Giám đốc (CEO)** | **Bà Nguyễn Thị Lan Anh** | - Nhận báo cáo phân tích tỷ trọng, cơ cấu khoản thu và khoản chi hàng ngày.<br>- Cung cấp dữ liệu sao kê tài khoản cá nhân MBBank (dùng cho luồng rút/nhập quỹ tiền mặt công ty). | Quyết định cao nhất |
 | **Giám đốc Tài chính (CFO)** | **Ông Trần Ngọc Tuấn** | - Theo dõi tức thời tổng số tiền tồn quỹ hôm nay (Khối 1: TK Doanh nghiệp + Khối 2: TK Ủy quyền CEO, không tính quỹ tiền mặt).<br>- Giám sát an toàn thanh khoản, nghĩa vụ nợ tín dụng đến hạn và thanh khoản ròng. | Rất cao |
 | **Chuyên viên Tài chính (Primary End-User)** | **Chị Nghiêm Lê Cẩm Nhung** | - Người trực tiếp tải file sao kê từ $\ge 7$ ngân hàng mỗi ngày và các file sao kê khoản vay tín dụng.<br>- Cần tự động hóa làm sạch, đối chiếu số dư, phân loại thu/chi, theo dõi luồng tiền rút từ TK cá nhân MBBank, đối soát nợ vay và tự động sinh biểu đồ báo cáo cho 2 sếp. | Trọng tâm phục vụ |
-| **Development & Architecture Team** | Multi-Agent System | - Xây dựng hệ thống tự động bóc tách $\ge 7$ mẫu sao kê tài khoản và các mẫu sao kê tín dụng (VietinBank, BIDV), xử lý bóc tách tài khoản cá nhân MBBank, tự động tính tồn quỹ 2 khối ngân hàng, giám sát nghĩa vụ nợ và xuất dashboard. | Thực thi kỹ thuật |
+| **Development & Architecture Team** | Multi-Agent System | - Xây dựng hệ thống tự động bóc tách $\ge 7$ mẫu sao kê tài khoản và các mẫu sao kê tín dụng (VietinBank, MB), xử lý bóc tách tài khoản cá nhân MBBank, tự động tính tồn quỹ 2 khối ngân hàng, giám sát nghĩa vụ nợ và xuất dashboard. | Thực thi kỹ thuật |
 
 ### 3.2. Chân dung Người dùng Thực tế (User Personas)
 
@@ -65,7 +69,7 @@ Xây dựng một nền tảng Web tự động hóa toàn diện quy trình ti�
 - **Khối lượng công việc:** Hàng ngày phải truy cập hơn 7 ngân hàng thương mại để tải file sao kê; theo dõi thêm biến động số dư tài khoản cá nhân tại MBBank của Tổng Giám đốc Nguyễn Thị Lan Anh (dùng để rút tiền mặt về quỹ).
 - **Mục tiêu:**
   - Tự động hóa khâu gom file, làm sạch và chuẩn hóa dữ liệu từ $\ge 7$ ngân hàng thành bảng dữ liệu tập trung.
-  - Tự động đối chiếu số dư từng tài khoản, tự động bóc tách và đối soát sao kê khoản vay tín dụng (VietinBank, BIDV).
+  - Tự động đối chiếu số dư từng tài khoản, tự động bóc tách và đối soát sao kê khoản vay tín dụng (VietinBank, MB).
   - Tự động tính tổng tồn quỹ hợp nhất theo 2 khối tài khoản ngân hàng (Doanh nghiệp & Ủy quyền CEO, không tính tiền mặt).
   - Tự động phân loại dòng tiền theo mục đích thu/chi.
   - Tự động vẽ biểu đồ trực quan hóa để gửi báo cáo đúng giờ cho CFO Trần Ngọc Tuấn và CEO Nguyễn Thị Lan Anh.
@@ -248,6 +252,7 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
   5. Số dư lũy kế sau giao dịch (`running_balance` - bóc tách trực tiếp hoặc nội suy lũy kế đối với mẫu khuyết cột như `SHB_CORP_XLS`, `MBB_PERSONAL_XLSX`).
   6. Số tham chiếu / Mã bút toán giao dịch (`reference_number`).
   7. Nội dung diễn giải chi tiết giao dịch kết hợp thông tin đối ứng (`description`).
+  8. Đối tượng thụ hưởng hoặc đối tượng chuyển (`counter_party` - nếu không có trong sao kê thì để trống).
 
 ---
 
@@ -430,10 +435,10 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
 ---
 
 ### EPIC-07: Quản lý & Đối soát Sao kê Khoản vay Tín dụng (Credit Facilities & Loan Disbursements)
-* **Mục tiêu:** Cho phép nạp, tự động bóc tách, đối soát tổng dư nợ và theo dõi nghĩa vụ trả nợ gốc/lãi của các khoản vay tín dụng (VietinBank eFAST, BIDV Vay/LD...).
+* **Mục tiêu:** Cho phép nạp, tự động bóc tách, đối soát tổng dư nợ và theo dõi nghĩa vụ trả nợ gốc/lãi của các khoản vay tín dụng (VietinBank eFAST, MB Vay/LD...).
 
 #### US-07.1: Tiếp nhận & Tự động Nhận diện Mẫu Sao kê Tín dụng
-* **User Story:** Là một *Kế toán viên*, tôi muốn *kéo thả file sao kê khoản vay (.xls, .xlsx) lên hệ thống*, để *hệ thống tự động phát hiện mẫu VietinBank hoặc BIDV mà không cần cấu hình thủ công*.
+* **User Story:** Là một *Kế toán viên*, tôi muốn *kéo thả file sao kê khoản vay (.xls, .xlsx) lên hệ thống*, để *hệ thống tự động phát hiện mẫu VietinBank hoặc MB mà không cần cấu hình thủ công*.
 * **Độ ưu tiên:** Must Have (`P0`)
 * **Tiêu chí chấp nhận (AC - Gherkin):**
   ```gherkin
@@ -451,7 +456,7 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
 * **Tiêu chí chấp nhận (AC - Gherkin):**
   ```gherkin
   Scenario: [REQ-CREDIT-002] Xem lịch trả nợ gốc và lãi đến hạn
-    Given Hệ thống đã nạp các khoản vay từ VietinBank và BIDV
+    Given Hệ thống đã nạp các khoản vay từ VietinBank và MB
     When CFO truy cập bảng điều khiển Sao kê Tín dụng
     Then Hệ thống hiển thị tổng dư nợ gốc hợp nhất
     And Hiển thị danh sách các khoản vay có ngày trả gốc/lãi gần nhất
@@ -470,6 +475,98 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
     And Hiển thị Chỉ số Thanh khoản Ròng = Tổng tồn quỹ hợp nhất - Nghĩa vụ nợ đến hạn kỳ tới
     And Cho phép bấm liên kết chuyển nhanh sang màn hình "Sao Kê Tín Dụng" để tra cứu chi tiết khế ước
   ```
+
+#### US-07.4: Nhập Lẻ & Quản Lý Khoản Nợ / Vay từ Các Ngân Hàng, Công Ty Tài Chính, Cho Thuê Tài Chính
+* **User Story:** Là một *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *nhập thêm các khoản nợ lẻ từ các ngân hàng, công ty tài chính, công ty cho thuê tài chính ngoài các file sao kê tự động*, để *quản lý toàn diện 100% danh mục nghĩa vụ nợ của doanh nghiệp trên cùng một hệ thống*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-004] Nhập lẻ khoản nợ từ Công ty Tài chính / Cho thuê Tài chính
+    Given Người dùng ở màn hình "Theo dõi khoản vay" (Sao Kê Tín Dụng)
+    When Người dùng nhấn nút "Nhập Lẻ Khoản Vay"
+    And Chọn loại tổ chức ("BANK", "FINANCE_COMPANY", "LEASING_COMPANY", "OTHER")
+    And Điền thông tin số hợp đồng, dư nợ gốc, lãi suất và lịch trả nợ kỳ tới
+    And Nhấn "Lưu Khoản Vay"
+    Then Hệ thống lưu khoản nợ vào cơ sở dữ liệu với cờ is_manual=true
+    And Khoản nợ lập tức hiển thị trên Bảng Danh mục Khoản vay với huy hiệu phân loại tương ứng
+    And Tổng dư nợ và nghĩa vụ trả nợ trên các thẻ KPI và CFO Dashboard tự động cộng dồn số liệu mới
+  ```
+
+#### US-07.5: Thiết Lập Hình Thức Trả Lãi & Ngày Trả Lãi Hằng Tháng
+* **User Story:** Là một *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *thiết lập hình thức trả lãi (Hằng tháng hoặc Cuối kỳ) và ngày trả lãi hằng tháng (1 - 31) cho từng khoản vay*, để *hệ thống theo dõi chính xác lịch nghĩa vụ nợ lãi của doanh nghiệp*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-005] Thiết lập hình thức trả lãi hằng tháng hoặc cuối kỳ
+    Given Khoản vay tín dụng đang hoạt động trong danh mục theo dõi khoản vay
+    When Người dùng mở form chỉnh sửa hoặc thêm khoản vay
+    And Chọn Hình thức trả lãi là "MONTHLY" (Hằng tháng) và nhập Ngày trả lãi hằng tháng là 25
+    Then Hệ thống lưu trữ interest_payment_method="MONTHLY" và monthly_interest_due_day=25
+    And Bảng danh mục hiển thị huy hiệu "Hằng tháng (ngày 25)"
+    When Người dùng đổi sang hình thức "END_OF_TERM" (Cuối kỳ)
+    Then Hệ thống cập nhật interest_payment_method="END_OF_TERM"
+    And Bảng danh mục hiển thị huy hiệu "Cuối kỳ"
+  ```
+
+#### US-07.6: Tính Toán Số Lãi Cần Trả Theo Quy Định Hiện Hành Của Pháp Luật (Thông Tư 14/2017/TT-NHNN)
+* **User Story:** Là một *Giám đốc Tài chính (CFO)*, tôi muốn *hệ thống tự động tính toán số tiền lãi cần trả cho từng khoản vay theo đúng quy định hiện hành của pháp luật Việt Nam (Thông tư 14/2017/TT-NHNN)*, để *đối chiếu chính xác với thông báo nợ của ngân hàng và chủ động dòng tiền thanh toán*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Công thức nghiệp vụ (Quy định tại Điều 5 Thông tư 14/2017/TT-NHNN):**
+  $$\text{Số tiền lãi} = \frac{\sum (\text{Số dư thực tế} \times \text{Số ngày duy trì số dư thực tế} \times \text{Lãi suất tính lãi (\%/năm)})}{365}$$
+  - Cơ sở tính thời gian: Một năm tính 365 ngày (`Actual / 365`).
+  - Thời hạn tính lãi: Xác định từ ngày giải ngân (hoặc ngày liền kề sau ngày kết thúc kỳ tính lãi trước) đến hết ngày liền kề trước ngày thanh toán hết khoản vay (tính ngày đầu, bỏ ngày cuối của kỳ tính lãi).
+  - Với hình thức `MONTHLY`: Tính số lãi của kỳ tháng tới hạn dựa trên số ngày thực tế trong chu kỳ trả lãi hàng tháng.
+  - Với hình thức `END_OF_TERM`: Tính tổng số lãi phải thanh toán vào ngày đáo hạn dựa trên số ngày vay thực tế từ ngày giải ngân đến ngày đáo hạn.
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-006] Tính lãi chính xác theo Thông tư 14/2017/TT-NHNN
+    Given Khoản vay có dư nợ gốc 2,050,000,000 VND, lãi suất 8.7000%/năm, hình thức trả lãi MONTHLY ngày 21
+    When Hệ thống tính toán số lãi cần trả kỳ tháng có 31 ngày (từ 21/08 đến 21/09)
+    Then Số tiền lãi được tính chính xác là (2,050,000,000 * 0.087 * 31) / 365 = 15,147,534.25 VND
+    And Hiển thị tại cột "Lãi Cần Trả (TT14)" trên Bảng Danh mục Khoản vay
+  ```
+
+#### US-07.7: Liên Kết Bộ Hồ Sơ Giải Ngân Khoản Vay Lưu Trữ Tại Object Storage
+* **User Story:** Là một *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *mỗi khoản vay phải được liên kết với một bộ hồ sơ giải ngân (hợp đồng tín dụng, khế ước nhận nợ, biên bản giải ngân, chứng từ hóa đơn/UNC) được lưu trữ trên Object Storage*, để *dễ dàng tra cứu, kiểm toán và bảo quản an toàn lâu dài*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-007] Tải lên và tra cứu bộ hồ sơ giải ngân khoản vay theo từng loại chứng từ trên Object Storage
+    Given Khoản vay hợp đồng "805008104760" tại VietinBank
+    When Người dùng nhấn nút "Hồ sơ" tại dòng khoản vay trên Bảng Danh mục hoặc mở form Khoản vay
+    Then Hệ thống mở giao diện Bộ hồ sơ giải ngân phân tách theo 5 loại chứng từ độc lập: Hợp đồng tín dụng, Khế ước nhận nợ LD, Chứng từ sử dụng vốn (Hóa đơn/UNC), Tài sản thế chấp và Phê duyệt/Khác
+    When Người dùng chọn danh mục "Hóa đơn & UNC" và tải lên file "Hoa_don_mua_hang_001.pdf"
+    Then File được tự động gán loại "INVOICE" và lưu trữ tại Object Storage đường dẫn "disbursement_dossiers/CTG/805008104760/{uuid}_{filename}"
+    And Thông tin tài liệu được ghi nhận vào bảng "disbursement_documents"
+    And Số lượng tài liệu hiển thị trên badge "Hồ sơ (1)" và badge danh mục "Hóa đơn & UNC (1)" được cập nhật ngay lập tức
+    And Cho phép tải xuống (Download) hoặc xóa tài liệu có ghi nhận Audit Log
+  ```
+
+#### US-07.8: Phân Hệ Kế Hoạch Trả Nợ & Làm Phẳng Dòng Tiền Tín Dụng (Debt Smoothing & Early Repayment Planner)
+* **User Story:** Là một *Giám đốc Tài chính (Ông Trần Ngọc Tuấn - CFO)* và *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *hệ thống gợi ý kế hoạch phân bổ trả nợ đến hạn hàng tháng, tự động tính toán đề xuất trả trước hạn hoặc đảo nợ tối đa kỳ hạn*, để *sau khi thực thi, dư nợ đến hạn của mỗi tháng luôn nằm dưới trần khả năng chi trả của công ty, khắc phục triệt để tình trạng đỉnh nợ lệch pha (chữ U) và tiết kiệm tối đa chi phí lãi vay*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Khả năng chi trả hàng tháng ($C_t$):**
+     - Hỗ trợ 2 chế độ: *Cố định đều các tháng* (mặc định 14.0 tỷ VND/tháng) và *Tùy chỉnh theo mùa vụ kinh doanh* (nhập trần chi trả riêng cho từng tháng $11/2026 \dots 05/2027$).
+  2. **Chiến lược Phân bổ:** Mặc định ưu tiên *Trả trước hạn một phần các khoản nợ lớn (SPLIT_LARGE_LOANS)* để chia nhỏ quy mô nợ gốc (như các món 10.7 tỷ, 9.5 tỷ, 7.7 tỷ) sang các tháng dồi dào ngân quỹ (T12/2026, T01/2027, T02/2027). Hỗ trợ thêm các chiến lược *Avalanche* (lãi cao trước), *Snowball* (nợ nhỏ trước) và *Balanced* (chia đều).
+  3. **Thời hạn vay tối đa khi Đảo Nợ:**
+     - MBBank (MBB): Tối đa **6 tháng** (kéo dài từ 11/2026 sang 05/2027).
+     - VietinBank (CTG): Tối đa **4 tháng** (kéo dài từ 11/2026 sang 03/2027).
+  4. **Phí phạt trả nợ trước hạn:** Mặc định **0.0%** (cho phép cấu hình linh hoạt nếu ngân hàng thay đổi biểu phí).
+  5. **Bảo đảm trần an toàn (Safety Invariant):** Tại mọi tháng $t$, dư nợ thanh toán thực tế sau phân bổ luôn thỏa mãn $D_t^{\text{allocated}} \le C_t$.
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-CREDIT-008] Mô phỏng Kế hoạch trả nợ tín dụng với trần chi trả 14 tỷ/tháng
+    Given Danh mục 37 khoản vay với tổng dư nợ 79,160,540,000 VND
+    And Đỉnh nợ gốc tự nhiên ban đầu tại Tháng 03/2027 là 40,425,525,000 VND
+    When Người dùng mở màn hình "Kế hoạch trả nợ" với ngưỡng chi trả 14 tỷ VND/tháng
+    Then Hệ thống thực hiện đảo nợ phần nợ vượt trần tháng 11/2026 (CTG 4 tháng, MB 6 tháng)
+    And Đề xuất trả trước hạn 12.9 tỷ vào Tháng 12/2026, 14 tỷ vào Tháng 01/2027, 14 tỷ vào Tháng 02/2027
+    And Đỉnh nợ sau phân bổ giảm từ 40.43 tỷ xuống còn đúng 14.0 tỷ (Giảm 65.37%)
+    And Tiết kiệm hơn 865,000,000 VND tiền lãi vay cho doanh nghiệp
+    And Toàn bộ 7 tháng kế hoạch đều đạt chuẩn trạng thái "An toàn" (is_safe = True)
+  ```
+
 
 ---
 

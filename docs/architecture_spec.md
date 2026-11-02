@@ -30,7 +30,7 @@ flowchart TD
     end
 
     subgraph StorageQueue["TẦNG LƯU TRỮ NHỊ PHÂN & HÀNG ĐỢI"]
-        Obj_Store[("Hybrid Object Storage<br/>MinIO On-Premise (Primary) & GCS (Backup)<br/>/statements/ & /credit_statements/")]
+        Obj_Store[("Hybrid Object Storage<br/>MinIO On-Premise (Primary) & GCS (Backup)<br/>/statements/, /credit_statements/ & /disbursement_dossiers/")]
         Msg_Queue[("Message Queue (Redis 7.0+ Streams)<br/>Hàng đợi Job bóc tách ngầm")]
         DLQ[("Dead Letter Queue (DLQ)<br/>Xử lý Retry & Lưu vết lỗi")]
     end
@@ -51,7 +51,7 @@ flowchart TD
         Table_Rules["classification_rules & categories"]
         Table_Cash["cash_ledger"]
         Table_CreditFiles["credit_statement_files"]
-        Table_CreditFac["credit_facilities & credit_statement_items"]
+        Table_CreditFac["credit_facilities, credit_statement_items & disbursement_documents"]
         Table_Audit["audit_logs"]
         View_CFO["v_cfo_daily_liquidity & v_cfo_debt_obligations"]
     end
@@ -91,6 +91,9 @@ Tuân thủ nghiêm ngặt nguyên tắc **Stateless & Tách biệt Hoàn toàn 
 
    # Sao kê khoản vay tín dụng:
    s3://bank-statements/credit_statements/{bank_code}/{YYYY}/{file_uuid}_{sanitized_original_filename}.ext
+
+   # Hồ sơ giải ngân tín dụng liên kết khoản vay:
+   s3://bank-statements/disbursement_dossiers/{bank_code}/{contract_number}/{document_uuid}_{sanitized_file_name}.ext
    ```
    - `{bank_code}`: VCB, TCB, ACB, BIDV, MBB, CTG,...
    - `{YYYY}/{MM}`: Phân vùng theo năm và tháng nạp file để tối ưu tốc độ duyệt bucket.
@@ -142,7 +145,7 @@ Tuân thủ nghiêm ngặt nguyên tắc **Stateless & Tách biệt Hoàn toàn 
    - Cấu hình mẫu trong `bank_templates_config.yaml` hoàn toàn độc lập với Pháp nhân (`Entity-Agnostic`), tự động trích xuất động `(account_number, account_holder, tax_code)` từ Header sao kê để định tuyến và cô lập dữ liệu cho nhiều doanh nghiệp khác nhau trên cùng một mẫu.
 
 6. **Động cơ Bóc tách Sao kê Khoản vay Tín dụng & Đối soát Dư nợ (`credit_templates_config.yaml`):**
-   - Đọc và bóc tách các mẫu sao kê khoản vay BIFF8 (`.xls`) và OOXML (`.xlsx`) như `CTG_LOAN_XLS` (VietinBank eFAST) và `BIDV_LOAN_LD_XLSX`.
+   - Đọc và bóc tách các mẫu sao kê khoản vay BIFF8 (`.xls`) và OOXML (`.xlsx`) như `CTG_LOAN_XLS` (VietinBank eFAST) và `MBB_LOAN_LD_XLSX` (MBBank / MB).
    - Bóc tách chi tiết từng khế ước LD: `contract_number`, ngày giải ngân, ngày đáo hạn, kỳ hạn, lãi suất (%/năm), dư nợ gốc hiện tại, lãi cộng dồn, lịch trả nợ gốc/lãi tiếp theo.
    - Đối soát tự động: $\sum \text{Dư nợ gốc từng khế ước} = \text{Tổng dư nợ ghi trên file} \ (\Delta = 0.00\text{ VND})$.
    - Tự động cập nhật (upsert) vào danh mục `credit_facilities` và lưu snapshot vào `credit_statement_items`.
@@ -159,12 +162,13 @@ Cơ sở dữ liệu được tổ chức theo chuẩn **PostgreSQL 15+**, tuân
 | **`bank_statement_files`** | Quản lý file gốc, metadata, kỳ sao kê và kết quả đối soát số dư | `file_id (PK)`, `file_sha256 (UNIQUE)` |
 | **`categories`** | Danh mục Thu/Chi do người dùng tự tạo trên giao diện | `category_id (PK)`, `UNIQUE(category_type, category_name)` |
 | **`classification_rules`** | Bộ quy tắc từ khóa kết hợp điều kiện nâng cao (AND/OR) | `rule_id (PK)`, `priority (ASC)` |
-| **`bank_transactions`** | Chi tiết từng giao dịch sạch, Decimal(18,2), cờ khóa ghi đè | `transaction_id (PK)`, `UNIQUE(account_id, dedup_hash)` |
+| **`bank_transactions`** | Chi tiết từng giao dịch sạch, Decimal(18,2), đối tượng thụ hưởng/chuyển (`counter_party`), cờ khóa ghi đè | `transaction_id (PK)`, `UNIQUE(account_id, dedup_hash)` |
 | **`cash_ledger`** | Sổ theo dõi dòng tiền mặt đối ứng từ TK MBBank bà Lan Anh | `cash_entry_id (PK)`, `linked_transaction_id (FK)` |
 | **`audit_logs`** | Ghi nhận nhật ký kiểm toán toàn bộ thao tác hệ thống | `log_id (PK)`, `correlation_id (UUID)` |
 | **`credit_statement_files`** | Quản lý file sao kê tín dụng gốc, metadata tổng dư nợ và trạng thái đối soát | `file_id (PK)`, `file_sha256 (UNIQUE)` |
-| **`credit_facilities`** | Danh mục hợp đồng vay & khế ước LD hiện hành, lịch trả nợ gốc/lãi | `loan_id (PK)`, `UNIQUE(bank_code, contract_number)` |
+| **`credit_facilities`** | Danh mục hợp đồng vay & khế ước LD hiện hành, lịch trả nợ gốc/lãi, hình thức trả lãi, lãi tính theo TT14/2017 | `loan_id (PK)`, `UNIQUE(bank_code, contract_number)` |
 | **`credit_statement_items`** | Chi tiết từng khế ước vay bóc tách theo file sao kê tín dụng | `item_id (PK)`, `file_id (FK)`, `loan_id (FK)` |
+| **`disbursement_documents`** | Quản lý bộ hồ sơ giải ngân của từng khoản vay lưu tại Object Storage (MinIO On-Premise) | `document_id (PK)`, `document_uuid (UK)`, `loan_id (FK)` |
 | **`v_cfo_daily_liquidity`** | View tổng hợp tồn quỹ ngân hàng hợp nhất hôm nay (2 khối NH) | View tổng hợp phục vụ CFO |
 | **`v_cfo_debt_obligations`** | View tổng hợp nghĩa vụ nợ tín dụng và lịch trả nợ theo ngân hàng | View phục vụ giám sát Thanh khoản Ròng |
 
@@ -226,8 +230,10 @@ Cơ sở dữ liệu được tổ chức theo chuẩn **PostgreSQL 15+**, tuân
   ```
 
 ### 5.6. Quản trị Danh mục Khoản vay & Lịch Nghĩa vụ Nợ Tín dụng (Credit Facilities Management)
-- **Tiếp nhận & Bóc tách Tự động:** Màn hình `/credit-statements` hỗ trợ kéo thả file sao kê khoản vay VietinBank eFAST (`.xls`) và BIDV (`.xlsx`). Hệ thống tự động nhận diện mẫu, bóc tách danh sách khế ước LD và đối soát cân bằng dư nợ gốc 100%.
-- **Quản lý Nghĩa vụ Nợ:** API `/api/v1/loans` và `/api/v1/loans/summary` cung cấp danh sách khoản vay, bộ lọc đa tiêu chí (Ngân hàng, Nhóm nợ, Số ngày đến hạn), tính toán lãi suất bình quân gia quyền và tổng nghĩa vụ nợ đến hạn trong 7 ngày, 30 ngày tới.
+- **Tiếp nhận & Bóc tách Tự động:** Màn hình `/credit-statements` hỗ trợ kéo thả file sao kê khoản vay VietinBank eFAST (`.xls`) và MB (`.xlsx`). Hệ thống tự động nhận diện mẫu, bóc tách danh sách khế ước LD và đối soát cân bằng dư nợ gốc 100%.
+- **Quản lý Nghĩa vụ Nợ & Tính Lãi Theo Luật:** API `/api/v1/loans` và `/api/v1/loans/summary` cung cấp danh sách khoản vay, bộ lọc đa tiêu chí (Ngân hàng, Nhóm nợ, Số ngày đến hạn), tính toán lãi suất bình quân gia quyền và tổng nghĩa vụ nợ đến hạn trong 7 ngày, 30 ngày tới.
+- **Tính Lãi Theo Thông tư 14/2017/TT-NHNN:** Tự động tính toán số tiền lãi cần trả (`calculated_interest_due`) theo chuẩn pháp luật Việt Nam (cơ sở Actual/365, tính ngày đầu bỏ ngày cuối) cho 2 hình thức: trả lãi hằng tháng (`MONTHLY` dựa trên ngày trả lãi `monthly_interest_due_day`) và trả lãi cuối kỳ (`END_OF_TERM` từ ngày giải ngân đến ngày đáo hạn).
+- **Liên kết Hồ sơ Giải ngân Object Storage:** Mỗi khoản vay liên kết với 1 bộ hồ sơ giải ngân gồm nhiều tài liệu (Hợp đồng tín dụng, Giấy nhận nợ, Hóa đơn thương mại, Biên bản định giá tài sản, Phê duyệt tín dụng, Khác) lưu trữ tại MinIO On-Premise theo đường dẫn phân cấp `disbursement_dossiers/{bank_code}/{contract_number}/`, bảo vệ bằng mã băm SHA-256 chống giả mạo và ghi nhận đầy đủ nhật ký kiểm toán.
 
 ---
 

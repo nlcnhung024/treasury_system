@@ -31,7 +31,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
        ▼
 [Động cơ Đọc theo Mẫu (Universal & Credit Parsers)]
        │ 4a. Tra cứu mẫu tài khoản (bank_templates_config.yaml - 7 mẫu & canonical aliases)
-       │ 4b. Tra cứu mẫu tín dụng (credit_templates_config.yaml - CTG_LOAN_XLS, BIDV_LOAN_LD_XLSX)
+       │ 4b. Tra cứu mẫu tín dụng (credit_templates_config.yaml - CTG_LOAN_XLS, MBB_LOAN_LD_XLSX)
        ▼
 [Pipeline Làm sạch, Chuẩn hóa & Đối soát]
        │ 5a. Chuẩn hóa ngày ISO 8601, tiền tệ Decimal(18, 2), băm dedup_hash 6 thành phần
@@ -58,7 +58,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 - **Giao diện:** Kéo - thả (Drag & Drop) đa file trực quan, hỗ trợ xem trước danh sách file, trạng thái và dung lượng.
 - **Hỗ trợ định dạng:**
   - Sao kê tài khoản thanh toán: `.xlsx` (OOXML), `.xls` (BIFF8), `.csv` (dung lượng tối đa 25MB/file).
-  - Sao kê tín dụng/khoản vay: `.xls` (BIFF8 OLE2 - VietinBank eFAST), `.xlsx` (OOXML - BIDV).
+  - Sao kê tín dụng/khoản vay: `.xls` (BIFF8 OLE2 - VietinBank eFAST), `.xlsx` (OOXML - MB).
 - **Tự động nhận diện mẫu (Auto-Detection):**
   - Bước 1: Kiểm tra Magic Bytes nhị phân (`50 4B 03 04` cho `.xlsx`, `D0 CF 11 E0 A1 B1 1A E1` cho `.xls`).
   - Bước 2: Quét chữ ký tiêu đề (Signatures) trong 25 dòng đầu tiên để tự nhận diện mẫu ngân hàng mà không cần người dùng chọn tay.
@@ -75,7 +75,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 ### Phân hệ 3: Động cơ Đọc Dữ liệu theo Mẫu Động (Bank & Credit Template Parsers)
 - **Kiến trúc Zero-Code Onboarding:** Không viết code cứng (hardcode) cấu trúc cột của từng ngân hàng. Toàn bộ cấu hình bóc tách được quản trị qua declarative YAML:
   - `backend/app/services/parser/bank_templates_config.yaml`: Quản lý 7 mẫu sao kê tài khoản thực tế (`MBB_CORP_XLSX`, `MBB_PERSONAL_XLSX`, `MBV_CORP_XLSX`, `VPB_CORP_XLSX`, `TPB_CORP_XLSX`, `CTG_EFAST_XLS`, `SHB_CORP_XLS`) cùng từ điển đồng nghĩa `canonical_header_aliases` tự động nhận diện cột cho ngân hàng mới (VCB, TCB, BIDV, ACB...) trong $\le 15$ phút.
-  - `backend/app/services/parser/credit_templates_config.yaml`: Quản lý các mẫu sao kê tín dụng (`CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`).
+  - `backend/app/services/parser/credit_templates_config.yaml`: Quản lý các mẫu sao kê tín dụng (`CTG_LOAN_XLS`, `MBB_LOAN_LD_XLSX`).
 - **Độc lập Pháp nhân (Entity-Agnostic):** Tự động bóc tách động Tên chủ tài khoản, Số tài khoản, Mã số thuế (`tax_code`, `account_holder`), cho phép dùng chung một cấu hình mẫu để xử lý cho nhiều doanh nghiệp khác nhau trong tập đoàn.
 - **Xử lý bảng dữ liệu phức tạp:** Tự động unmerge ô gộp (Merged Cells), bỏ qua dòng trống xen kẽ, bóc tách chính xác kể cả các mẫu bảng bắt đầu thụt lề hoặc khuyết cột STT.
 
@@ -103,7 +103,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 - Cơ sở dữ liệu PostgreSQL 15+ chuẩn hóa 3NF, lưu trữ 10 bảng và view nghiệp vụ:
   1. `bank_accounts`: Danh mục tài khoản ngân hàng và tài khoản ủy quyền CEO.
   2. `bank_statement_files`: Metadata file sao kê tài khoản và trạng thái đối soát.
-  3. `bank_transactions`: Dòng giao dịch chi tiết, cờ khóa ghi đè, ghi chú nội bộ.
+  3. `bank_transactions`: Dòng giao dịch chi tiết, đối tượng thụ hưởng/chuyển (`counter_party`), cờ khóa ghi đè, ghi chú nội bộ.
   4. `categories`: Danh mục Thu/Chi do người dùng tự tạo trên giao diện.
   5. `classification_rules`: Bộ quy tắc từ khóa kết hợp điều kiện đa trường (AND/OR).
   6. `cash_ledger`: Sổ theo dõi dòng tiền mặt đối ứng từ TK MBBank của CEO.
@@ -131,13 +131,14 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   $$\text{Thanh khoản Ròng (Net Liquidity)} = \text{Tổng tồn quỹ hợp nhất} - \text{Nghĩa vụ nợ gốc \& lãi đến hạn kỳ tới}$$
 - **Biểu đồ Thác nước Waterfall Thu/Chi (Báo cáo CEO - Bà Nguyễn Thị Lan Anh):** Tự động sinh biểu đồ Waterfall phân rã chi tiết từng cấu phần Thu và Chi từ số dư đầu kỳ đến số dư cuối kỳ, hỗ trợ xem theo lũy kế tuần (WTD) và lũy kế tháng (MTD).
 - **Giao diện tự quản lý quy tắc phân loại (Self-Service Rule Management UI):** Màn hình trực quan cho phép người dùng tự tạo/sửa danh mục Thu/Chi, thiết lập điều kiện kết hợp (Từ khóa, Số tài khoản, Chiều dòng tiền, Ngưỡng số tiền), sắp xếp độ ưu tiên và chủ động bấm "Chạy lại quy tắc".
+- **Danh sách Giao dịch Chi tiết (Transaction Ledger):** Hiển thị trực quan Ngày giờ GD, Ngân hàng/Số TK, Đối tượng thụ hưởng hoặc đối tượng chuyển (`counter_party` - hiển thị rõ ràng, nếu file sao kê không có cột đối ứng thì để trống), Nội dung diễn giải, Phát sinh Nợ/Có, Số dư lũy kế, Danh mục phân loại (Inline Tagging), Ghi chú nội bộ và Trạng thái khóa ghi đè.
 - **Phân loại thủ công & Khóa chống ghi đè (Manual Inline Tagging & Override Protection):** Cho phép click chọn danh mục trực tiếp trên bảng hoặc chọn hàng loạt dòng để gán nhãn thủ công; tự động gắn cờ `is_manual_override = true` ngăn chặn mọi quy tắc tự động đè lên dữ liệu đã sửa tay.
 - **Quản lý Ghi chú Nội bộ (Internal Transaction Notes):** Nhập, sửa và lưu trữ ghi chú (`internal_note`) trực tiếp trên từng dòng giao dịch để giải trình nội bộ.
 - **Hiệu chỉnh Điểm neo Số dư Lũy kế & Lan truyền 2 Chiều (Anchor Balance Recalculation):** Cho phép chỉnh sửa trực tiếp `running_balance` tại một dòng giao dịch bất kỳ để tự động tính lại toàn bộ chuỗi số dư lũy kế (xuôi & ngược) và đồng bộ số dư đầu/cuối kỳ cho tài khoản đó (đặc thù mẫu sổ phụ cá nhân MBBank).
 - **Xuất Báo cáo Excel An toàn:** Xuất file `.xlsx` chuẩn kế toán (`DD/MM/YYYY`, format số `#,##0.00` căn phải, dòng `TỔNG CỘNG` tự động tính), escape ký tự đầu dòng (`=`, `+`, `-`, `@`) chống triệt để lỗ hổng Formula/CSV Injection.
 
 ### Phân hệ 7: Xử lý & Báo cáo Sao kê Tín dụng Doanh nghiệp (Credit & Loan Statements)
-- **Tiếp nhận & Nhận diện Mẫu:** Kéo - thả upload file sao kê danh sách khoản vay, khế ước nhận nợ LD từ VietinBank eFAST (`.xls`), BIDV (`.xlsx`). Hệ thống tự động nhận diện mẫu qua Magic Bytes và signatures.
+- **Tiếp nhận & Nhận diện Mẫu:** Kéo - thả upload file sao kê danh sách khoản vay, khế ước nhận nợ LD từ VietinBank eFAST (`.xls`), MB (`.xlsx`). Hệ thống tự động nhận diện mẫu qua Magic Bytes và signatures.
 - **Bóc tách Chi tiết Khoản vay & Khế ước:**
   - Bóc tách siêu dữ liệu: Tên đơn vị vay, Số CIF, Ngày chốt dữ liệu, Tổng dư nợ báo cáo trên Header/Footer.
   - Bóc tách từng khế ước: Số tài khoản vay / Số LD khế ước, Ngày giải ngân, Ngày đáo hạn, Kỳ hạn, Lãi suất (%/năm), Dư nợ gốc hiện tại, Lãi cộng dồn, Lịch trả nợ gốc/lãi kỳ tới, Nhóm nợ.
@@ -147,20 +148,51 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 - **Quản lý Danh mục Khoản vay Hiện hành (`credit_facilities`):**
   - Tự động cập nhật (upsert) số dư và nghĩa vụ trả nợ mới nhất của từng hợp đồng/khế ước vào bảng `credit_facilities`.
   - Lưu trữ toàn bộ snapshot dữ liệu từng lần nạp vào bảng `credit_statement_items` để đối soát và tra cứu lịch sử kiểm toán.
+- **Hình Thức Trả Lãi & Ngày Trả Lãi Hằng Tháng:**
+  - Bổ sung trường Hình thức trả lãi (`interest_payment_method`): `MONTHLY` (Hằng tháng) hoặc `END_OF_TERM` (Cuối kỳ khi đáo hạn).
+  - Bổ sung trường Ngày trả lãi hằng tháng (`monthly_interest_due_day`): Số nguyên từ 1 đến 31 (chỉ định ngày chốt trả lãi trong tháng đối với hình thức Hằng tháng).
+- **Tính Toán Số Lãi Cần Trả Theo Quy Định Hiện Hành của Pháp Luật (Thông tư 14/2017/TT-NHNN):**
+  - Căn cứ pháp lý: Điều 5 Thông tư 14/2017/TT-NHNN ngày 29/09/2017 của Ngân hàng Nhà nước Việt Nam về phương pháp tính lãi trong hoạt động cấp tín dụng.
+  - Cơ sở thời gian: Một năm chuẩn là 365 ngày (`Actual / 365`).
+  - Thời hạn tính lãi: Xác định từ ngày giải ngân (hoặc ngày liền kề sau ngày kết thúc kỳ tính lãi trước) đến hết ngày liền kề trước ngày thanh toán hết khoản vay (tính ngày đầu, bỏ ngày cuối của kỳ tính lãi).
+  - Công thức tính lãi chuẩn:
+    $$\text{Số tiền lãi} = \frac{\sum (\text{Số dư thực tế} \times \text{Lãi suất tính lãi (\%/năm)} \times \text{Số ngày duy trì số dư thực tế})}{365}$$
+  - Phân loại theo hình thức:
+    - `MONTHLY`: Tính số lãi của kỳ tháng tới hạn dựa trên số ngày thực tế trong chu kỳ trả lãi hàng tháng (căn cứ theo `monthly_interest_due_day`).
+    - `END_OF_TERM`: Tính tổng số lãi phải thanh toán vào ngày đáo hạn dựa trên số ngày thực tế từ ngày giải ngân đến ngày đáo hạn.
+- **Liên Kết Bộ Hồ Sơ Giải Ngân Lưu Trữ Tại Object Storage:**
+  - Mỗi khoản vay tín dụng bắt buộc liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage (MinIO On-Premise kết hợp Local Disk).
+  - Đường dẫn lưu trữ chuẩn: `disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{sanitized_filename}`.
+  - Bảng quản lý siêu dữ liệu: `disbursement_documents` (`document_id`, `document_uuid`, `loan_id`, `file_name`, `storage_path`, `file_size_bytes`, `file_sha256`, `mime_type`, `document_type`, `description`, `uploaded_by`).
+  - Hỗ trợ đa dạng loại tài liệu phân tách rành mạch: `CONTRACT` (Hợp đồng tín dụng / Thỏa thuận vay), `DEBT_NOTE` / `DISBURSEMENT_RECORD` (Khế ước nhận nợ / Giấy đề nghị giải ngân LD), `INVOICE` (Chứng từ sử dụng vốn: Hóa đơn GTGT / UNC thanh toán), `COLLATERAL` (Hồ sơ tài sản bảo đảm & Thế chấp), `OTHER` / `APPROVAL` (Thông báo phê duyệt / Chứng từ khác) với dung lượng tối đa 50MB/file.
+  - Phân chia khu vực nhập và quản lý bộ hồ sơ giải ngân theo từng danh mục loại chứng từ độc lập, tuyệt đối không gom chung toàn bộ hồ sơ vào một phân vùng duy nhất. Giao diện cung cấp điều hướng Tab/Section theo từng loại chứng từ, tự động gán phân loại khi tải lên, hiển thị số lượng file theo từng loại, xem/tải xuống an toàn từ Object Storage và Audit Log chi tiết.
+  - Giao diện bảng danh mục khoản vay tối giản, tinh gọn: Mỗi hàng chỉ duy trì duy nhất một nút "Sửa" (Edit) ở cột Thao Tác cố định bên phải (không bố trí nhiều nút "Nhập bộ hồ sơ" trùng lặp trên các cột). Khi bấm "Sửa", modal mở ra tích hợp đầy đủ cả thông tin hợp đồng và phân vùng tải lên/quản lý Bộ hồ sơ giải ngân phân theo 5 loại chứng từ cho đúng khoản vay đó. Trên thanh công cụ chính vẫn có nút tập trung "+ Nhập Bộ Hồ Sơ Cho Khoản Vay" khi cần nạp nhanh theo lô.
+- **Giao diện Nhập Lẻ Khoản Vay & Quản Lý Nợ Ngoài Sao Kê File:**
+  - Hỗ trợ nhập trực tiếp các khoản nợ lẻ từ các Ngân hàng thương mại, Công ty tài chính (FE Credit, Home Credit, HD SAISON, Shinhan Finance, Mcredit, Mirae Asset...), Công ty cho thuê tài chính (VietinBank Leasing, BIDV-SuMi TRUST Leasing, Chailease, ACB Leasing...) hoặc đối tác tín dụng khác.
+  - Phân loại tổ chức tín dụng: `BANK` (Ngân hàng), `FINANCE_COMPANY` (Công ty tài chính), `LEASING_COMPANY` (Cho thuê tài chính), `OTHER` (Khác).
+  - Tự động tính toán tổng số tiền phải trả kỳ tới ($\text{Gốc} + \text{Lãi}$), kiểm tra trùng lặp số hợp đồng, ghi nhận Audit Log và tích hợp ngay lập tức vào tổng dư nợ và chỉ số Thanh khoản Ròng CFO.
+  - Hỗ trợ đầy đủ chức năng Thêm mới, Chỉnh sửa (Inline/Modal) và Xóa/Tất toán khoản nợ, cùng bộ lọc đa chiều (theo loại tổ chức, nguồn gốc nhập lẻ vs sao kê tự động).
 - **Báo cáo Giám sát Nghĩa vụ Nợ & Lịch Thanh toán:**
   - Thống kê tổng dư nợ theo từng ngân hàng và toàn hệ thống.
   - Lịch đến hạn trả nợ gốc và lãi (trong 7 ngày, 30 ngày tới).
   - Tự động tính Lãi suất bình quân gia quyền của toàn bộ danh mục nợ vay.
   - Tích hợp số liệu vào CFO Dashboard phục vụ giám sát Thanh khoản Ròng.
+- **Phân Hệ Kế Hoạch Trả Nợ & Làm Phẳng Dòng Tiền Tín Dụng (`/loan-repayment-plan`):**
+  - Màn hình chuyên dụng cho CFO và Kế toán nằm dưới mục *Theo dõi khoản vay*.
+  - Thuật toán *Debt Smoothing Engine* tự động san phẳng áp lực nợ đến hạn bằng cơ chế trả trước hạn (Early Repayment) và đảo nợ tối đa kỳ hạn (MB 6 tháng, CTG 4 tháng).
+  - Hỗ trợ 2 chế độ thiết lập ngân sách: *Cố định đều các tháng* (mặc định 14 tỷ VND/tháng) và *Tùy chỉnh theo mùa vụ kinh doanh*.
+  - Chiến lược ưu tiên: Trả trước một phần các khoản nợ lớn (SPLIT_LARGE_LOANS) để chia nhỏ dư nợ gốc các món 10.7 tỷ, 9.5 tỷ, 7.7 tỷ sang các tháng dồi dào ngân quỹ (T12, T01, T02).
+  - Biểu đồ so sánh cột kép: Dư nợ đến hạn tự nhiên (Trước phân bổ) vs Dư nợ thanh toán đề xuất (Sau phân bổ) cùng Đường trần khả năng chi trả hàng tháng (bảo đảm 100% các tháng đều nằm dưới ngưỡng an toàn).
+  - Bảng tổng hợp dòng tiền hàng tháng và Bảng lịch trình chi tiết từng hợp đồng (73 hành động thanh toán, ngày đáo hạn mới sau đảo nợ, số ngày rút ngắn và tiền lãi tiết kiệm được).
 
 ### Phân hệ 8: Trải nghiệm Người dùng & Điều hướng theo Vai trò (Role Navigation & Personas)
 - Cung cấp thanh chuyển đổi vai trò (Persona Switcher) linh hoạt trên thanh Sidebar:
   1. **Chị Nghiêm Lê Cẩm Nhung (Kế toán viên - Primary End-User):**
      - Mặc định truy cập: `/` (Màn hình Nạp Sao Kê).
-     - Quyền truy cập: Nạp sao kê tài khoản & tín dụng, Bảng Giao Dịch, Bộ Quy Tắc, Sao Kê Tín Dụng, Xuất Excel.
+     - Quyền truy cập: Nạp sao kê tài khoản & tín dụng, Bảng Giao Dịch, Bộ Quy Tắc, Sao Kê Tín Dụng, Kế Hoạch Trả Nợ, Xuất Excel.
   2. **Ông Trần Ngọc Tuấn (Giám đốc Tài chính - CFO):**
      - Mặc định truy cập: `/cfo-dashboard` (Tồn Quỹ CFO < 9h sáng & Thanh khoản Ròng).
-     - Quyền truy cập: Xem toàn bộ tồn quỹ hợp nhất đa kỳ, biểu đồ ngân hàng, drill-down giao dịch, giám sát nghĩa vụ nợ tín dụng, xuất Excel CFO.
+     - Quyền truy cập: Xem toàn bộ tồn quỹ hợp nhất đa kỳ, biểu đồ ngân hàng, drill-down giao dịch, giám sát nghĩa vụ nợ tín dụng, mô phỏng Kế Hoạch Trả Nợ, xuất Excel CFO.
   3. **Bà Nguyễn Thị Lan Anh (Tổng Giám đốc - CEO):**
      - Mặc định truy cập: `/ceo-waterfall` (Biểu đồ Thác nước Thu/Chi).
      - Quyền truy cập: Xem biểu đồ Waterfall WTD/MTD, cơ cấu chi phí, giám sát tồn quỹ tổng thể.

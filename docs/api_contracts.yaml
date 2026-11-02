@@ -559,6 +559,12 @@ paths:
             type: string
             enum: [ALL, CREDIT, DEBIT]
           example: "ALL"
+        - name: counter_party
+          in: query
+          description: Lọc theo đối tượng thụ hưởng hoặc đối tượng chuyển
+          schema:
+            type: string
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
         - name: min_amount
           in: query
           schema:
@@ -1409,7 +1415,18 @@ paths:
           in: query
           schema:
             type: string
-          description: Lọc theo mã ngân hàng (CTG, BIDV...)
+          description: Lọc theo mã ngân hàng hoặc tổ chức tín dụng (CTG, MBB, FE_CREDIT, CHAILEASE...)
+        - name: institution_type
+          in: query
+          schema:
+            type: string
+            enum: ["BANK", "FINANCE_COMPANY", "LEASING_COMPANY", "OTHER"]
+          description: Lọc theo loại hình tổ chức (Ngân hàng, Cty Tài chính, Cho thuê tài chính)
+        - name: is_manual
+          in: query
+          schema:
+            type: boolean
+          description: Lọc theo nguồn gốc (true = Nhập lẻ thủ công, false = Bóc tách từ file sao kê)
         - name: debt_group
           in: query
           schema:
@@ -1458,6 +1475,116 @@ paths:
                       $ref: '#/components/schemas/CreditFacilityItem'
                   pagination:
                     $ref: '#/components/schemas/PaginationMeta'
+    post:
+      summary: Tạo mới khoản nợ / khoản vay lẻ ngoài sao kê tự động (Manual Loan Entry)
+      tags:
+        - Credit Statements & Loans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditFacilityCreate'
+      responses:
+        '201':
+          description: Tạo mới khoản vay lẻ thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditFacilityItem'
+        '409':
+          description: Trùng lặp số hợp đồng tại cùng đơn vị cấp tín dụng
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/{loan_id}:
+    get:
+      summary: Lấy chi tiết thông tin một khoản vay
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Chi tiết khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditFacilityItem'
+        '404':
+          description: Không tìm thấy khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      summary: Cập nhật thông tin khoản vay / nợ lẻ
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreditFacilityUpdate'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditFacilityItem'
+        '404':
+          description: Không tìm thấy khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Trùng lặp số hợp đồng mới với khoản vay khác
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      summary: Xóa hoặc tất toán khoản vay
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Đã xóa hoặc tất toán thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã xóa thành công khoản vay ID #1."
+        '404':
+          description: Không tìm thấy khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
   /loans/summary:
     get:
@@ -1471,6 +1598,193 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/CreditFacilitySummary'
+
+  /loans/repayment-plan:
+    get:
+      summary: Lấy kế hoạch phân bổ trả nợ tín dụng đến hạn và đề xuất trả trước hạn mặc định
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: monthly_capacity
+          in: query
+          required: false
+          schema:
+            type: number
+            example: 14000000000.00
+          description: Khả năng chi trả hàng tháng
+        - name: strategy
+          in: query
+          required: false
+          schema:
+            type: string
+            default: SPLIT_LARGE_LOANS
+            enum: [SPLIT_LARGE_LOANS, AVALANCHE, SNOWBALL, BALANCED]
+          description: Chiến lược ưu tiên phân bổ
+        - name: prepayment_penalty_rate
+          in: query
+          required: false
+          schema:
+            type: number
+            default: 0.00
+          description: Tỷ lệ phí phạt trả trước hạn (mặc định 0%)
+      responses:
+        '200':
+          description: Kế hoạch trả nợ và làm phẳng dòng tiền hoàn chỉnh
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtRepaymentPlanResponse'
+
+  /loans/repayment-plan/simulate:
+    post:
+      summary: Mô phỏng kịch bản kế hoạch trả nợ linh hoạt (hỗ trợ mùa vụ kinh doanh từng tháng)
+      tags:
+        - Credit Statements & Loans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepaymentPlanSimulateRequest'
+      responses:
+        '200':
+          description: Kết quả mô phỏng động theo kịch bản tùy chỉnh
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtRepaymentPlanResponse'
+
+  /loans/{loan_id}/dossier/upload:
+    post:
+      summary: Tải lên tài liệu hồ sơ giải ngân khoản vay lưu trữ tại Object Storage
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID khoản vay gắn hồ sơ giải ngân
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: File tài liệu (PDF, Word, Excel, hình ảnh) tối đa 50MB
+                document_type:
+                  type: string
+                  enum: ["CONTRACT", "DEBT_NOTE", "DISBURSEMENT_RECORD", "DISBURSEMENT_NOTE", "INVOICE", "COLLATERAL", "APPROVAL", "OTHER"]
+                  default: "OTHER"
+                  description: Phân loại tài liệu trong hồ sơ giải ngân
+                description:
+                  type: string
+                  description: Diễn giải ghi chú chi tiết về tài liệu
+      responses:
+        '201':
+          description: Tải lên và lưu trữ tài liệu vào Object Storage thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DisbursementDocumentUploadResponse'
+        '404':
+          description: Không tìm thấy khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/{loan_id}/dossier:
+    get:
+      summary: Lấy danh sách toàn bộ hồ sơ giải ngân gắn với khoản vay
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID khoản vay cần xem hồ sơ
+      responses:
+        '200':
+          description: Danh sách tài liệu trong bộ hồ sơ giải ngân
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DisbursementDocumentItem'
+        '404':
+          description: Không tìm thấy khoản vay
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/dossier/{document_id}/download:
+    get:
+      summary: Tải xuống tài liệu hồ sơ giải ngân từ Object Storage
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID tài liệu cần tải xuống
+      responses:
+        '200':
+          description: Tải file thành công dạng stream nhị phân
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Không tìm thấy tài liệu hoặc file trên Object Storage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/dossier/{document_id}:
+    delete:
+      summary: Xóa tài liệu khỏi bộ hồ sơ giải ngân
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: document_id
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: ID tài liệu cần xóa
+      responses:
+        '200':
+          description: Xóa tài liệu thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đã xóa tài liệu khỏi hồ sơ giải ngân."
+        '404':
+          description: Không tìm thấy tài liệu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 
 # =============================================================================
 # THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
@@ -1779,6 +2093,10 @@ components:
           type: string
           nullable: true
           example: "FT26302888910"
+        counter_party:
+          type: string
+          nullable: true
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
         description:
           type: string
           example: "CTY TNHH TM THEP HOAP PHAT TT TIEN HANG HD 1102"
@@ -2553,6 +2871,19 @@ components:
           type: number
           format: decimal
           example: 513425000.00
+        interest_payment_method:
+          type: string
+          enum: ["MONTHLY", "END_OF_TERM"]
+          default: "MONTHLY"
+          example: "MONTHLY"
+        monthly_interest_due_day:
+          type: integer
+          nullable: true
+          example: 25
+        calculated_interest_due:
+          type: number
+          format: decimal
+          example: 12450000.00
         currency:
           type: string
           example: "VND"
@@ -2630,6 +2961,17 @@ components:
         loan_type:
           type: string
           example: "SHORT_TERM"
+        institution_type:
+          type: string
+          enum: ["BANK", "FINANCE_COMPANY", "LEASING_COMPANY", "OTHER"]
+          example: "BANK"
+        is_manual:
+          type: boolean
+          example: false
+        note:
+          type: string
+          nullable: true
+          example: "Hợp đồng tín dụng hạn mức 2026"
         current_principal_balance:
           type: number
           format: decimal
@@ -2655,6 +2997,21 @@ components:
           type: number
           format: decimal
           example: 513425000.00
+        interest_payment_method:
+          type: string
+          enum: ["MONTHLY", "END_OF_TERM"]
+          example: "MONTHLY"
+        monthly_interest_due_day:
+          type: integer
+          nullable: true
+          example: 25
+        calculated_interest_due:
+          type: number
+          format: decimal
+          example: 12450000.00
+        dossier_files_count:
+          type: integer
+          example: 3
         status:
           type: string
           example: "ACTIVE"
@@ -2667,6 +3024,232 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    CreditFacilityCreate:
+      type: object
+      required:
+        - bank_code
+        - bank_name
+        - contract_number
+        - borrower_name
+        - current_principal_balance
+      properties:
+        bank_code:
+          type: string
+          example: "FE_CREDIT"
+        bank_name:
+          type: string
+          example: "Công ty Tài chính TNHH MTV VPBank SMBC (FE Credit)"
+        institution_type:
+          type: string
+          enum: ["BANK", "FINANCE_COMPANY", "LEASING_COMPANY", "OTHER"]
+          default: "BANK"
+        contract_number:
+          type: string
+          example: "FEC-2026-LD-001"
+        borrower_name:
+          type: string
+          example: "CONG TY CO PHAN XI MANG SUNRISE"
+        cif_number:
+          type: string
+          nullable: true
+          example: "CIF-FE-9988"
+        loan_purpose:
+          type: string
+          nullable: true
+          example: "Vay tiêu dùng / bổ sung vốn lưu động"
+        currency:
+          type: string
+          default: "VND"
+        disbursement_date:
+          type: string
+          format: date
+          nullable: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+        term:
+          type: string
+          nullable: true
+          example: "6M"
+        interest_rate:
+          type: number
+          format: decimal
+          example: 0.1250
+        interest_payment_method:
+          type: string
+          enum: ["MONTHLY", "END_OF_TERM"]
+          default: "MONTHLY"
+        monthly_interest_due_day:
+          type: integer
+          nullable: true
+          example: 25
+        debt_group:
+          type: string
+          default: "1"
+        loan_type:
+          type: string
+          default: "SHORT_TERM"
+        current_principal_balance:
+          type: number
+          format: decimal
+          example: 500000000.00
+        accrued_interest:
+          type: number
+          format: decimal
+          example: 5208333.00
+        next_repayment_date:
+          type: string
+          format: date
+          nullable: true
+        next_principal_amount:
+          type: number
+          format: decimal
+          example: 83333333.00
+        next_interest_amount:
+          type: number
+          format: decimal
+          example: 5208333.00
+        total_repayment_amount:
+          type: number
+          format: decimal
+          nullable: true
+          example: 88541666.00
+        status:
+          type: string
+          default: "ACTIVE"
+        note:
+          type: string
+          nullable: true
+          example: "Khoản nợ nhập lẻ"
+
+    CreditFacilityUpdate:
+      type: object
+      properties:
+        bank_code:
+          type: string
+        bank_name:
+          type: string
+        institution_type:
+          type: string
+          enum: ["BANK", "FINANCE_COMPANY", "LEASING_COMPANY", "OTHER"]
+        contract_number:
+          type: string
+        borrower_name:
+          type: string
+        cif_number:
+          type: string
+          nullable: true
+        loan_purpose:
+          type: string
+          nullable: true
+        currency:
+          type: string
+        disbursement_date:
+          type: string
+          format: date
+          nullable: true
+        maturity_date:
+          type: string
+          format: date
+          nullable: true
+        term:
+          type: string
+          nullable: true
+        interest_rate:
+          type: number
+          format: decimal
+        interest_payment_method:
+          type: string
+          enum: ["MONTHLY", "END_OF_TERM"]
+        monthly_interest_due_day:
+          type: integer
+          nullable: true
+        debt_group:
+          type: string
+        loan_type:
+          type: string
+        current_principal_balance:
+          type: number
+          format: decimal
+        accrued_interest:
+          type: number
+          format: decimal
+        next_repayment_date:
+          type: string
+          format: date
+          nullable: true
+        next_principal_amount:
+          type: number
+          format: decimal
+        next_interest_amount:
+          type: number
+          format: decimal
+        total_repayment_amount:
+          type: number
+          format: decimal
+          nullable: true
+        status:
+          type: string
+        note:
+          type: string
+          nullable: true
+
+    DisbursementDocumentItem:
+      type: object
+      properties:
+        document_id:
+          type: integer
+          example: 1
+        document_uuid:
+          type: string
+          format: uuid
+          example: "c3b29c9e-5b12-4e67-82a1-0f1e847c1234"
+        loan_id:
+          type: integer
+          example: 1
+        file_name:
+          type: string
+          example: "Giay_Nhan_No_LD26299.pdf"
+        storage_path:
+          type: string
+          example: "disbursement_dossiers/CTG/108003668812/c3b2_Giay_Nhan_No.pdf"
+        file_size_bytes:
+          type: integer
+          example: 2048576
+        file_sha256:
+          type: string
+          example: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        mime_type:
+          type: string
+          example: "application/pdf"
+        document_type:
+          type: string
+          enum: ["CONTRACT", "DEBT_NOTE", "DISBURSEMENT_RECORD", "DISBURSEMENT_NOTE", "INVOICE", "COLLATERAL", "APPROVAL", "OTHER"]
+          example: "DISBURSEMENT_NOTE"
+        description:
+          type: string
+          nullable: true
+          example: "Giấy nhận nợ giải ngân đợt 1"
+        uploaded_by:
+          type: string
+          example: "Chị Cẩm Nhung"
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DisbursementDocumentUploadResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Tải lên hồ sơ giải ngân thành công."
+        document:
+          $ref: '#/components/schemas/DisbursementDocumentItem'
 
     BankDebtSummary:
       type: object
@@ -2739,3 +3322,192 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/BankDebtSummary'
+
+    RepaymentPlanSimulateRequest:
+      type: object
+      properties:
+        capacity_mode:
+          type: string
+          enum: [UNIFORM, SEASONAL]
+          example: UNIFORM
+        uniform_monthly_capacity:
+          type: number
+          format: decimal
+          example: 14000000000.00
+        seasonal_capacities:
+          type: object
+          additionalProperties:
+            type: number
+            format: decimal
+          example:
+            "2026-11": 14000000000.00
+            "2026-12": 16000000000.00
+        prepayment_penalty_rate:
+          type: number
+          format: decimal
+          example: 0.00
+        strategy:
+          type: string
+          enum: [SPLIT_LARGE_LOANS, AVALANCHE, SNOWBALL, BALANCED]
+          example: SPLIT_LARGE_LOANS
+        mb_tenor_months:
+          type: integer
+          example: 6
+        ctg_tenor_months:
+          type: integer
+          example: 4
+
+    MonthlyRepaymentComparisonItem:
+      type: object
+      properties:
+        month:
+          type: string
+          example: "2026-11"
+        natural_due_amount:
+          type: number
+          format: decimal
+          example: 34435015000.00
+        allocated_payment_amount:
+          type: number
+          format: decimal
+          example: 14000000000.00
+        prepaid_principal_amount:
+          type: number
+          format: decimal
+          example: 0.00
+        regular_principal_amount:
+          type: number
+          format: decimal
+          example: 14000000000.00
+        monthly_capacity:
+          type: number
+          format: decimal
+          example: 14000000000.00
+        remaining_capacity:
+          type: number
+          format: decimal
+          example: 0.00
+        is_safe:
+          type: boolean
+          example: true
+        status_label:
+          type: string
+          enum: [SAFE, REFINANCED, OVER_CAPACITY]
+          example: REFINANCED
+
+    LoanAllocationActionItem:
+      type: object
+      properties:
+        loan_id:
+          type: integer
+          example: 1
+        bank_code:
+          type: string
+          example: MBB
+        contract_number:
+          type: string
+          example: LD2625346841
+        original_balance:
+          type: number
+          format: decimal
+          example: 10700000000.00
+        interest_rate:
+          type: number
+          format: decimal
+          example: 9.7000
+        original_due_date:
+          type: string
+          format: date
+          example: "2027-03-10"
+        action_type:
+          type: string
+          enum: [PAY_ON_DUE, PARTIAL_PREPAYMENT, FULL_PREPAYMENT, ROLLOVER_REFINANCE]
+          example: PARTIAL_PREPAYMENT
+        payment_month:
+          type: string
+          example: "2026-12"
+        payment_amount:
+          type: number
+          format: decimal
+          example: 5000000000.00
+        remaining_balance_after:
+          type: number
+          format: decimal
+          example: 5700000000.00
+        days_early:
+          type: integer
+          example: 85
+        estimated_interest_saved:
+          type: number
+          format: decimal
+          example: 112958904.00
+        prepayment_penalty_fee:
+          type: number
+          format: decimal
+          example: 0.00
+        rollover_new_maturity:
+          type: string
+          format: date
+          nullable: true
+          example: null
+        note:
+          type: string
+          example: Trả nợ trước hạn một phần để chia nhỏ khoản nợ lớn
+
+    DebtRepaymentPlanResponse:
+      type: object
+      properties:
+        total_principal_debt:
+          type: number
+          format: decimal
+          example: 79160540000.00
+        total_loans_count:
+          type: integer
+          example: 37
+        capacity_mode:
+          type: string
+          example: UNIFORM
+        uniform_monthly_capacity:
+          type: number
+          format: decimal
+          example: 14000000000.00
+        prepayment_penalty_rate:
+          type: number
+          format: decimal
+          example: 0.00
+        strategy:
+          type: string
+          example: SPLIT_LARGE_LOANS
+        peak_debt_before:
+          type: number
+          format: decimal
+          example: 40425525000.00
+        peak_debt_after:
+          type: number
+          format: decimal
+          example: 14000000000.00
+        peak_reduction_percent:
+          type: number
+          format: decimal
+          example: 65.37
+        total_interest_saved:
+          type: number
+          format: decimal
+          example: 865763288.00
+        total_penalty_incurred:
+          type: number
+          format: decimal
+          example: 0.00
+        net_financial_benefit:
+          type: number
+          format: decimal
+          example: 865763288.00
+        monthly_schedule:
+          type: array
+          items:
+            $ref: '#/components/schemas/MonthlyRepaymentComparisonItem'
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanAllocationActionItem'
+

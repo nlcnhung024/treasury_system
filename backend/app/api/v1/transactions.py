@@ -39,6 +39,7 @@ def _serialize_transaction(t: BankTransaction) -> TransactionItem:
         transaction_date=t.transaction_date,
         value_date=t.value_date,
         reference_number=t.reference_number,
+        counter_party=t.counter_party,
         description=t.description,
         debit_amount=t.debit_amount,
         credit_amount=t.credit_amount,
@@ -63,6 +64,7 @@ async def list_transactions(
     account_id: Optional[int] = Query(None),
     category_id: Optional[int] = Query(None, description="Truyền -1 để lọc các dòng Chưa phân loại"),
     flow_type: Optional[str] = Query(None, description="DEBIT hoặc CREDIT"),
+    counter_party: Optional[str] = Query(None, description="Lọc theo đối tượng thụ hưởng hoặc đối tượng chuyển"),
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     is_manual_override: Optional[bool] = Query(None),
@@ -74,6 +76,8 @@ async def list_transactions(
         base_query = base_query.where(BankAccount.bank_code == bank_code.upper())
     if account_id:
         base_query = base_query.where(BankTransaction.account_id == account_id)
+    if counter_party and counter_party.strip():
+        base_query = base_query.where(BankTransaction.counter_party.ilike(f"%{counter_party.strip()}%"))
     if category_id is not None:
         if category_id == -1:
             base_query = base_query.where(BankTransaction.category_id.is_(None))
@@ -99,6 +103,7 @@ async def list_transactions(
             or_(
                 BankTransaction.description.ilike(kw),
                 BankTransaction.reference_number.ilike(kw),
+                BankTransaction.counter_party.ilike(kw),
                 BankTransaction.internal_note.ilike(kw),
             )
         )

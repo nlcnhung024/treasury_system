@@ -11,8 +11,12 @@ from app.schemas.credit import (
     CreditStatementFileDetail,
     CreditStatementItemResponse,
     CreditFacilityItem,
+    CreditFacilityCreate,
+    CreditFacilityUpdate,
     CreditFacilitySummary,
     CreditUploadResponse,
+    DisbursementDocumentItem,
+    DisbursementDocumentUploadResponse,
 )
 
 __all__ = [
@@ -42,7 +46,10 @@ __all__ = [
     "CreditStatementFileDetail",
     "CreditStatementItemResponse",
     "CreditFacilityItem",
+    "CreditFacilityCreate",
+    "CreditFacilityUpdate",
     "CreditFacilitySummary",
     "CreditUploadResponse",
+    "DisbursementDocumentItem",
+    "DisbursementDocumentUploadResponse",
 ]
-

@@ -224,3 +224,126 @@ def generate_dedup_hash(
     canonical_payload = f"{acc_clean}|{dt_iso}|{debit_str}|{credit_str}|{ref_clean}|{bal_str}"
     return hashlib.sha256(canonical_payload.encode("utf-8")).hexdigest()
 
+
+KNOWN_ACCOUNTS = {
+    "0869596789": "NGUYEN THI LAN ANH",
+    "111386888": "CONG TY CO PHAN XI MANG SUNRISE (MB)",
+    "111602218989": "CONG TY CO PHAN XI MANG SUNRISE (CTG)",
+    "79868686889": "CONG TY CO PHAN XI MANG SUNRISE (TPB)",
+    "86528888": "CONG TY CO PHAN XI MANG SUNRISE (MBV)",
+    "446637355": "CONG TY CO PHAN XI MANG SUNRISE (VPB)",
+    "2283866789": "CONG TY CO PHAN XI MANG SUNRISE (SHB)",
+    "83866883": "CONG TY CO PHAN THUONG MAI XAY DUNG PHUC PHAT DAT",
+}
+
+
+def clean_duplicate_words(text: Optional[str]) -> Optional[str]:
+    if not text:
+        return text
+    tokens = text.split()
+    half = len(tokens) // 2
+    if half >= 2 and tokens[:half] == tokens[half:]:
+        return " ".join(tokens[:half])
+    return text
+
+
+def resolve_counter_party(
+    raw_cp: Any,
+    main_desc: Any,
+    debit_amount: Decimal = Decimal("0.00"),
+    credit_amount: Decimal = Decimal("0.00"),
+    account_holder: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Trích xuất và chuẩn hóa đối tượng thụ hưởng hoặc đối tượng chuyển (counter_party):
+    1. Nếu có cột counterparty trong sao kê:
+       - Trường hợp tiền vào (credit > 0) mà tên ghi trùng tên chủ tài khoản (do ngân hàng điền người thụ hưởng thay vì người chuyển),
+         hệ thống tự động bóc tách tên người chuyển thực tế từ nội dung giao dịch.
+       - Chuẩn hóa loại bỏ từ ngữ trùng lặp.
+    2. Nếu không có cột riêng trên sao kê (VPBank, SHB, v.v.):
+       - Bóc tách theo mẫu nội dung (NHAN TU, CCCD, CTCP, CTNB, Quỹ tiền mặt).
+    3. Nếu không có thông tin đối tác trong sao kê (thu phí, trả lãi, thuế VAT): để trống (None).
+    """
+    cp = normalize_whitespace(raw_cp)
+    d = normalize_whitespace(main_desc)
+    holder_upper = normalize_whitespace(account_holder).upper() if account_holder else ""
+
+    # TH1: Có cột counterparty nhưng là tiền vào và ghi tên chính chủ TK -> bóc tách người chuyển thực tế từ diễn giải
+    if cp and holder_upper and cp.upper() == holder_upper and credit_amount > Decimal("0.00"):
+        inbound = _find_inbound_sender(d)
+        if inbound:
+            return clean_duplicate_words(inbound)
+        return clean_duplicate_words(cp)
+
+    if cp:
+        return clean_duplicate_words(cp)
+
+    # TH2: Không có cột counterparty riêng -> Bóc tách từ nội dung giao dịch nếu có đối tác
+    return _extract_counterparty_from_desc(d)
+
+
+def _find_inbound_sender(desc: str) -> Optional[str]:
+    if not desc:
+        return None
+    d = desc.strip()
+    if re.search(r"tra lai tien gui|thu phi|thue vat|phi sms", d, re.I):
+        return None
+    m = re.match(r"^VND-TGTT-([A-Z\s]+?)(?:\s+Q[a-z0-9]|\s+APPMB|\s+chuyen|\s*$)", d, re.I)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"TU:\s*([A-Z0-9\s.,-]+?)(?:-|\.|\s*$)", d, re.I)
+    if m:
+        val = m.group(1).strip()
+        if len(val) > 2 and not any(k in val.upper() for k in ["CUSTOMER", "VND", "DEN"]):
+            return val
+    m = re.match(r"^([A-Z\s]{3,35}?)(?:\s+QAECST|\s+Qaecst|\s+APPMB)", d)
+    if m:
+        val = m.group(1).strip()
+        if not any(k in val.upper() for k in ["CUSTOMER", "VND", "DEN", "NOP"]):
+            return val
+    m = re.match(r"^([A-Z\s]{3,40}?)\s+(?:chuyen tien|chuyen khoan)", d, re.I)
+    if m:
+        val = m.group(1).strip()
+        if not any(k in val.upper() for k in ["CUSTOMER", "VND", "DEN", "NOP"]):
+            return val
+    m = re.match(r"^(CONG TY [A-Z\s]+?)\s+nhap quy", d, re.I)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _extract_counterparty_from_desc(desc: str) -> Optional[str]:
+    if not desc:
+        return None
+    d = desc.strip()
+    if re.search(r"tra lai tien gui|thu phi|thue vat|phi sms|nhan lai tu tai khoan", d, re.I):
+        return None
+    # VPBank: NHAN TU <ACC>
+    m = re.search(r"NHAN TU\s+([0-9]{8,16})", d, re.I)
+    if m:
+        acc = m.group(1)
+        return KNOWN_ACCOUNTS.get(acc, f"TK: {acc}")
+    # Doanh nghiệp: Cty TNHH / CTY CP
+    m = re.match(r"^(Cty\s+[^\n]+?)\s+chuyen khoan", d, re.I)
+    if m:
+        return clean_duplicate_words(m.group(1).strip())
+    # SHB: NGUYEN THI LAN ANH CCCD ...
+    m = re.match(r"^(NGUYEN THI LAN ANH)\s+CCCD", d, re.I)
+    if m:
+        return m.group(1).strip()
+    m = re.match(r"^(CTCP\s+[^\n]+?|CTY\s+[^\n]+?)\s+TT TIEN HANG", d, re.I)
+    if m:
+        return m.group(1).strip()
+    # Chuyển tiền nội bộ (CTNB)
+    if re.search(r"\bctnb\b", d, re.I):
+        if "vtb" in d.lower():
+            return "CONG TY CO PHAN XI MANG SUNRISE (CTG)"
+        if "mb" in d.lower():
+            return "CONG TY CO PHAN XI MANG SUNRISE (MBB)"
+        return "CONG TY CO PHAN XI MANG SUNRISE"
+    if re.search(r"\bnhap quy\b", d, re.I):
+        return "NGUYEN THI LAN ANH (Quỹ tiền mặt)"
+    if re.search(r"\brut tien\b", d, re.I):
+        return "NGUYEN THI LAN ANH (Rút tiền mặt)"
+    return None
+

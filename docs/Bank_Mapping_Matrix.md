@@ -17,7 +17,9 @@
 | Phiên bản | Ngày cập nhật | Tác giả | Nội dung thay đổi |
 | :---: | :---: | :---: | :--- |
 | **1.0.0** | 2026-10-29 | `@BusinessAnalyst` | Ban hành chính thức Ma trận Ánh xạ Dữ liệu cho 7 mẫu sao kê thực tế thuộc 6 ngân hàng (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`), tích hợp kiến trúc Mở rộng Mẫu Ngân hàng mới (Zero-Code Onboarding $\le 15$ phút) và Cơ chế Đa Doanh nghiệp / Đa Pháp nhân (Entity-Agnostic Multi-Company Mapping). |
-| **1.1.0** | 2026-10-31 | `@BusinessAnalyst` | Đồng bộ toàn diện theo sản phẩm thực tế: Bổ sung 3 bảng CSDL tín dụng (`credit_statement_files`, `credit_facilities`, `credit_statement_items`) và 2 View quản trị (`v_cfo_daily_liquidity`, `v_cfo_debt_obligations`) vào Từ điển dữ liệu chuẩn đích; cập nhật Ma trận nhận diện chữ ký cho mẫu khoản vay tín dụng `CTG_LOAN_XLS` và `BIDV_LOAN_LD_XLSX`. |
+| **1.1.0** | 2026-10-31 | `@BusinessAnalyst` | Đồng bộ toàn diện theo sản phẩm thực tế: Bổ sung 3 bảng CSDL tín dụng (`credit_statement_files`, `credit_facilities`, `credit_statement_items`) và 2 View quản trị (`v_cfo_daily_liquidity`, `v_cfo_debt_obligations`) vào Từ điển dữ liệu chuẩn đích; cập nhật Ma trận nhận diện chữ ký cho mẫu khoản vay tín dụng `CTG_LOAN_XLS` và `MBB_LOAN_LD_XLSX`. |
+| **1.2.0** | 2026-11-02 | `@BusinessAnalyst` | Đính chính chuẩn hóa nghiệp vụ theo phản hồi người dùng: Cập nhật mẫu sao kê tín dụng khế ước `LD` (`Vay_LD (1).xlsx`) từ `BIDV_LOAN_LD_XLSX` (BIDV) thành `MBB_LOAN_LD_XLSX` (Ngân hàng TMCP Quân Đội - MBBank/MB) để phản ánh chính xác đơn vị cấp tín dụng. |
+| **1.3.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung các trường Hình thức trả lãi (`interest_payment_method`), Ngày trả lãi hằng tháng (`monthly_interest_due_day`), Số lãi cần trả theo luật (`calculated_interest_due` theo Thông tư 14/2017/TT-NHNN Actual/365), và đặc tả Bảng Hồ sơ giải ngân lưu tại Object Storage (`disbursement_documents`). |
 
 ### 1.2. Ma trận Truy vết Yêu cầu Kỹ thuật (Requirement Traceability Matrix)
 
@@ -33,7 +35,7 @@
 | **`REQ-CLEAN-003`** | Nội suy Số dư & Đối soát 5 Chế độ | `US-04.3`, `NFR-01` | Hỗ trợ 5 chế độ đối soát (`MODE_1` $\rightarrow$ `MODE_5`), tự động nội suy `running_balance` hoặc `header_opening/closing_balance` cho các mẫu khuyết cột, đảm bảo độ lệch đối soát $\Delta = 0.00\text{ VND}$. |
 | **`REQ-CLEAN-004`** | Băm Chống trùng Dòng Giao dịch | `US-04.4` | Sinh mã băm `dedup_hash` (`CHAR(64)`) kết hợp 6 thành phần định danh để phân biệt chính xác $100\%$ các giao dịch tách Phí/VAT có cùng mã tham chiếu và cùng giây giao dịch. |
 | **`REQ-PERSIST-001`** | Đối ứng Sổ Quỹ Tiền mặt | `US-04.5` | Tự động ánh xạ $100\%$ giao dịch từ tài khoản `SPECIAL_CASH` (MBBank cá nhân `0869596789`) và tự động tính Sổ quỹ tiền mặt (`cash_ledger`) theo công thức: $\text{Quỹ tiền mặt} = \sum \text{Rút tiền mặt từ NH ("RUT TIEN" / INFLOW)} - \sum \text{Nộp tiền mặt vào NH ("NOP TIEN" / OUTFLOW)}$. |
-| **`REQ-CREDIT-001`** | Tiếp nhận & Nhận diện Mẫu Sao kê Tín dụng | `US-07.1` | Tự động nhận diện cấu trúc file sao kê khoản vay/khế ước LD (`CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`) qua Magic Bytes và signatures, chặn trùng lặp file qua `file_sha256`. |
+| **`REQ-CREDIT-001`** | Tiếp nhận & Nhận diện Mẫu Sao kê Tín dụng | `US-07.1` | Tự động nhận diện cấu trúc file sao kê khoản vay/khế ước LD (`CTG_LOAN_XLS`, `MBB_LOAN_LD_XLSX`) qua Magic Bytes và signatures, chặn trùng lặp file qua `file_sha256`. |
 | **`REQ-CREDIT-002`** | Bóc tách & Đối soát Dư nợ Khoản vay | `US-07.1`, `US-07.2` | Bóc tách chi tiết từng khế ước/hợp đồng vay (`contract_number`, lãi suất, kỳ hạn, dư nợ gốc, lãi cộng dồn, lịch trả gốc/lãi kỳ tới); đối soát tự động $\sum \text{Dư nợ khế ước} = \text{Tổng dư nợ Header/Footer}$ ($\Delta = 0.00\text{ VND}$). |
 | **`REQ-CREDIT-003`** | Quản lý Khoản vay & Thanh khoản Ròng CFO | `US-07.2`, `US-07.3` | Tự động đồng bộ snapshot danh mục khoản vay hiện hành (`credit_facilities`), thống kê nghĩa vụ nợ đến hạn (7 ngày, 30 ngày) và tích hợp vào Báo cáo CFO để giám sát Thanh khoản Ròng (Net Liquidity). |
 
@@ -92,6 +94,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `transaction_date` | Ngày giờ giao dịch | `TIMESTAMPTZ` | `NOT NULL` | 25 | `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+07:00$` | `2026-10-26T15:13:22+07:00` |
 | `value_date` | Ngày hiệu lực / Hạch toán | `DATE` | `NULL` | 10 | `^\d{4}-\d{2}-\d{2}$` | `2026-10-26` |
 | `reference_number` | Số bút toán / Mã tham chiếu | `VARCHAR(100)` | `NULL` | 100 | `^[^\s].{0,99}$` | `FT26299356920572` |
+| `counter_party` | Đối tượng thụ hưởng / chuyển | `VARCHAR(255)` | `NULL` | 255 | `^.{0,255}$` | `CONG TY CO PHAN XI MANG SUNRISE` |
 | `description` | Nội dung diễn giải chuẩn hóa | `TEXT` | `NOT NULL` | 2000 | `^.+$` | `nop tk \| ĐV: NGUYEN THI LAN ANH` |
 | `debit_amount` | Phát sinh Nợ (Chi ra) | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `2000000.00` |
 | `credit_amount` | Phát sinh Có (Thu vào) | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `144100000.00` |
@@ -120,8 +123,8 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | :--- | :--- | :--- | :---: | :---: | :--- | :--- |
 | `file_id` | Mã định danh File tín dụng | `BIGSERIAL` | `NOT NULL` (PK) | 20 | `^[1-9]\d*$` | `201` |
 | `file_uuid` | UUID File | `UUID` | `NOT NULL` (UK) | 36 | `^[0-9a-fA-F-]{36}$` | `6ba7b810-9dad-11d1-80b4-00c04fd430c8` |
-| `bank_code` | Mã ngân hàng | `VARCHAR(20)` | `NOT NULL` | 20 | `^[A-Z]{3,10}$` | `CTG`, `BIDV` |
-| `template_code` | Mã cấu hình mẫu | `VARCHAR(50)` | `NOT NULL` | 50 | `^[A-Z0-9_]+$` | `CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX` |
+| `bank_code` | Mã ngân hàng | `VARCHAR(20)` | `NOT NULL` | 20 | `^[A-Z]{3,10}$` | `CTG`, `MBB` |
+| `template_code` | Mã cấu hình mẫu | `VARCHAR(50)` | `NOT NULL` | 50 | `^[A-Z0-9_]+$` | `CTG_LOAN_XLS`, `MBB_LOAN_LD_XLSX` |
 | `original_filename` | Tên file gốc | `VARCHAR(255)` | `NOT NULL` | 255 | `^.+\.(xlsx\|xls)$` | `danh-sach-tai-khoan-tien-vay.xls` |
 | `storage_path` | Đường dẫn Object Storage | `VARCHAR(500)` | `NOT NULL` | 500 | `^/credit_statements/.+$` | `/credit_statements/CTG/2026/uuid.xls` |
 | `file_size_bytes` | Dung lượng file (Bytes) | `BIGINT` | `NOT NULL` | 20 | `^[1-9]\d*$` | `45056` |
@@ -141,7 +144,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | Tên trường kỹ thuật | Tên hiển thị | Kiểu dữ liệu | Bắt buộc (Nullable) | Độ dài tối đa | Định dạng / Regex | Ví dụ |
 | :--- | :--- | :--- | :---: | :---: | :--- | :--- |
 | `loan_id` | Mã định danh khoản vay | `BIGSERIAL` | `NOT NULL` (PK) | 20 | `^[1-9]\d*$` | `1` |
-| `bank_code` | Mã ngân hàng cho vay | `VARCHAR(20)` | `NOT NULL` | 20 | `^[A-Z]{3,10}$` | `CTG`, `BIDV` |
+| `bank_code` | Mã ngân hàng cho vay | `VARCHAR(20)` | `NOT NULL` | 20 | `^[A-Z]{3,10}$` | `CTG`, `MBB` |
 | `bank_name` | Tên ngân hàng cho vay | `VARCHAR(100)` | `NOT NULL` | 100 | `^.{3,100}$` | `Ngân hàng TMCP Công Thương Việt Nam` |
 | `contract_number` | Số tài khoản vay / Số LD | `VARCHAR(50)` | `NOT NULL` | 50 | `^[A-Z0-9\./_-]+$` | `108003668812` |
 | `borrower_name` | Tên đơn vị đứng vay | `VARCHAR(150)` | `NOT NULL` | 150 | `^.{3,150}$` | `CONG TY CO PHAN XI MANG SUNRISE` |
@@ -153,6 +156,9 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `interest_rate` | Lãi suất vay (%/năm) | `DECIMAL(6,4)` | `NOT NULL` | 6 | `^\d{1,2}\.\d{4}$` | `0.0870` (tức 8.70%/năm) |
 | `debt_group` | Phân loại nhóm nợ | `VARCHAR(10)` | `NOT NULL` | 10 | `^[1-5]$` | `1` (Nợ đủ tiêu chuẩn) |
 | `loan_type` | Loại hình vay | `VARCHAR(30)` | `NOT NULL` | 30 | `^(SHORT_TERM\|MEDIUM_TERM\|LONG_TERM)$` | `SHORT_TERM` |
+| `interest_payment_method` | Hình thức trả lãi | `VARCHAR(20)` | `NOT NULL` (Default `'MONTHLY'`) | 20 | `^(MONTHLY\|END_OF_TERM)$` | `MONTHLY` |
+| `monthly_interest_due_day` | Ngày trả lãi hằng tháng | `INT` | `NULL` | 2 | `^([1-9]\|[12]\d\|3[01])$` | `25` (từ ngày 1 đến ngày 31) |
+| `calculated_interest_due` | Số lãi cần trả theo luật (TT14/2017) | `DECIMAL(18,2)` | `NOT NULL` (Default `0.00`) | 18 | `^\d{1,16}(\.\d{1,2})?$` | `12450000.00` |
 | `current_principal_balance` | Dư nợ gốc hiện tại | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `1850000000.00` |
 | `accrued_interest` | Lãi cộng dồn | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `11250000.00` |
 | `next_repayment_date` | Ngày đến hạn trả tiếp theo | `DATE` | `NULL` | 10 | `^\d{4}-\d{2}-\d{2}$` | `2026-11-10` |
@@ -172,9 +178,30 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `principal_balance` | Dư nợ gốc nguyên tệ | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `1850000000.00` |
 | `principal_balance_vnd` | Dư nợ quy đổi VND | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `1850000000.00` |
 | `interest_rate` | Lãi suất ghi trên file | `DECIMAL(6,4)` | `NOT NULL` | 6 | `^\d{1,2}\.\d{4}$` | `0.0870` |
+| `interest_payment_method` | Hình thức trả lãi | `VARCHAR(20)` | `NOT NULL` (Default `'MONTHLY'`) | 20 | `^(MONTHLY\|END_OF_TERM)$` | `MONTHLY` |
+| `monthly_interest_due_day` | Ngày trả lãi hằng tháng | `INT` | `NULL` | 2 | `^([1-9]\|[12]\d\|3[01])$` | `25` |
+| `calculated_interest_due` | Số lãi cần trả (TT 14/2017) | `DECIMAL(18,2)` | `NOT NULL` (Default `0.00`) | 18 | `^\d{1,16}(\.\d{1,2})?$` | `12450000.00` |
 | `total_due_amount` | Tổng tiền phải trả kỳ tới | `DECIMAL(18,2)` | `NOT NULL` | 18 | `^\d{1,16}(\.\d{1,2})?$` | `513425000.00` |
 
-### 2.8. Các View Quản trị Điều hành Kế toán & CFO (`v_cfo_daily_liquidity` & `v_cfo_debt_obligations`)
+### 2.8. Bảng `disbursement_documents` (Hồ sơ Giải ngân Khoản vay Lưu trữ Object Storage)
+
+| Tên trường kỹ thuật | Tên hiển thị | Kiểu dữ liệu | Bắt buộc (Nullable) | Độ dài tối đa | Định dạng / Regex | Ví dụ |
+| :--- | :--- | :--- | :---: | :---: | :--- | :--- |
+| `document_id` | Mã định danh tài liệu | `BIGSERIAL` | `NOT NULL` (PK) | 20 | `^[1-9]\d*$` | `1` |
+| `document_uuid` | UUID định danh tài liệu | `UUID` | `NOT NULL` (UK) | 36 | `^[0-9a-fA-F-]{36}$` | `c3b29c9e-5b12-4e67-82a1-0f1e847c1234` |
+| `loan_id` | Khóa ngoại khoản vay | `BIGINT` | `NOT NULL` (FK) | 20 | `^[1-9]\d*$` | `1` |
+| `file_name` | Tên tệp gốc | `VARCHAR(255)` | `NOT NULL` | 255 | `^.+\.(pdf\|docx\|doc\|xlsx\|xls\|png\|jpg\|jpeg)$` | `Giay_Nhan_No_LD26299.pdf` |
+| `storage_path` | Đường dẫn Object Storage (MinIO) | `VARCHAR(500)` | `NOT NULL` | 500 | `^disbursement_dossiers/.+$` | `disbursement_dossiers/CTG/108003668812/c3b2_Giay_Nhan_No.pdf` |
+| `file_size_bytes` | Dung lượng tệp (Bytes) | `BIGINT` | `NOT NULL` | 20 | `^[1-9]\d*$` | `2048576` |
+| `file_sha256` | Mã băm toàn vẹn SHA-256 | `CHAR(64)` | `NOT NULL` | 64 | `^[a-f0-9]{64}$` | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` |
+| `mime_type` | Kiểu MIME | `VARCHAR(100)` | `NOT NULL` | 100 | `^[a-z]+/[a-z0-9\.\+-]+$` | `application/pdf` |
+| `document_type` | Loại chứng từ giải ngân | `VARCHAR(50)` | `NOT NULL` (Default `'OTHER'`) | 50 | `^(CONTRACT\|DEBT_NOTE\|DISBURSEMENT_RECORD\|DISBURSEMENT_NOTE\|INVOICE\|COLLATERAL\|APPROVAL\|OTHER)$` | `DEBT_NOTE` |
+| `description` | Ghi chú tài liệu | `TEXT` | `NULL` | 1000 | `^.*$` | `Giấy nhận nợ lần 1 kèm phiếu ủy nhiệm chi` |
+| `uploaded_by` | Người tải lên | `VARCHAR(100)` | `NOT NULL` | 100 | `^.+$` | `Chị Cẩm Nhung` |
+| `created_at` | Thời điểm tải lên | `TIMESTAMPTZ` | `NOT NULL` | 25 | ISO 8601 | `2026-11-02T09:00:00+07:00` |
+| `updated_at` | Thời điểm cập nhật | `TIMESTAMPTZ` | `NOT NULL` | 25 | ISO 8601 | `2026-11-02T09:00:00+07:00` |
+
+### 2.9. Các View Quản trị Điều hành Kế toán & CFO (`v_cfo_daily_liquidity` & `v_cfo_debt_obligations`)
 
 - **View `v_cfo_daily_liquidity` (Tồn quỹ Hợp nhất CFO trước 9h sáng):**
   $$\text{Tổng tồn quỹ hợp nhất} = \sum_{\text{Khối 1: CORPORATE}} \text{Số dư hiện tại} + \sum_{\text{Khối 2: SPECIAL\_CASH}} \text{Số dư hiện tại}$$
@@ -203,7 +230,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | **6** | **`CTG_EFAST_XLS`** | `CTG` | `.xls` (BIFF8) | - Sheet tên `"LICH SU GIAO DICH"` (hoặc ô `B3` chứa `"VIETINBANK"`, `A7` chứa `"VIETINBANK eFAST"`)<br/>- Dòng `25` có `A25 == "STT/No."` và `B25` chứa `"Ngày hạch toán"` | Phân biệt với `SHB_CORP_XLS` nhờ từ khóa `"VIETINBANK"` tại `B3`/`A7` và Header dòng `25`. |
 | **7** | **`SHB_CORP_XLS`** | `SHB` | `.xls` (BIFF8) | - Ô `F2` chứa `"NGÂN HÀNG TMCP SÀI GÒN – HÀ NỘI"` (hoặc `"shb.com.vn"`)<br/>- Ô `C8` chứa `"SAO KÊ TÀI KHOẢN"`<br/>- Dòng `23` có `B23 == "STT"` và `C23 == "SỐ THAM CHIẾU"` | Bảng dữ liệu thụt lề bắt đầu từ cột `B` và chỉ có 7 cột (`B..H`). |
 | **8** | **`CTG_LOAN_XLS`** | `CTG` | `.xls` (BIFF8) | - Ô `A3` (hoặc `A2`) chứa `"VIETINBANK"`<br/>- Ô `B6` chứa `"BÁO CÁO DANH SÁCH KHOẢN VAY"`<br/>- Dòng `19` có Header các cột Số TK vay, Ngày giải ngân | Nhận diện sao kê tín dụng/khoản vay VietinBank eFAST. |
-| **9** | **`BIDV_LOAN_LD_XLSX`** | `BIDV` | `.xlsx` | - Ô `G1` chứa `"SỐ DƯ TÀI KHOẢN"`<br/>- Ô `B3` chứa `"VAY/LD"`<br/>- Dòng `4` có Header các cột Số LD, Loại tiền, Mục đích | Nhận diện sao kê dư nợ tín dụng/khế ước LD BIDV. |
+| **9** | **`MBB_LOAN_LD_XLSX`** | `MBB` | `.xlsx` | - Ô `G1` chứa `"SỐ DƯ TÀI KHOẢN"`<br/>- Ô `B3` chứa `"VAY/LD"`<br/>- Dòng `4` có Header các cột Số LD, Loại tiền, Mục đích | Nhận diện sao kê dư nợ tín dụng/khế ước LD của MBBank (MB). |
 
 ---
 
@@ -248,7 +275,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `D` | `PHÁT SINH NỢ` | `debit_amount` | Numeric XML | Parse scientific/float string qua `Decimal(str(val))` làm tròn `ROUND_HALF_UP` 2 chữ số thập phân. | `0.00` |
 | `E` | `PHÁT SINH CÓ` | `credit_amount` | Numeric XML | Parse scientific/float string qua `Decimal(str(val))` làm tròn `ROUND_HALF_UP` 2 chữ số thập phân. | `144100000.00` |
 | `F` | `SỐ DƯ` | `running_balance` | Numeric XML | Parse scientific/float string qua `Decimal(str(val))` làm tròn `ROUND_HALF_UP` 2 chữ số thập phân. | `147097279.00` |
-| `G` | `ĐƠN VỊ THỤ HƯỞNG/ĐƠN VỊ CHUYỂN` | Ghép vào `description` | String | Chuẩn hóa khoảng trắng. Nếu không rỗng, nối vào `description` theo chuẩn: `{H} [ĐV: {G}]`. | `'NGUYEN THI LAN ANH'` |
+| `G` | `ĐƠN VỊ THỤ HƯỞNG/ĐƠN VỊ CHUYỂN` | `counter_party` (và ghép vào `description`) | String | Chuẩn hóa khoảng trắng. Lưu vào trường `counter_party`; đồng thời nối vào `description` theo chuẩn: `{H} [ĐV: {G}]`. | `'NGUYEN THI LAN ANH'` |
 | `H` | `NỘI DUNG` | `description` | String | Xóa khoảng trắng kép `\s+` $\rightarrow$ `' '`, Trim 2 đầu. | `'nop tk [ĐV: NGUYEN THI LAN ANH]'` |
 | `I` | `BÚT TOÁN` | `reference_number` | String | Trim khoảng trắng. | `'FT26299356920572'` |
 
@@ -290,7 +317,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `J` | `Phát sinh nợ Debit` | `debit_amount` | Chuỗi định dạng US (`144,100,000.00`): xóa `,` $\rightarrow$ `Decimal(18,2)`. | `144100000.00` |
 | `K` | `Phát sinh có Credit` | `credit_amount` | Chuỗi định dạng US (`0.00`): xóa `,` $\rightarrow$ `Decimal(18,2)`. | `0.00` |
 | `L` (`L:O`) | `Nội dung Details` | `description` | Chuẩn hóa khoảng trắng `\s+` $\rightarrow$ `' '`. Kết hợp thông tin đối ứng từ `P`, `R`, `V` nếu có: `{L} [ĐV: {P} - TK: {R} - NH: {V}]`. | `'CUSTOMER nop tk. DEN: CONG TY CO PHAN XI MANG SUNRISE [ĐV: CONG TY CO PHAN XI MANG SUNRISE - TK: 111386888 - NH: MB]'` |
-| `P` (`P:Q`) | `Đơn vị thụ hưởng/Đơn vị chuyển` | Ghép vào `description` / `cash_ledger.receiver_payer` | Trim khoảng trắng. | `'CONG TY CO PHAN XI MANG SUNRISE'` |
+| `P` (`P:Q`) | `Đơn vị thụ hưởng/Đơn vị chuyển` | `counter_party` (và ghép vào `description` / `cash_ledger.receiver_payer`) | Trim khoảng trắng. Nếu là dòng tiền vào (Credit > 0) và cột P ghi tên chủ tài khoản (`NGUYEN THI LAN ANH`), hệ thống tự động bóc tách tên đối tượng chuyển thực tế từ nội dung (`VND-TGTT-...`, `TU: ...`, `... chuyen khoan`). Lưu vào `counter_party`. | `'CONG TY CO PHAN XI MANG SUNRISE'` |
 | `R` (`R:U`) | `Tài khoản Account` | Ghép vào `description` | Số tài khoản đối ứng. | `'111386888'` |
 | `V` | `Ngân hàng đối tác Remitter Bank` | Ghép vào `description` | Tên ngân hàng đối tác. | `'MB'` |
 | *(Derived)* | *(Không có trên file)* | `running_balance` | **Giải quyết Gap `NOT NULL`:** Duyệt ngược từ dòng giao dịch cũ nhất (`Row 276`, `STT = 207`) lên dòng mới nhất (`Row 20`, `STT = 1`) với điểm neo `bank_accounts.opening_balance` (mặc định `0.00`): $\text{bal}_i = \text{bal}_{i+1} + \text{credit}_i - \text{debit}_i$. | `-502579.00` *(nếu ĐK = 0)* |
@@ -332,7 +359,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `H` | `PHÁT SINH NỢ` | `debit_amount` | Chuỗi định dạng US (`2,219,178`): xóa `,` $\rightarrow$ `Decimal(18,2)`. | `0.00` |
 | `I` | `PHÁT SINH CÓ` | `credit_amount` | Chuỗi định dạng US (`26,630,137`): xóa `,` $\rightarrow$ `Decimal(18,2)`. | `26630137.00` |
 | `J` | `SỐ DƯ` | `running_balance` | Chuỗi định dạng US (`27,003,265`): xóa `,` $\rightarrow$ `Decimal(18,2)`. | `27003265.00` |
-| `K` | `ĐƠN VỊ THỤ HƯỞNG/ĐƠN VỊ CHUYỂN` | Ghép vào `description` | Ghép thông tin đối ứng nếu có. | `'CTY CP XI MANG SUNRISE'` |
+| `K` | `ĐƠN VỊ THỤ HƯỞNG/ĐƠN VỊ CHUYỂN` | `counter_party` (và ghép vào `description`) | Trim khoảng trắng. Lưu vào trường `counter_party`; đồng thời ghép vào `description` nếu có. | `'CTY CP XI MANG SUNRISE'` |
 | `L` | `NGÂN HÀNG` | Ghép vào `description` | Ngân hàng đối ứng. | `'NGAN HANG TMCP TIEN PHONG'` |
 | `M` (`M:Q`) | `NỘI DUNG` | `description` | Chuẩn hóa `\s+` $\rightarrow$ `' '`, nối `{M} [ĐV: {K} - NH: {L}]`. | `'CTNB [ĐV: CTY CP XI MANG SUNRISE - NH: NGAN HANG TMCP TIEN PHONG]'` |
 | `R` (`R:T`) | `BÚT TOÁN` | `reference_number` | Trim khoảng trắng (giữ nguyên hậu tố `\BNK` nếu có). | `'FT26297146157302\BNK'` |
@@ -376,6 +403,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `G` | `Số dư tham chiếu` / `Running.Balance` | `running_balance` | Xóa `\t` và dấu cách `' '` $\rightarrow$ `Decimal(18,2)`. | `64196071.00` |
 | `H` | `Thời gian giao dịch` / `Trans.Time` | `transaction_date` | Parse `DD/MM/YYYY HH:mm` $\rightarrow$ thêm `:00+07:00`. | `2026-10-26T13:17:00+07:00` |
 | `I` | `Số tài khoản cấp 2` / `Virtual Account` | Ghép vào `description` (nếu có) | Nếu không rỗng, nối `[VA: {I}]`. | `''` |
+| *(Không có)* | *(Không có cột đối ứng)* | `counter_party` | Bóc tách tự động đối tượng chuyển/thụ hưởng từ nội dung (`NHAN TU <acc>`, `Cty TNHH...`, `ctnb vtb`); nếu là giao dịch thu phí, trả lãi thì để trống (`NULL`). | `NULL` |
 
 ---
 
@@ -413,7 +441,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `E` | `Ghi có (Credit)` | `credit_amount` | Numeric XML $\rightarrow$ `Decimal(18,2)`. Ô rỗng/None $\rightarrow$ `0.00`. | `60000000.00` |
 | `F` | `Số dư (Balance)` | `running_balance` | Numeric XML $\rightarrow$ `Decimal(18,2)`. | `60513900.00` |
 | `G` | `Tài khoản đối ứng (Counter account)` | Ghép vào `description` | Trim khoảng trắng. | `'0869596789'` |
-| `H` | `Chủ TK đối ứng (Counter account owner)` | Ghép vào `description` | Trim khoảng trắng. | `'NGUYEN THI LAN ANH'` |
+| `H` | `Chủ TK đối ứng (Counter account owner)` | `counter_party` (và ghép vào `description`) | Trim khoảng trắng. Lưu vào trường `counter_party`; đồng thời ghép vào `description`. | `'NGUYEN THI LAN ANH'` |
 | `I` | `Mã giao dịch (Transaction code)` | `reference_number` | Trim khoảng trắng. | `'040ITC1262972473'` |
 
 ---
@@ -453,7 +481,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `F` | `Số dư TK/ Account Balance` | `running_balance` | Định dạng VN (`2.436.261.422,00`): xóa `.`, thay `,` bằng `.` $\rightarrow$ `Decimal(18,2)`. | `2436261422.00` |
 | `G` | `Số giao dịch/ Transaction number` | `reference_number` | Trim khoảng trắng. | `'129K26A01VR74SUC'` |
 | `H` | `Số tài khoản đối ứng/ Corresponsive account` | Ghép vào `description` | Trim khoảng trắng. | `'111386888'` |
-| `I` | `Tên tài khoản đối ứng/ Corresponsive name` | Ghép vào `description` | Trim khoảng trắng. | `'CONG TY CO PHAN XI MANG SUNRISE'` |
+| `I` | `Tên tài khoản đối ứng/ Corresponsive name` | `counter_party` (và ghép vào `description`) | Trim khoảng trắng. Lưu vào trường `counter_party`; đồng thời ghép vào `description`. | `'CONG TY CO PHAN XI MANG SUNRISE'` |
 | `J`, `K` | `MTID/ CITAD`, `Mã định danh TK thụ hưởng` | Ghép vào `description` (nếu có) | Bổ sung nếu khác rỗng. | `''` |
 | `L` | `Ngày phát sinh giao dịch/ Transaction date` | `transaction_date` | Ưu tiên lấy cột `L` (`DD-MM-YYYY HH:mm:ss` $\rightarrow$ `YYYY-MM-DDTHH:mm:ss+07:00`); nếu `L` rỗng thì lấy cột `B`. | `2026-10-02T10:21:08+07:00` |
 
@@ -495,6 +523,7 @@ Tuân thủ Mục 1 của [`agent/01_business_analyst/rules.md`](../agent/01_bus
 | `G` | `GHI CÓ` | `credit_amount` | Đọc `Value2` hoặc xóa dấu `.` trong `Text` (`2.819`) $\rightarrow$ `Decimal(18,2)`. | `2819.00` |
 | `H` | `DIỄN GIẢI` | `description` | Trim khoảng trắng đầu/cuối, chuẩn hóa `\s+` $\rightarrow$ `' '`. | `'NHAP LAI TIEN GUI VAO GOC - 2283866789'` |
 | *(Derived)* | *(Không có trên bảng)* | `running_balance` | **Giải quyết Gap (`MODE_3`):** Tính lũy kế ngược từ dòng cũ nhất (`Row 48`, `STT = 25`) lên dòng mới nhất (`Row 24`, `STT = 1`) bắt đầu từ `header_opening_balance` (`785,868.00`): $\text{bal}_i = \text{bal}_{i+1} + \text{credit}_i - \text{debit}_i$. Tại `Row 24` kết quả đạt `703,630.00` == `header_closing_balance` ($\Delta = 0$). | `703630.00` |
+| *(Không có)* | *(Không có cột đối ứng)* | `counter_party` | Bóc tách tự động đối tượng chuyển/thụ hưởng từ nội dung (`NGUYEN THI LAN ANH CCCD...`, `CTY HUONG DUONG...`, `ctnb shb`); nếu là giao dịch thu phí, trả lãi thì để trống (`NULL`). | `NULL` |
 
 ---
 
@@ -981,7 +1010,7 @@ Feature: Bóc tách, Chuẩn hóa và Đối soát Đa Mẫu Sao kê Ngân hàng
   - `accrued_interest`: Cột `J` (Lãi cộng dồn)
   - `total_repayment_amount`: Cột `K` (Tổng số tiền phải trả kỳ tới)
 
-### 7.2. Mẫu BIDV_LOAN_LD_XLSX (BIDV - Báo cáo Số Dư Tài Khoản Vay/LD)
+### 7.2. Mẫu MBB_LOAN_LD_XLSX (MBBank / MB - Báo cáo Số Dư Tài Khoản Vay/LD)
 * **Tệp mẫu thực tế:** `Resources/Sample_sao_ke_tin_dung/Vay_LD (1).xlsx`
 * **Định dạng vật lý:** `XLSX` (OOXML).
 * **Đặc trưng nhận diện (Signatures):**

@@ -14,6 +14,7 @@ import {
   Wallet,
   X,
   Building2,
+  CalendarClock,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -87,6 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
 
   const khoanVayNavItems = [
     { to: '/credit-statements', label: 'Sao Kê Tín Dụng', icon: Landmark },
+    { to: '/loan-repayment-plan', label: 'Kế hoạch trả nợ', icon: CalendarClock },
   ];
 
   const currentPersona = PERSONAS.find((p) => p.key === selectedPersona) || PERSONAS[0];
@@ -118,6 +120,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
               <div className="text-[11px] text-slate-400">Hệ thống Đối soát Tự động</div>
             </div>
           </div>
+
           <button
             onClick={() => setMobileOpen(false)}
             className="lg:hidden p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800"

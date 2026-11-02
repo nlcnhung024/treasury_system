@@ -64,6 +64,19 @@ canonical_header_aliases:
     - "Contents"
     - "Mô tả giao dịch"
     - "DIỄN GIẢI"
+  counterparty_name:
+    - "ĐƠN VỊ THỤ HƯỞNG/ĐƠN VỊ CHUYỂN"
+    - "Đơn vị thụ hưởng/Đơn vị chuyển"
+    - "Chủ TK đối ứng"
+    - "Tên tài khoản đối ứng"
+    - "Corresponsive name"
+    - "Counter account owner"
+    - "Đơn vị thụ hưởng"
+    - "Đơn vị chuyển"
+    - "Tên đơn vị thụ hưởng"
+    - "Chủ tài khoản đối ứng"
+    - "ĐV THỤ HƯỞNG"
+    - "ĐỐI TÁC"
 
 # 2. Danh sách 7 Mẫu Thực tế Đang Vận hành
 templates:

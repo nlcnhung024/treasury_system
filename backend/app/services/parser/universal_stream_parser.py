@@ -15,6 +15,7 @@ from app.services.cleansing_service import (
     parse_iso_date,
     normalize_whitespace,
     normalize_description,
+    resolve_counter_party,
 )
 from app.services.parser.template_detector import detect_bank_template, load_templates_config
 from app.services.reconciler import reconcile_statement, ReconciliationResult
@@ -232,9 +233,12 @@ def parse_statement_file(
         if ref_no == "":
             ref_no = None
 
+        raw_cp = _get_row_cell(row_vals, col_map.get("counterparty_name"))
+        raw_main_desc = _get_row_cell(row_vals, col_map.get("description"))
+
         desc = normalize_description(
-            main_desc=_get_row_cell(row_vals, col_map.get("description")),
-            counterparty_name=_get_row_cell(row_vals, col_map.get("counterparty_name")),
+            main_desc=raw_main_desc,
+            counterparty_name=raw_cp,
             counterparty_account=_get_row_cell(row_vals, col_map.get("counterparty_account")),
             counterparty_bank=_get_row_cell(row_vals, col_map.get("counterparty_bank")),
             virtual_account=_get_row_cell(row_vals, col_map.get("virtual_account")),
@@ -245,6 +249,8 @@ def parse_statement_file(
                 "transaction_date": tx_dt,
                 "value_date": val_date,
                 "reference_number": ref_no,
+                "raw_counter_party": raw_cp,
+                "raw_main_desc": raw_main_desc,
                 "description": desc,
                 "debit_amount": debit_amt,
                 "credit_amount": credit_amt,
@@ -320,6 +326,16 @@ def parse_statement_file(
         account_type = "SPECIAL_CASH"
     else:
         account_type = "CORPORATE"
+
+    # Chuẩn hóa đối tượng thụ hưởng hoặc đối tượng chuyển (counter_party)
+    for tx in transactions:
+        tx["counter_party"] = resolve_counter_party(
+            raw_cp=tx.pop("raw_counter_party", None),
+            main_desc=tx.pop("raw_main_desc", None),
+            debit_amount=tx["debit_amount"],
+            credit_amount=tx["credit_amount"],
+            account_holder=account_holder,
+        )
 
     # 3. Thực thi Đối soát 5 chế độ
     recon_result = reconcile_statement(

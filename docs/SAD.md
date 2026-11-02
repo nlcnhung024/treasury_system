@@ -20,6 +20,8 @@
 | **1.3.0** | 2026-10-30 | `@SystemArchitect` | Chuẩn hóa Hàng đợi Thông điệp: Lựa chọn dứt khoát Redis 7.0+ Streams làm Message Broker chính nhằm tinh gọn hạ tầng, tối ưu tài nguyên và chia sẻ chung cụm Redis với tầng Cache |
 | **1.4.0** | 2026-10-30 | `@SystemArchitect` | Đồng bộ hoàn thiện Hợp đồng API chuẩn OpenAPI 3.0.3 (`docs/api_contracts.yaml`) và Tài liệu Đánh giá Rủi ro & Kiến trúc Bảo mật Đa tầng (`docs/security_threat_modeling.md`) tuân thủ nghiêm ngặt Giai đoạn 2 SDLC |
 | **1.5.0** | 2026-10-31 | `@SystemArchitect` | Đồng bộ toàn diện theo sản phẩm thực tế: Bổ sung phân hệ Sao kê Tín dụng Doanh nghiệp (`CreditStatementService`, `CreditStreamParser`, `credit_templates_config.yaml`), cập nhật mô hình CSDL (`credit_statement_files`, `credit_facilities`, `credit_statement_items`, `v_cfo_debt_obligations`), chuẩn hóa Tồn quỹ CFO theo 2 Khối ngân hàng và tích hợp chỉ số Thanh khoản Ròng (Net Liquidity) trước 9h sáng |
+| **1.6.0** | 2026-11-02 | `@SystemArchitect` | Mở rộng kiến trúc Quản lý Khoản vay: Bổ sung module Nhập lẻ khoản vay thủ công (Manual Loan Entry) từ các Ngân hàng, Công ty tài chính, Cho thuê tài chính; cập nhật schema `credit_facilities` (`institution_type`, `is_manual`, `note`), các REST endpoints CRUD và bộ lọc đa chiều |
+| **1.7.0** | 2026-11-02 | `@SystemArchitect` | Bổ sung trường Hình thức trả lãi (`interest_payment_method`), Ngày trả lãi hằng tháng (`monthly_interest_due_day`), module tính số lãi cần trả theo Thông tư 14/2017/TT-NHNN (`loan_interest_service.py`), liên kết Hồ sơ giải ngân lưu tại Object Storage (`disbursement_documents` & thư mục `/disbursement_dossiers/`) |
 
 ---
 
@@ -109,7 +111,7 @@ flowchart TD
     end
 
     subgraph L5["TẦNG DỮ LIỆU & LƯU TRỮ (PERSISTENCE LAYER)"]
-        ObjStore[("Object Storage (S3 / MinIO & GCS Backup)<br/>/statements/ & /credit_statements/")]
+        ObjStore[("Object Storage (S3 / MinIO & GCS Backup)<br/>/statements/, /credit_statements/ & /disbursement_dossiers/")]
         RDBMS[("PostgreSQL 15+ Cluster<br/>3NF, Decimal 18,2, Credit Tables & CFO Views")]
         CacheStore[("Redis Cache<br/>Liquidity Snapshot")]
     end
@@ -168,7 +170,7 @@ sequenceDiagram
     Worker->>MinIO: Đọc file dạng Stream Chunk (500 dòng/lần)
     
     loop Xử lý từng Chunk dữ liệu
-        Worker->>Worker: Chuẩn hóa Ngày ISO, Tiền tệ Decimal(18,2)
+        Worker->>Worker: Chuẩn hóa Ngày ISO, Tiền tệ Decimal(18,2), Trích xuất đối tượng thụ hưởng/chuyển (counter_party)
         Worker->>Worker: Sinh dedup_hash SHA-256
         Worker->>Worker: Đối chiếu Bộ quy tắc Phân loại (Rule Engine)
         Worker->>DB: Bulk INSERT INTO bank_transactions ON CONFLICT DO NOTHING
@@ -230,7 +232,7 @@ bank-statement-system/
 │   │   └── services/                # Tầng Nghiệp vụ cốt lõi (Domain Logic)
 │   │       ├── parser/              # Động cơ Bóc tách Mẫu Động (Bank & Credit)
 │   │       │   ├── bank_templates_config.yaml   # Cấu hình 6 lớp cho 7 mẫu tài khoản
-│   │       │   ├── credit_templates_config.yaml # Cấu hình mẫu tín dụng (CTG_LOAN_XLS, BIDV_LOAN_LD_XLSX)
+│   │       │   ├── credit_templates_config.yaml # Cấu hình mẫu tín dụng (CTG_LOAN_XLS, MBB_LOAN_LD_XLSX)
 │   │       │   ├── template_detector.py         # Nhận diện Magic Bytes & Signature
 │   │       │   ├── universal_stream_parser.py   # Đọc OOXML & BIFF8, Unmerge, Entity Resolver
 │   │       │   └── credit_stream_parser.py      # Bóc tách khế ước LD & đối soát dư nợ
@@ -409,12 +411,13 @@ flowchart LR
 - **Mở rộng Ngân hàng Mới ($\le 15$ phút):** Khi phát sinh ngân hàng mới (VCB, TCB, BIDV, ACB...), quản trị viên chỉ cần thêm 1 block cấu hình vào `bank_templates_config.yaml` với 1 trong 5 chế độ đối soát (`MODE_1` $\rightarrow$ `MODE_5`) mà không cần sửa đổi mã nguồn.
 
 #### Kịch bản 5: Bóc tách Sao kê Tín dụng, Đối soát Dư nợ & Tích hợp Thanh khoản Ròng CFO (Net Liquidity)
-- **Tiếp nhận & Nhận diện Mẫu:** Kế toán nạp file sao kê khoản vay/khế ước nhận nợ LD (`.xls`, `.xlsx`). `CreditStreamParser` tự nhận diện mẫu qua Magic Bytes và signatures (`CTG_LOAN_XLS`, `BIDV_LOAN_LD_XLSX`).
+- **Tiếp nhận & Nhận diện Mẫu:** Kế toán nạp file sao kê khoản vay/khế ước nhận nợ LD (`.xls`, `.xlsx`). `CreditStreamParser` tự nhận diện mẫu qua Magic Bytes và signatures (`CTG_LOAN_XLS`, `MBB_LOAN_LD_XLSX`).
 - **Bóc tách & Đối soát Cân bằng Dư nợ:** Bóc tách từng khế ước vay, số tiền giải ngân, ngày đáo hạn, lãi suất, dư nợ gốc và lịch trả nợ; thực hiện đối soát tự động:
   $$\sum \text{Dư nợ gốc từng khoản vay} = \text{Tổng dư nợ ghi trên file} \quad (\Delta = 0.00\text{ VND})$$
   Đánh dấu file `BALANCED` nếu khớp 100%, hoặc `DISCREPANCY` kèm chênh lệch.
 - **Đồng bộ Danh mục Khoản vay & Thanh khoản Ròng:** Tự động upsert dữ liệu vào `credit_facilities` và lưu snapshot vào `credit_statement_items`. CFO Dashboard tự động kết xuất chỉ số:
   $$\text{Thanh khoản Ròng (Net Liquidity)} = \text{Tổng tồn quỹ hợp nhất (2 khối NH)} - \text{Nghĩa vụ nợ gốc \& lãi đến hạn kỳ tới}$$
+- **Nhập Lẻ Khoản Nợ / Vay Ngoài Sao Kê Tự Động (Manual Loan Entry):** Cho phép kế toán viên trực tiếp nhập thêm các khoản nợ từ các Ngân hàng thương mại, Công ty tài chính (FE Credit, Home Credit, HD SAISON...), Công ty cho thuê tài chính (VietinBank Leasing, Chailease, BSL Leasing...) với đầy đủ validation chống trùng lặp, cờ `is_manual = true`, tự động tính toán nghĩa vụ trả nợ và tích hợp ngay vào tổng dư nợ và báo cáo CFO.
 
 ---
 
@@ -431,6 +434,7 @@ erDiagram
     BANK_TRANSACTIONS ||--o| CASH_LEDGER : "counterparts"
     CREDIT_STATEMENT_FILES ||--o{ CREDIT_STATEMENT_ITEMS : "contains"
     CREDIT_FACILITIES ||--o{ CREDIT_STATEMENT_ITEMS : "snapshots"
+    CREDIT_FACILITIES ||--o{ DISBURSEMENT_DOCUMENTS : "dossier_files"
 
     BANK_ACCOUNTS {
         bigint account_id PK
@@ -479,6 +483,12 @@ erDiagram
         varchar bank_code
         varchar contract_number UK
         varchar borrower_name
+        varchar institution_type
+        boolean is_manual
+        text note
+        varchar interest_payment_method
+        int monthly_interest_due_day
+        decimal calculated_interest_due
         decimal current_principal_balance
         decimal accrued_interest
         date next_repayment_date
@@ -494,9 +504,25 @@ erDiagram
         bigint file_id FK
         bigint loan_id FK
         varchar contract_number
+        varchar interest_payment_method
+        int monthly_interest_due_day
+        decimal calculated_interest_due
         decimal principal_balance
         decimal accrued_interest
         decimal total_due_amount
+    }
+
+    DISBURSEMENT_DOCUMENTS {
+        bigint document_id PK
+        uuid document_uuid UK
+        bigint loan_id FK
+        varchar file_name
+        varchar storage_path
+        bigint file_size_bytes
+        char file_sha256
+        varchar mime_type
+        varchar document_type
+        varchar uploaded_by
     }
 
     CATEGORIES {
@@ -609,8 +635,10 @@ flowchart LR
 
 - **Mô hình Dữ liệu Tín dụng:**
   - `credit_statement_files`: Quản lý tệp sao kê tín dụng, băm SHA-256 chống trùng và đối soát tổng dư nợ báo cáo.
-  - `credit_facilities`: Bảng danh mục khoản vay/khế ước hiện hành, lưu thông tin dư nợ gốc, lãi suất, ngày đáo hạn, gốc & lãi đến hạn, nhóm nợ.
-  - `credit_statement_items`: Snapshot chi tiết từng đợt upload để truy vết kiểm toán độc lập.
+  - `credit_facilities`: Bảng danh mục khoản vay/khế ước hiện hành, lưu thông tin dư nợ gốc, lãi suất, hình thức trả lãi (`MONTHLY`/`END_OF_TERM`), ngày trả lãi hằng tháng, số tiền lãi tính theo Thông tư 14/2017/TT-NHNN (`calculated_interest_due`), ngày đáo hạn, gốc & lãi đến hạn, nhóm nợ.
+  - `credit_statement_items`: Snapshot chi tiết từng đợt upload để truy vết kiểm toán độc lập kèm hình thức trả lãi và số lãi tính toán.
+  - `disbursement_documents`: Bộ hồ sơ giải ngân của từng khoản vay lưu trữ trên Object Storage (MinIO On-Premise) với cấu trúc phân cấp `/disbursement_dossiers/{bank_code}/{contract_number}/...`, lưu trữ đầy đủ chữ ký số SHA-256 chống giả mạo.
+- **Tính toán Lãi Vay Pháp lý (Thông tư 14/2017/TT-NHNN):** Áp dụng chuẩn thời gian cơ sở Actual/365, nguyên tắc tính ngày đầu bỏ ngày cuối cho cả 2 hình thức: trả lãi hằng tháng theo chu kỳ và trả lãi cuối kỳ khi đáo hạn.
 - **Đối soát Tín dụng:** Khớp tổng dư nợ bóc tách được với tổng dư nợ khai báo trên file với độ lệch tuyệt đối `discrepancy_amount = 0.00 VND`.
 
 

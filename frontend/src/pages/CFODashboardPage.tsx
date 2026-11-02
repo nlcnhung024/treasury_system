@@ -591,7 +591,7 @@ export const CFODashboardPage: React.FC = () => {
                         <tr>
                           <th className="px-3 py-2">Ngày GD</th>
                           <th className="px-3 py-2">Mã tham chiếu</th>
-                          <th className="px-3 py-2">Nội dung diễn giải</th>
+                          <th className="px-3 py-2 min-w-[240px]">Nội dung diễn giải</th>
                           <th className="px-3 py-2">Danh mục</th>
                           <th className="px-3 py-2 text-right">Thu (Có)</th>
                           <th className="px-3 py-2 text-right">Chi (Nợ)</th>
@@ -600,7 +600,7 @@ export const CFODashboardPage: React.FC = () => {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {displayedDrilldownTxs.slice(0, 15).map((tx) => (
-                          <tr key={tx.transaction_id} className="hover:bg-slate-50">
+                          <tr key={tx.transaction_id} className="hover:bg-slate-50 align-top">
                             <td className="px-3 py-2 font-mono whitespace-nowrap">
                               {new Date(tx.transaction_date).toLocaleString('vi-VN', {
                                 day: '2-digit',
@@ -613,7 +613,12 @@ export const CFODashboardPage: React.FC = () => {
                             <td className="px-3 py-2 font-mono text-slate-500">
                               {tx.reference_number || '—'}
                             </td>
-                            <td className="px-3 py-2 max-w-md truncate" title={tx.description}>
+                            <td className="px-3 py-2 min-w-[240px] max-w-lg whitespace-normal break-words leading-relaxed" title={tx.description}>
+                              {tx.counter_party && (
+                                <div className="text-[10px] font-semibold text-blue-700 mb-0.5">
+                                  Đối tác: {tx.counter_party}
+                                </div>
+                              )}
                               {tx.description}
                             </td>
                             <td className="px-3 py-2">

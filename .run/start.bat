@@ -23,7 +23,8 @@ if %errorlevel% equ 0 (
 REM 3. Khoi dong Backend API (FastAPI - Port 8000)
 echo.
 echo [2/4] Dang khoi dong Backend API (FastAPI - Port 8000)...
-start "BSP-Backend-API" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -Command "Set-Location -LiteralPath '%PROJECT_ROOT%\backend'; & '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000"
+start "BSP-Backend-API" powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Minimized -Command "Set-Location -LiteralPath '%PROJECT_ROOT%\backend'; & '.\.venv\Scripts\python.exe' -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload"
+
 
 REM 4. Khoi dong Frontend Web App (React Vite - Port 5173)
 echo.
