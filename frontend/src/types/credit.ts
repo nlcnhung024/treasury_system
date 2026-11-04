@@ -296,4 +296,86 @@ export interface RepaymentRollbackResult {
   message: string;
 }
 
+export interface InvoiceLineItem {
+  item_id: number;
+  line_number: number;
+  item_name: string;
+  unit?: string | null;
+  quantity?: number | null;
+  unit_price?: number | null;
+  subtotal: number;
+  tax_rate?: string | null;
+  tax_amount: number;
+}
+
+export interface LoanAllocationRecord {
+  allocation_id: number;
+  loan_id: number;
+  invoice_id: number;
+  bank_code: string;
+  contract_number: string;
+  allocated_amount: number;
+  allocation_date: string;
+  notes?: string | null;
+  invoice_number?: string | null;
+  invoice_series?: string | null;
+  seller_name?: string | null;
+  total_invoice_amount?: number | null;
+  created_at?: string | null;
+}
+
+export interface InvoiceRegistryItem {
+  invoice_id: number;
+  invoice_uuid: string;
+  entity_id?: number | null;
+  invoice_number: string;
+  invoice_series: string;
+  invoice_template: string;
+  invoice_date: string;
+  tax_authority_code?: string | null;
+  seller_tax_code: string;
+  seller_name: string;
+  seller_address?: string | null;
+  buyer_tax_code: string;
+  buyer_name: string;
+  buyer_address?: string | null;
+  currency: string;
+  exchange_rate: number;
+  subtotal_amount: number;
+  tax_amount: number;
+  total_amount: number;
+  allocated_amount: number;
+  remaining_amount: number;
+  locked_bank_code?: string | null;
+  status: 'AVAILABLE' | 'PARTIALLY_ALLOCATED' | 'FULLY_ALLOCATED';
+  xml_file_name?: string | null;
+  pdf_file_name?: string | null;
+  has_pdf: boolean;
+  note?: string | null;
+  created_at?: string | null;
+  items?: InvoiceLineItem[];
+  allocations?: LoanAllocationRecord[];
+}
+
+export interface InvoiceListResponse {
+  items: InvoiceRegistryItem[];
+  total: number;
+  total_value: number;
+  total_allocated: number;
+  total_remaining: number;
+}
+
+export interface LoanAllocatedInvoicesResponse {
+  loan_id: number;
+  contract_number: string;
+  bank_code: string;
+  original_principal_balance: number;
+  total_allocated_amount: number;
+  difference_amount: number;
+  is_fully_secured: boolean;
+  status_message: string;
+  allocations: LoanAllocationRecord[];
+}
+
+
 

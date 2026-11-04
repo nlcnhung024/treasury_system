@@ -118,9 +118,12 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   10. `credit_statement_files`: Metadata file sao kê tín dụng và kết quả đối soát dư nợ.
   11. `credit_facilities`: Danh mục hợp đồng vay và khế ước LD hiện hành (phân tách 3 cột dư nợ gốc).
   12. `credit_statement_items`: Snapshot chi tiết từng khoản vay theo từng file sao kê.
-  13. `disbursement_documents`: Bộ hồ sơ giải ngân và bóc tách HĐĐT XML theo NĐ 123/TT 78 (US-07.10).
-  14. `loan_repayment_history`: Lịch sử đối soát chi trả nợ và giảm trừ nợ gốc (US-07.9).
-  15. View `v_cfo_daily_liquidity`, `v_cfo_debt_obligations` & `v_cfo_net_liquidity_position`: Báo cáo hợp nhất tốc độ cao (< 100ms).
+  13. `invoices`: Kho hóa đơn điện tử độc lập của doanh nghiệp (tiếp nhận file XML & liên kết file PDF tương ứng).
+  14. `invoice_items`: Chi tiết danh mục hàng hóa, dịch vụ và thuế suất bóc tách từ hóa đơn XML.
+  15. `loan_invoice_allocations`: Bảng phân bổ nhận nợ giữa khoản vay và hóa đơn (ràng buộc bằng đúng gốc vay ban đầu, cùng một TCTD).
+  16. `disbursement_documents`: Bộ hồ sơ giải ngân các loại chứng từ khác (Hợp đồng tín dụng, khế ước nhận nợ, biên bản bàn giao, ủy nhiệm chi...) liên kết tùy chọn với hóa đơn.
+  17. `loan_repayment_history`: Lịch sử đối soát chi trả nợ và giảm trừ nợ gốc (US-07.9).
+  18. View `v_cfo_daily_liquidity`, `v_cfo_debt_obligations` & `v_cfo_net_liquidity_position`: Báo cáo hợp nhất tốc độ cao (< 100ms).
 
 ### Phân hệ 6: Trích xuất Báo cáo & Trực quan hóa (Reporting & Analytics)
 - **Bộ lọc đa chiều:** Theo khoảng ngày, tài khoản ngân hàng, loại thu/chi, khoảng số tiền, từ khóa nội dung diễn giải.
@@ -254,18 +257,27 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - **Tìm kiếm & Lọc đa tầng đồng bộ 2 Tab:** Thanh tìm kiếm phía trên (`searchTerm`) hoạt động đồng bộ cho cả tab *Chờ đối soát* và tab *Nhật ký lịch sử trả nợ*. Hỗ trợ tìm kiếm tức thời và qua backend theo số khế ước, diễn giải giao dịch sao kê ngân hàng, mã ngân hàng, số tham chiếu giao dịch và ghi chú đối soát.
   - **Bộ lọc Ngân hàng Tự Động Toàn Diện (Dynamic Bank Filter):** Dropdown chọn ngân hàng không bị giới hạn cố định mà được tổng hợp động từ toàn bộ tài khoản ngân hàng doanh nghiệp, danh mục khế ước tín dụng và các giao dịch phát sinh thực tế (VietinBank CTG, MBBank MBB, TPBank TPB, VPBank VPB, MBV Business, SHB, BIDV, EVF Finance, Vietcombank VCB,...), tự động hiển thị đầy đủ mọi ngân hàng có dữ liệu trong hệ thống.
   - **Cơ chế Hoàn tác (Rollback):** Cho phép kế toán hủy đối soát nếu thao tác nhầm, khôi phục lại dư nợ gốc ban đầu và ghi nhận `audit_logs`.
-- **Phân hệ 7.10: Bóc tách Hóa đơn Điện tử XML & Đối soát Hóa đơn Giải ngân (US-07.10):**
-  - **Hỗ trợ định dạng Hóa đơn:** Hồ sơ dạng hóa đơn giải ngân lưu trữ gồm cả file XML và PDF theo quy chuẩn Nghị định 123/2020/NĐ-CP và Thông tư 78/2021/TT-BTC.
-  - **Bóc tách tự động file XML:** Tự động đọc nội dung file XML để trích xuất số hóa đơn (`<SHDon>`), ký hiệu (`<KHHDon>`), ngày lập (`<NLap>`), người bán/người mua, và tổng tiền thanh toán (`<TgTTTBSo>` hoặc `<TotalPayment>` / `<TgTToan>` / tổng tiền chưa thuế + thuế).
-  - **Cộng dồn & Đối soát với Dư nợ gốc:**
-    - Tính tổng số tiền trên toàn bộ các hóa đơn XML của khoản vay.
-    - So sánh với dư nợ gốc của khoản vay (`current_principal_balance`).
-    - **Cảnh báo thiếu hóa đơn (Deficiency Warning):** Nếu tổng số tiền trên hóa đơn nhỏ hơn dư nợ gốc ($\text{Tổng tiền HĐ XML} < \text{Dư nợ gốc}$), hệ thống hiển thị cảnh báo đỏ/vàng nổi bật **"⚠️ Thiếu hóa đơn giải ngân"**, hiển thị chi tiết số tiền còn thiếu để kế toán bổ sung chứng từ sử dụng vốn hợp lệ.
-    - **Thông báo đủ hóa đơn (Sufficiency Notice):** Nếu tổng tiền hóa đơn $\ge \text{Dư nợ gốc}$, hiển thị nhãn xanh **"✅ Đủ hóa đơn giải ngân (100% bao phủ)"**.
-  - **Giao diện đa tầng (Multi-tier UI):**
-    - Trực quan hóa cảnh báo ngay tại bảng danh sách khoản vay (Cột *Hồ sơ Giải ngân* với badge `⚠️ Thiếu HĐ` kèm số tiền thiếu và tooltip chi tiết).
-    - Hiển thị *Bảng Đối Soát Hóa Đơn Điện Tử XML* chuyên dụng trong tab *Hóa đơn & UNC* tại cả Modal quản lý hồ sơ giải ngân và Form tạo/sửa khoản vay.
-    - Hiển thị chi tiết số hóa đơn và số tiền trên từng dòng chứng từ XML (cả tệp chuẩn bị nạp và tệp đã lưu trong CSDL).
+- **Phân hệ 7.10: Kho Hóa Đơn Doanh Nghiệp Tách Biệt, Ghép Cặp XML-PDF & Bảo Đảm Nhận Nợ Khoản Vay (US-07.10):**
+  - **Tách biệt CSDL Hóa đơn:** Bộ hồ sơ giải ngân gồm nhiều loại chứng từ (`CONTRACT`, `DEBT_NOTE`, `DISBURSEMENT_RECORD`, `COLLATERAL`, `APPROVAL`, `OTHER`), trong đó Hóa đơn là loại hồ sơ quan trọng nhất nên CSDL các hóa đơn được tách biệt thành Kho hóa đơn độc lập của doanh nghiệp (`invoices` và `invoice_items`).
+  - **Bảng Thống kê Hóa đơn Doanh nghiệp hiện có (Invoice Registry):**
+    - Tiếp nhận file XML (chuẩn Nghị định 123/2020/NĐ-CP & Thông tư 78/2021/TT-BTC do Tổng cục Thuế ban hành) và tự động ghép cặp với file PDF tương ứng (theo cấu trúc mẫu `Resources/Sample_hoa_don`: `{MST_Bán}_{Mẫu_số}_{Ký_hiệu}_{Số_HĐ}_{Ngày_lập}_{Tên_NCC}.xml` & `.pdf` hoặc qua bộ ba `seller_tax_code + invoice_series + invoice_number`).
+    - Bóc tách đầy đủ chi tiết: Mẫu số, Ký hiệu, Số HĐ, Ngày lập, Đơn vị bán (Tên, MST, Địa chỉ), Đơn vị mua (Tên, MST), Mã CQT, Tiền chưa thuế, Tiền thuế GTGT, Tổng tiền thanh toán (`total_amount`), cùng danh mục chi tiết mặt hàng hàng hóa/dịch vụ (`invoice_items`).
+    - Bảng thống kê hiển thị: Số HĐ, Ký hiệu, Ngày lập, Bên bán, Bên mua, Tổng giá trị, File XML, File PDF liên kết (Xem/Tải PDF), Số tiền đã nhận nợ (`allocated_amount`), Số tiền còn lại (`remaining_amount`), Ngân hàng đang khóa (`locked_bank_code`), Trạng thái (`AVAILABLE` - Chưa dùng, `PARTIALLY_ALLOCATED` - Dùng 1 phần, `FULLY_ALLOCATED` - Đã dùng hết).
+  - **Quy tắc Bảo đảm Khoản vay bằng Hóa đơn (Loan Secured by Invoices Engine):**
+    - **Quan hệ N - N qua bảng `loan_invoice_allocations`:** Mỗi khoản vay phải được đảm bảo bởi một hoặc nhiều hóa đơn; một hóa đơn có thể bảo đảm cho một hoặc nhiều khoản vay.
+    - **Ràng buộc Số tiền Nhận nợ:**
+      - Số tiền nhận nợ trên từng hóa đơn cho khoản vay: $0 < \text{allocated\_amount} \le \text{invoice.remaining\_amount}$.
+      - Tổng số tiền nhận nợ từ các hóa đơn gán cho khoản vay **PHẢI BẰNG CHÍNH XÁC giá trị gốc vay ban đầu** của khoản vay:
+        $$\sum_{i \in \text{Allocations}} \text{allocated\_amount}_i = \text{loan.original\_principal\_balance}$$
+      - Trạng thái bảo đảm khoản vay:
+        + `FULLY_SECURED` (Hợp lệ 100%): $\sum \text{allocated\_amount} == \text{original\_principal\_balance}$.
+        + `UNDER_SECURED` (Cảnh báo thiếu hóa đơn nhận nợ): $\sum \text{allocated\_amount} < \text{original\_principal\_balance}$, hiển thị cảnh báo đỏ/vàng kèm số tiền thiếu hụt chính xác.
+        + `OVER_SECURED` (Không hợp lệ): Cấm phân bổ tổng số tiền nhận nợ vượt quá gốc vay ban đầu.
+    - **Ràng buộc Duy nhất Một Tổ chức Tín dụng (Single Bank Invariant):**
+      - Nếu số tiền nhận nợ bằng một phần tổng số tiền trên hóa đơn, phần còn lại vẫn có thể đảm bảo cho khoản vay sau, **với điều kiện cùng dùng chung cho một tổ chức tín dụng** (`loan_next.bank_code == invoice.locked_bank_code`).
+      - Khi một hóa đơn được gán lần đầu cho khoản vay tại Ngân hàng A (`bank_code`), hóa đơn đó bị khóa cho Ngân hàng A (`locked_bank_code = A`).
+      - Tuyệt đối cấm gán phần tiền còn lại của hóa đơn đó cho khoản vay tại Ngân hàng B khác (`locked_bank_code != B`), ngăn chặn 100% rủi ro đúp tài sản bảo đảm giữa các ngân hàng.
+      - Khi toàn bộ phân bổ của hóa đơn được giải phóng, `locked_bank_code` tự động trả về `NULL` (hóa đơn tự do).
 
 ### Phân hệ 8: Trải nghiệm Người dùng & Điều hướng theo Vai trò (Role Navigation & Personas)
 - Cung cấp thanh chuyển đổi vai trò (Persona Switcher) linh hoạt trên thanh Sidebar:

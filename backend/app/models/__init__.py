@@ -5,6 +5,7 @@ from app.models.transaction import BankTransaction
 from app.models.cash_ledger import CashLedger
 from app.models.audit_log import AuditLog
 from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument, LoanRepaymentHistory
+from app.models.invoice import Invoice, InvoiceItem, LoanInvoiceAllocation
 
 __all__ = [
     "BankAccount",
@@ -19,5 +20,8 @@ __all__ = [
     "CreditStatementItem",
     "DisbursementDocument",
     "LoanRepaymentHistory",
+    "Invoice",
+    "InvoiceItem",
+    "LoanInvoiceAllocation",
 ]
 

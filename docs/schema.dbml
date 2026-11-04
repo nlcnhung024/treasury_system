@@ -356,10 +356,98 @@ Table credit_statement_items {
   }
 }
 
+Table invoices {
+  invoice_id bigserial [pk, increment, note: 'Khóa chính hóa đơn']
+  invoice_uuid uuid [not null, unique, note: 'UUID định danh hóa đơn']
+  entity_id bigint [note: 'Thuộc pháp nhân doanh nghiệp']
+  invoice_number varchar(50) [not null, note: 'Số hóa đơn (<SHDon>)']
+  invoice_series varchar(20) [not null, note: 'Ký hiệu hóa đơn (<KHHDon>)']
+  invoice_template varchar(20) [default: '1', note: 'Mẫu số hóa đơn (<KHMSHDon>: 1 = GTGT)']
+  invoice_date date [not null, note: 'Ngày lập hóa đơn (<NLap>)']
+  tax_authority_code varchar(100) [note: 'Mã cơ quan thuế cấp (<MCCQT>)']
+  seller_tax_code varchar(50) [not null, note: 'MST bên bán']
+  seller_name varchar(255) [not null, note: 'Tên bên bán']
+  seller_address text [note: 'Địa chỉ bên bán']
+  buyer_tax_code varchar(50) [not null, note: 'MST bên mua']
+  buyer_name varchar(255) [not null, note: 'Tên bên mua']
+  buyer_address text [note: 'Địa chỉ bên mua']
+  currency varchar(10) [not null, default: 'VND', note: 'Đơn vị tiền tệ']
+  exchange_rate decimal(18,4) [not null, default: 1.0000]
+  subtotal_amount decimal(18,2) [not null, default: 0.00, note: 'Tổng tiền chưa thuế (<TgTCThue>)']
+  tax_amount decimal(18,2) [not null, default: 0.00, note: 'Tiền thuế GTGT (<TgTThue>)']
+  total_amount decimal(18,2) [not null, note: 'Tổng tiền thanh toán (<TgTTTBSo>)']
+  allocated_amount decimal(18,2) [not null, default: 0.00, note: 'Tổng tiền đã nhận nợ cho các khoản vay']
+  remaining_amount decimal(18,2) [not null, note: 'Tiền còn lại = total_amount - allocated_amount']
+  locked_bank_code varchar(20) [note: 'Ngân hàng duy nhất đang dùng hóa đơn này (ràng buộc cùng TCTD)']
+  status varchar(30) [not null, default: 'AVAILABLE', note: 'AVAILABLE, PARTIALLY_ALLOCATED, FULLY_ALLOCATED']
+  xml_file_name varchar(255)
+  xml_storage_path varchar(500)
+  xml_file_sha256 char(64)
+  xml_file_size bigint
+  pdf_file_name varchar(255)
+  pdf_storage_path varchar(500)
+  pdf_file_sha256 char(64)
+  pdf_file_size bigint
+  has_pdf boolean [not null, default: false]
+  raw_xml_data jsonb
+  note text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (seller_tax_code, invoice_series, invoice_number) [unique, name: 'uq_invoices_seller_series_num']
+    invoice_number [name: 'idx_invoices_number']
+    invoice_date [name: 'idx_invoices_date']
+    status [name: 'idx_invoices_status']
+    locked_bank_code [name: 'idx_invoices_locked_bank']
+  }
+}
+
+Table invoice_items {
+  item_id bigserial [pk, increment]
+  invoice_id bigint [not null, note: 'Hóa đơn sở hữu dòng hàng này']
+  line_number int [not null, note: 'Số thứ tự dòng (<STT>)']
+  item_name varchar(500) [not null, note: 'Tên hàng hóa dịch vụ (<THHDVu>)']
+  unit varchar(50) [note: 'Đơn vị tính (<DVTinh>)']
+  quantity decimal(18,4) [note: 'Số lượng (<SLuong>)']
+  unit_price decimal(18,4) [note: 'Đơn giá (<DGia>)']
+  subtotal decimal(18,2) [not null, note: 'Thành tiền (<ThTien>)']
+  tax_rate varchar(20) [note: 'Thuế suất GTGT (<TSuat>)']
+  tax_amount decimal(18,2) [default: 0.00, note: 'Tiền thuế dòng hàng']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    invoice_id [name: 'idx_invoice_items_invoice_id']
+  }
+}
+
+Table loan_invoice_allocations {
+  allocation_id bigserial [pk, increment]
+  allocation_uuid uuid [not null, unique]
+  loan_id bigint [not null, note: 'Khoản vay được bảo đảm']
+  invoice_id bigint [not null, note: 'Hóa đơn bảo đảm']
+  bank_code varchar(20) [not null, note: 'TCTD của khoản vay (ràng buộc cùng TCTD)']
+  contract_number varchar(50) [not null]
+  allocated_amount decimal(18,2) [not null, note: 'Số tiền nhận nợ trên hóa đơn này']
+  allocation_date date [not null, default: `CURRENT_DATE`]
+  notes text
+  created_by varchar(100) [not null, default: 'SYSTEM']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (loan_id, invoice_id) [unique, name: 'uq_loan_invoice_alloc']
+    loan_id [name: 'idx_alloc_loan_id']
+    invoice_id [name: 'idx_alloc_invoice_id']
+    bank_code [name: 'idx_alloc_bank_code']
+  }
+}
+
 Table disbursement_documents {
   document_id bigserial [pk, increment, note: 'Khóa chính tài liệu giải ngân']
   document_uuid uuid [not null, unique, note: 'UUID định danh tài liệu']
   loan_id bigint [not null, note: 'Khoản vay sở hữu hồ sơ này']
+  invoice_id bigint [note: 'Liên kết tùy chọn sang kho hóa đơn']
   file_name varchar(255) [not null, note: 'Tên file chứng từ']
   storage_path varchar(500) [not null, note: 'Đường dẫn Object Storage: disbursement_dossiers/{bank}/{contract}/{uuid}_{name}']
   file_size_bytes bigint [not null]
@@ -386,6 +474,7 @@ Table disbursement_documents {
     document_uuid [name: 'idx_disburse_docs_uuid']
     invoice_number [name: 'idx_disburse_docs_invoice']
     verification_status [name: 'idx_disburse_docs_status']
+    invoice_id [name: 'idx_disburse_docs_invoice_id']
   }
 }
 
@@ -442,6 +531,13 @@ Ref: statement_anchor_points.transaction_id > bank_transactions.transaction_id [
 Ref: credit_statement_items.file_id > credit_statement_files.file_id [delete: cascade]
 Ref: credit_statement_items.loan_id > credit_facilities.loan_id [delete: set null]
 Ref: disbursement_documents.loan_id > credit_facilities.loan_id [delete: cascade]
+Ref: disbursement_documents.invoice_id > invoices.invoice_id [delete: set null]
+
+// Quan hệ phân hệ Hóa đơn & Phân bổ nhận nợ
+Ref: invoices.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: invoice_items.invoice_id > invoices.invoice_id [delete: cascade]
+Ref: loan_invoice_allocations.loan_id > credit_facilities.loan_id [delete: cascade]
+Ref: loan_invoice_allocations.invoice_id > invoices.invoice_id [delete: restrict]
 
 // Cầu nối liên thông giữa Giao dịch chi ngân hàng và Giảm trừ nợ vay
 Ref: loan_repayment_history.loan_id > credit_facilities.loan_id [delete: restrict]
@@ -474,6 +570,12 @@ TableGroup credit_loan_management {
   credit_statement_items
   disbursement_documents
   loan_repayment_history
+}
+
+TableGroup invoice_management {
+  invoices
+  invoice_items
+  loan_invoice_allocations
 }
 
 TableGroup audit_governance {

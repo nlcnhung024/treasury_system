@@ -43,6 +43,7 @@ from app.services.storage_service import save_statement_bytes, read_statement_by
 from app.services.loan_interest_service import calculate_loan_interest
 from app.services.debt_reconciliation_service import DebtReconciliationService
 from app.services.invoice_parser_service import parse_xml_invoice_bytes, calculate_loan_invoice_reconciliation
+from app.services import invoice_service
 
 logger = logging.getLogger(__name__)
 
@@ -932,6 +933,17 @@ async def upload_disbursement_document(
     )
     db.add(doc_record)
     await db.flush()
+
+    # Tự động đồng bộ bổ sung vào Kho Hóa Đơn nếu là file hóa đơn (XML/PDF)
+    try:
+        await invoice_service.auto_sync_dossier_document_to_invoice(
+            db=db,
+            loan=loan,
+            doc_record=doc_record,
+            content=content,
+        )
+    except Exception as exc:
+        logger.warning(f"Lỗi khi tự động bổ sung hóa đơn giải ngân vào Kho Hóa Đơn: {exc}")
 
     audit = AuditLog(
         actor=uploaded_by,

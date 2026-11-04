@@ -11,6 +11,7 @@ from app.api.v1 import (
     templates,
     audit_logs,
     credit_statements,
+    invoices,
 )
 
 api_router = APIRouter()
@@ -26,4 +27,5 @@ api_router.include_router(reports.router)
 api_router.include_router(templates.router)
 api_router.include_router(audit_logs.router)
 api_router.include_router(credit_statements.router)
+api_router.include_router(invoices.router)
 

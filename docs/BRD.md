@@ -29,6 +29,8 @@
 | **1.12.0** | 2026-11-03 | `@BusinessAnalyst` | Tái cấu trúc Quy tắc Parse Sao kê Tín dụng & Động cơ Đối soát Trả nợ Ngân hàng (US-07.9 & US-07.11): Xác lập cột Dư nợ trên file là Dư nợ tại thời điểm xuất file (Snapshot Balance at `statement_date`), file không có dư nợ ban đầu; phân định giao dịch Pre-Snapshot (hoàn nguyên gốc ban đầu, chống trừ 2 lần) và Post-Snapshot (giảm trừ hiện tại). |
 | **1.13.0** | 2026-11-04 | `@BusinessAnalyst` | Bổ sung `US-07.12`: Màn hình Chi tiết Khế ước & Bộ Lọc Đa Chiều Từng Cột (Per-Column Filters) phục vụ tra cứu chuyên sâu danh mục nợ, bóc tách dòng tiền hoàn nguyên nợ gốc/lãi, hỗ trợ 1-chạm sao chép số khế ước và lọc theo ngân hàng, trạng thái tất toán, số tiền, lãi suất, ngày giải ngân/đáo hạn. |
 | **1.14.0** | 2026-11-04 | `@BusinessAnalyst` | Bãi bỏ và xóa bỏ hoàn toàn `US-07.8` (Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn) theo yêu cầu tái cơ cấu phân hệ tín dụng; chỉ giữ nguyên Sao Kê Tín Dụng, Đối Soát Trả Nợ (US-07.9) và Chi Tiết Khế Ước (US-07.12). |
+| **1.15.0** | 2026-11-04 | `@BusinessAnalyst` | Tái cấu trúc phân hệ Hóa đơn & Hồ sơ giải ngân (US-07.10): Tách biệt CSDL Hóa đơn thành Kho chứng từ độc lập của doanh nghiệp (`invoices`, `invoice_items`), Bảng thống kê hóa đơn tiếp nhận thông tin từ XML tự động ghép cặp file PDF tương ứng (`Sample_hoa_don`), thiết lập quy tắc bảo đảm khoản vay bằng hóa đơn: Một khoản vay bảo đảm bởi một hoặc nhiều hóa đơn, tổng số tiền nhận nợ trên các hóa đơn phải BẰNG CHÍNH XÁC giá trị gốc vay ban đầu, phần còn lại của hóa đơn chỉ được phép bảo đảm cho khoản vay sau nếu CÙNG DÙNG CHUNG CHO MỘT TỔ CHỨC TÍN DỤNG. |
+| **1.16.0** | 2026-11-04 | `@BusinessAnalyst` | Nâng cấp `US-07.10`: Bổ sung cơ chế Tự động đồng bộ hóa đơn từ hồ sơ giải ngân khoản vay (`disbursement_documents`) vào Kho Hóa Đơn độc lập. Khi các khoản vay đã có file hóa đơn (XML/PDF) mà kho hóa đơn chưa có, hệ thống tự động bóc tách và nạp bổ sung vào kho, đồng thời tự động ghép cặp file XML & PDF và duy trì liên kết 2 chiều qua `disbursement_documents.invoice_id`. |
 
 ---
 
@@ -624,27 +626,121 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
     And Giao dịch 3045 chuyển sang trạng thái đã đối soát và không còn xuất hiện trong danh sách chờ
   ```
 
-### US-07.10: Bóc tách Hóa Đơn Điện Tử XML & Đối Soát Hóa Đơn Giải Ngân
-* **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)*, tôi muốn *khi tải lên hồ sơ giải ngân dạng hóa đơn (file XML và PDF), hệ thống tự động đọc nội dung file XML để cộng tổng số tiền thanh toán trên hóa đơn và đối soát với dư nợ gốc của khoản vay, nếu tổng tiền hóa đơn nhỏ hơn dư nợ gốc thì hiển thị cảnh báo thiếu hóa đơn*, để *kịp thời bổ sung hồ sơ chứng minh mục đích sử dụng vốn vay theo quy định của ngân hàng và tránh rủi ro bị thu hồi nợ trước hạn*.
+### US-07.10: Tách Biệt Kho Hóa Đơn Doanh Nghiệp, Ghép Cặp XML-PDF & Quy Tắc Bảo Đảm Nhận Nợ Khoản Vay
+* **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)* và *Giám đốc Tài chính (CFO)*, tôi muốn:
+  1. *Bộ hồ sơ giải ngân gồm nhiều loại hồ sơ (Hợp đồng tín dụng, Khế ước nhận nợ, Biên bản bàn giao, Giấy đề nghị giải ngân, Hóa đơn,...), trong đó hóa đơn là loại hồ sơ quan trọng nhất nên cơ sở dữ liệu các hóa đơn phải được tách biệt hoàn toàn thành một kho chứng từ độc lập của doanh nghiệp*;
+  2. *Có một Bảng thống kê hóa đơn mà doanh nghiệp hiện đang có, bảng này tự động tiếp nhận và bóc tách thông tin từ các file XML (theo chuẩn Nghị định 123/2020/NĐ-CP & Thông tư 78/2021/TT-BTC) và tự động liên kết với file PDF tương ứng (mẫu trong thư mục `Resources/Sample_hoa_don`)*;
+  3. *Mỗi khoản vay phải được đảm bảo bởi một hoặc nhiều hóa đơn*;
+  4. *Mỗi hóa đơn liên kết với khoản vay phải có số tiền nhận nợ bé hơn hoặc bằng tổng số tiền trên hóa đơn ($0 < \text{Số tiền nhận nợ} \le \text{Tổng tiền HĐ}$), sao cho tổng số tiền nhận nợ từ các hóa đơn gán cho khoản vay phải BẰNG CHÍNH XÁC giá trị gốc vay ban đầu của khoản vay ($\sum \text{Số tiền nhận nợ} = \text{Dư nợ gốc ban đầu}$)*;
+  5. *Nếu số tiền nhận nợ bằng một phần tổng số tiền trên hóa đơn thì phần còn lại vẫn có thể tiếp tục đảm bảo cho các khoản vay sau, VỚI ĐIỀU KIỆN TIÊN QUYẾT LÀ CÙNG DÙNG CHUNG CHO MỘT TỔ CHỨC TÍN DỤNG (cùng ngân hàng)*,
+  để *quản lý tập trung toàn diện tài sản hóa đơn của doanh nghiệp, minh bạch hồ sơ chứng minh mục đích sử dụng vốn vay, tuyệt đối ngăn ngừa rủi ro dùng trùng/gian lận một hóa đơn cho nhiều ngân hàng khác nhau, và đáp ứng chuẩn mực kiểm toán tín dụng ngân hàng*.
 * **Độ ưu tiên:** Must Have (`P0`)
-* **Quy tắc Nghiệp vụ (Business Rules):**
-  1. **Định dạng file hóa đơn:** Hồ sơ chứng minh mục đích sử dụng vốn giải ngân bao gồm cả file XML và PDF (theo chuẩn NĐ 123/2020/NĐ-CP và TT 78/2021/TT-BTC).
-  2. **Bóc tách XML tự động:** Hệ thống tự động đọc nội dung file XML để trích xuất số hóa đơn (`SHDon`), ký hiệu (`KHHDon`), ngày lập (`NLap`), người bán, và tổng số tiền thanh toán (`TgTTTBSo` hoặc `TotalPayment` / `TgTToan` / tổng tiền chưa thuế + thuế).
-  3. **Đối soát & Báo động thiếu hóa đơn:**
-     - Tính tổng số tiền trên toàn bộ các hóa đơn XML đính kèm khoản vay.
-     - So sánh với dư nợ gốc ban đầu giải ngân (`original_principal_balance`) hoặc dư nợ gốc hiện tại.
-     - Nếu $\text{Tổng tiền HĐ XML} < \text{Dư nợ gốc}$: Hệ thống hiển thị cảnh báo đỏ/vàng `⚠️ Cảnh báo: Thiếu hóa đơn giải ngân! Còn thiếu X đồng` kèm số tiền thiếu hụt chính xác.
-     - Nếu $\text{Tổng tiền HĐ XML} \ge \text{Dư nợ gốc}$: Hệ thống hiển thị trạng thái `✅ Đủ HĐ XML (100% bao phủ)`.
+* **Quy tắc Nghiệp vụ Chi tiết (Business Rules & Invariants):**
+  1. **Tách biệt Kho Dữ liệu Hóa đơn (Independent Invoice Repository):**
+     - Hồ sơ giải ngân gồm nhiều loại tài liệu (`disbursement_documents`): Hợp đồng tín dụng, khế ước nhận nợ, biên bản bàn giao, ủy nhiệm chi,...
+     - Cơ sở dữ liệu hóa đơn được tách biệt thành thực thể độc lập (`invoices` và `invoice_items`), không phụ thuộc cứng vào bất kỳ một khoản vay cụ thể nào tại thời điểm nạp vào hệ thống.
+  2. **Bảng Thống kê Hóa đơn Doanh nghiệp & Ghép cặp XML - PDF:**
+     - Hệ thống tiếp nhận nạp file hóa đơn XML (chuẩn Tổng cục Thuế) và file PDF thể hiện trực quan.
+     - Cơ chế ghép cặp tự động (Auto-Pairing): Căn cứ vào quy tắc đặt tên (`{MST_Bán}_{Mẫu_số}_{Ký_hiệu}_{Số_HĐ}_{Ngày_lập}_{Tên_NCC}.xml` & `.pdf` như mẫu `Sample_hoa_don`) hoặc căn cứ vào bộ ba thuộc tính định danh duy nhất `(seller_tax_code, invoice_series, invoice_number)`.
+     - Bóc tách đầy đủ siêu dữ liệu từ file XML:
+       + Thông tin định danh: Mẫu số (`KHMSHDon`), Ký hiệu (`KHHDon`), Số hóa đơn (`SHDon`), Ngày lập (`NLap`), Mã của Cơ quan Thuế (`MCCQT`).
+       + Đơn vị bán (`NBan`): Tên công ty, Mã số thuế (`MST`), Địa chỉ.
+       + Đơn vị mua (`NMua`): Tên công ty, Mã số thuế (`MST`), Địa chỉ.
+       + Tài chính: Tổng tiền chưa thuế (`TgTCThue`), Tiền thuế GTGT (`TgTThue`), Tổng tiền thanh toán bằng số (`TgTTTBSo`), Tiền tệ (`DVTTe`).
+       + Chi tiết hàng hóa (`DSHHDVu` -> `HHDVu`): Tên hàng hóa dịch vụ, Đơn vị tính, Số lượng, Đơn giá, Thành tiền, Thuế suất GTGT.
+       + Liên kết tệp: Đường dẫn và trạng thái file XML (`xml_storage_path`) và file PDF (`pdf_storage_path`, `has_pdf`).
+  3. **Mối quan hệ N - N giữa Khoản vay và Hóa đơn (`loan_invoice_allocations`):**
+     - Một khoản vay (`credit_facilities`) có thể được bảo đảm bởi một hoặc nhiều hóa đơn.
+     - Một hóa đơn (`invoices`) có thể bảo đảm cho một hoặc nhiều khoản vay (nếu được chia nhỏ theo từng lần nhận nợ).
+  4. **Quy tắc Số tiền Nhận nợ (Allocated Debt Amount Rules):**
+     - Mỗi liên kết giữa khoản vay và hóa đơn xác định một `allocated_amount` (số tiền nhận nợ được hóa đơn này bảo đảm).
+     - Ràng buộc từng lần phân bổ: $0 < \text{allocated\_amount} \le \text{invoice.remaining\_amount}$.
+     - Tổng số tiền đã nhận nợ của một hóa đơn qua mọi khoản vay không vượt quá tổng giá trị hóa đơn: $\sum \text{allocated\_amount} \le \text{invoice.total\_amount}$.
+     - Số tiền còn lại của hóa đơn: $\text{remaining\_amount} = \text{invoice.total\_amount} - \sum \text{allocated\_amount}$.
+     - Trạng thái hóa đơn:
+       + `AVAILABLE`: Chưa nhận nợ cho khoản vay nào ($\text{allocated\_amount} = 0$, $\text{remaining\_amount} = \text{total\_amount}$, chưa khóa ngân hàng).
+       + `PARTIALLY_ALLOCATED`: Đã nhận nợ một phần ($0 < \text{allocated\_amount} < \text{total\_amount}$, $\text{remaining\_amount} > 0$, đã khóa cho 1 ngân hàng).
+       + `FULLY_ALLOCATED`: Đã nhận nợ toàn bộ 100% ($\text{allocated\_amount} = \text{total\_amount}$, $\text{remaining\_amount} = 0$).
+  5. **Quy tắc Cân bằng Tuyệt đối với Gốc vay Ban đầu (Exact Principal Match Invariant):**
+     - Tổng số tiền nhận nợ từ tất cả các hóa đơn gán cho một khoản vay PHẢI BẰNG CHÍNH XÁC giá trị gốc vay ban đầu của khoản vay:
+       $$\sum_{i \in \text{Allocations}} \text{allocated\_amount}_i = \text{loan.original\_principal\_balance}$$
+     - Nếu $\sum \text{allocated\_amount} < \text{original\_principal\_balance}$: Khoản vay ở trạng thái `UNDER_SECURED` (Thiếu hóa đơn bảo đảm, báo động đỏ số tiền còn thiếu).
+     - Nếu $\sum \text{allocated\_amount} > \text{original\_principal\_balance}$: Hệ thống BẮT BUỘC TỪ CHỐI không cho phân bổ vượt quá gốc vay ban đầu (`OVER_SECURED_ERROR`).
+     - Chỉ khi $\sum \text{allocated\_amount} == \text{original\_principal\_balance}$: Khoản vay đạt chuẩn `FULLY_SECURED` (Bảo đảm 100% bằng hóa đơn hợp lệ).
+  6. **Quy tắc Ràng buộc Duy nhất Một Tổ chức Tín dụng (Single Credit Institution / Bank Constraint):**
+     - "Nếu số tiền nhận nợ bằng một phần tổng số tiền trên hóa đơn thì phần còn lại vẫn có thể đảm bảo cho khoản vay sau, **với điều kiện cùng dùng chung cho một tổ chức tín dụng**."
+     - Khi một hóa đơn được gán lần đầu tiên cho khoản vay thuộc ngân hàng/TCTD nào (`bank_code`), hóa đơn đó sẽ bị khóa phạm vi sử dụng cho riêng TCTD đó (`locked_bank_code = loan.bank_code`).
+     - Khi thực hiện phân bổ phần còn lại của hóa đơn cho một khoản vay tiếp theo:
+       + Nếu khoản vay tiếp theo CÙNG NGÂN HÀNG (`loan_next.bank_code == invoice.locked_bank_code`): Cho phép phân bổ hợp lệ.
+       + Nếu khoản vay tiếp theo KHÁC NGÂN HÀNG (`loan_next.bank_code != invoice.locked_bank_code`): Hệ thống BẮT BUỘC CHẶN ĐỨNG và báo lỗi nghiêm ngặt:
+         `"Lỗi vi phạm nguyên tắc TCTD: Hóa đơn #{invoice_number} đã được sử dụng bảo đảm cho Ngân hàng {locked_bank_code}. Phần còn lại chỉ được phép bảo đảm cho các khoản vay cùng Ngân hàng {locked_bank_code}, không được dùng cho {loan_next.bank_code}!"`
+     - Khi tất cả các phân bổ của hóa đơn được gỡ bỏ ($\text{allocated\_amount} = 0$), hóa đơn được giải phóng khỏi ngân hàng khóa (`locked_bank_code = NULL`), trở lại trạng thái tự do `AVAILABLE`.
+
 * **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
   ```gherkin
-  Scenario: Cảnh báo thiếu hóa đơn giải ngân khi tổng tiền hóa đơn XML nhỏ hơn dư nợ gốc
-    Given Khoản vay khế ước "805007289545" có dư nợ gốc là 5,000,000,000 VND
-    When Kế toán tải lên file hóa đơn XML "HD_001.xml" với tổng tiền thanh toán là 3,200,000,000 VND
-    Then Hệ thống tự động đọc file XML và ghi nhận tổng tiền hóa đơn là 3,200,000,000 VND
-    And Bảng danh sách khoản vay hiển thị cảnh báo "⚠️ Thiếu HĐ (-1,800,000,000 ₫)"
-    When Kế toán tải bổ sung file hóa đơn XML "HD_002.xml" với số tiền 2,000,000,000 VND
-    Then Tổng tiền hóa đơn nâng lên 5,200,000,000 VND (lớn hơn dư nợ gốc 5 tỷ)
-    And Cảnh báo thiếu hóa đơn biến mất, thay bằng huy hiệu xanh "✅ Đủ HĐ XML"
+  Scenario: Tải lên hóa đơn XML và tự động liên kết với file PDF tương ứng
+    Given Doanh nghiệp có cặp file hóa đơn trong thư mục "Resources/Sample_hoa_don"
+      | Tên file XML | 2802584811_1_C26TXM_20572_31102026_congtycophanximangdaiduong.xml |
+      | Tên file PDF | 2802584811_1_C26TXM_20572_31102026_congtycophanximangdaiduong.pdf |
+    When Kế toán nạp cặp file này vào Bảng thống kê hóa đơn
+    Then Hệ thống đọc file XML và trích xuất thành công:
+      | Trường | Giá trị trích xuất |
+      | Số hóa đơn (SHDon) | 20572 |
+      | Ký hiệu (KHHDon) | C26TXM |
+      | Ngày lập (NLap) | 2026-10-31 |
+      | Đơn vị bán | CÔNG TY CỔ PHẦN XI MĂNG ĐẠI DƯƠNG |
+      | MST Bên bán | 2802584811 |
+      | Đơn vị mua | CÔNG TY CỔ PHẦN XI MĂNG SUNRISE |
+      | MST Bên mua | 0109730501 |
+      | Tổng tiền thanh toán | 19,398,960 VND |
+      | Mã CQT | 00674643E49AB04A0DBDF382E6D77FAA73 |
+    And Hệ thống tự động liên kết với file PDF tương ứng và hiển thị nút "Xem PDF" / "Tải PDF"
+    And Hóa đơn được đưa vào kho với trạng thái "AVAILABLE", số tiền nhận nợ là 0 VND, số tiền còn lại là 19,398,960 VND
+
+  Scenario: Phân bổ một phần hóa đơn cho khoản vay cùng ngân hàng và sử dụng phần còn lại cho khoản vay tiếp theo
+    Given Kho Hóa đơn có hóa đơn HD-01 giá trị 10,000,000,000 VND từ Cty Đại Dương
+    And Khoản vay VAY-MB-01 tại ngân hàng "MBB" có gốc ban đầu là 6,000,000,000 VND
+    When Kế toán phân bổ hóa đơn HD-01 cho khoản vay VAY-MB-01 với số tiền nhận nợ 6,000,000,000 VND
+    Then Hệ thống chấp nhận phân bổ vì 6 tỷ <= 10 tỷ
+    And Khoản vay VAY-MB-01 đạt trạng thái "FULLY_SECURED" vì tổng tiền nhận nợ đúng bằng gốc vay ban đầu 6 tỷ
+    And Hóa đơn HD-01 chuyển sang trạng thái "PARTIALLY_ALLOCATED":
+      | Đã nhận nợ | 6,000,000,000 VND |
+      | Còn lại có thể nhận nợ | 4,000,000,000 VND |
+      | Ngân hàng khóa | MBB |
+    Given Khoản vay VAY-MB-02 cũng tại ngân hàng "MBB" có gốc ban đầu là 4,000,000,000 VND
+    When Kế toán phân bổ phần còn lại của HD-01 (4,000,000,000 VND) cho khoản vay VAY-MB-02
+    Then Hệ thống chấp thuận vì VAY-MB-02 cùng thuộc ngân hàng "MBB" và 4 tỷ <= 4 tỷ còn lại
+    And Khoản vay VAY-MB-02 đạt trạng thái "FULLY_SECURED"
+    And Hóa đơn HD-01 chuyển sang trạng thái "FULLY_ALLOCATED" (còn lại 0 VND)
+
+  Scenario: Từ chối phân bổ phần còn lại của hóa đơn cho khoản vay khác ngân hàng
+    Given Hóa đơn HD-01 có giá trị 10,000,000,000 VND đã nhận nợ 6,000,000,000 VND tại ngân hàng "MBB"
+    And Số tiền còn lại của hóa đơn là 4,000,000,000 VND và đang khóa tại ngân hàng "MBB"
+    And Khoản vay VAY-CTG-01 tại ngân hàng "CTG" (VietinBank) có gốc ban đầu là 4,000,000,000 VND
+    When Kế toán cố gắng phân bổ 4,000,000,000 VND còn lại của HD-01 cho khoản vay VAY-CTG-01
+    Then Hệ thống lập tức TỪ CHỐI và hiển thị lỗi:
+      """
+      Lỗi vi phạm nguyên tắc TCTD: Hóa đơn đã được sử dụng bảo đảm cho Ngân hàng MBB. 
+      Phần còn lại chỉ được phép bảo đảm cho các khoản vay cùng Ngân hàng MBB, không được dùng cho CTG!
+      """
+    And Số tiền còn lại của HD-01 vẫn giữ nguyên 4,000,000,000 VND
+
+  Scenario: Kiểm tra điều kiện tổng số tiền nhận nợ phải bằng chính xác gốc vay ban đầu
+    Given Khoản vay VAY-VCB-01 tại ngân hàng "VCB" có gốc ban đầu là 5,000,000,000 VND
+    When Kế toán gán hóa đơn HD-02 với số tiền nhận nợ 3,000,000,000 VND
+    Then Khoản vay ở trạng thái "UNDER_SECURED" và hiển thị cảnh báo "Thiếu số tiền nhận nợ: còn thiếu 2,000,000,000 VND để bảo đảm đủ gốc vay ban đầu"
+    When Kế toán gán tiếp hóa đơn HD-03 (cùng ngân hàng VCB hoặc chưa khóa) với số tiền nhận nợ 2,000,000,000 VND
+    Then Tổng số tiền nhận nợ đạt đúng 5,000,000,000 VND
+    And Khoản vay chuyển sang trạng thái "FULLY_SECURED" (Bảo đảm 100% bằng hóa đơn hợp lệ)
+
+  Scenario: Tự động bổ sung hóa đơn từ hồ sơ giải ngân khoản vay vào Kho Hóa Đơn
+    Given Trong hồ sơ giải ngân của khoản vay VAY-01 đã có các file hóa đơn XML và PDF
+    And Kho Hóa Đơn độc lập chưa tồn tại các hóa đơn này
+    When Hệ thống quét hồ sơ giải ngân hoặc Kế toán nhấn "Đồng bộ từ Hồ sơ Khoản vay"
+    Then Hệ thống tự động bóc tách các file XML và thêm mới toàn bộ hóa đơn vào bảng `invoices` và danh mục hàng hóa vào `invoice_items`
+    And Tự động ghép cặp các file PDF tương ứng và cập nhật `has_pdf = TRUE`
+    And Cập nhật liên kết 2 chiều `disbursement_documents.invoice_id = invoices.invoice_id`
+    And Toàn bộ hóa đơn xuất hiện trên Bảng thống kê hóa đơn của doanh nghiệp với trạng thái khả dụng "AVAILABLE"
   ```
 
 ### US-07.11: Chuẩn Hóa 3 Cột Dư Nợ Gốc & Ghi Nhớ Tự Động Danh Mục Tổ Chức / Loại Hồ Sơ Mới

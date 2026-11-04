@@ -1,12 +1,16 @@
 from datetime import datetime, date
 from decimal import Decimal
 import uuid
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 from sqlalchemy import BigInteger, String, Integer, Date, DateTime, Numeric, Text, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
+
+if TYPE_CHECKING:
+    from app.models.invoice import LoanInvoiceAllocation, Invoice
+    from app.models.transaction import BankTransaction
 
 
 class CreditStatementFile(Base):
@@ -92,6 +96,7 @@ class CreditFacility(Base):
     # Relationships
     items: Mapped[List["CreditStatementItem"]] = relationship("CreditStatementItem", back_populates="loan")
     dossier_documents: Mapped[List["DisbursementDocument"]] = relationship("DisbursementDocument", back_populates="loan", cascade="all, delete-orphan")
+    allocations: Mapped[List["LoanInvoiceAllocation"]] = relationship("LoanInvoiceAllocation", back_populates="loan", cascade="all, delete-orphan")
     repayments: Mapped[List["LoanRepaymentHistory"]] = relationship("LoanRepaymentHistory", back_populates="loan", cascade="all, delete-orphan")
 
 
@@ -133,6 +138,7 @@ class DisbursementDocument(Base):
     document_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     document_uuid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False, index=True)
     loan_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("credit_facilities.loan_id", ondelete="CASCADE"), nullable=False, index=True)
+    invoice_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("invoices.invoice_id", ondelete="SET NULL"), nullable=True, index=True)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
     file_size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
@@ -148,6 +154,7 @@ class DisbursementDocument(Base):
 
     # Relationships
     loan: Mapped["CreditFacility"] = relationship("CreditFacility", back_populates="dossier_documents")
+    invoice: Mapped[Optional["Invoice"]] = relationship("Invoice", back_populates="disbursement_docs")
 
 
 class LoanRepaymentHistory(Base):

@@ -26,6 +26,7 @@
 | **1.9.0** | 2026-11-03 | `@SystemArchitect` | Tái thiết kế toàn diện kiến trúc Database (3NF+, PostgreSQL 15+): Bổ sung `corporate_entities` (Multi-Entity Isolation), `statement_anchor_points` (US-04.9), chuẩn hóa HĐĐT XML (`disbursement_documents` US-07.10), phân hệ Kế hoạch trả nợ (`loan_repayment_plans`, `loan_repayment_plan_items` US-07.8), và View Thanh khoản Ròng `v_cfo_net_liquidity_position`. |
 | **1.10.0** | 2026-11-03 | `@SystemArchitect` | Tái cấu trúc Kiến trúc Phân hệ Đối soát Trả nợ Ngân hàng (US-07.9 & US-07.11): Xác lập cột Dư nợ trên file tín dụng là Dư nợ tại thời điểm xuất file (Snapshot Balance at `statement_date`), phân nhánh luồng Pre-Snapshot (hoàn nguyên gốc ban đầu, chống trừ 2 lần) vs Post-Snapshot (giảm trừ hiện tại), cập nhật bảng `loan_repayment_history` với `repayment_timing` và `snapshot_date`. |
 | **1.11.0** | 2026-11-04 | `@SystemArchitect` | Tinh gọn kiến trúc CSDL: Loại bỏ phân hệ Kế hoạch trả nợ (`loan_repayment_plans`, `loan_repayment_plan_items` US-07.8) khỏi ERD và CSDL PostgreSQL; tối ưu hóa cụm bảng tín dụng tập trung cho Quản lý khế ước, Hồ sơ giải ngân và Đối soát giảm trừ dư nợ. |
+| **1.12.0** | 2026-11-04 | `@SystemArchitect` | Tái cấu trúc Phân hệ Hóa đơn & Hồ sơ giải ngân (US-07.10): Tách biệt CSDL Hóa đơn thành Kho lưu trữ độc lập (`invoices`, `invoice_items`), thiết kế bảng quan hệ N-N `loan_invoice_allocations` bảo đảm nhận nợ cho khoản vay; thiết lập các quy tắc kỹ thuật nghiêm ngặt: ghép cặp tự động XML & PDF, kiểm soát ràng buộc duy nhất một TCTD (`locked_bank_code`), và xác thực tổng tiền nhận nợ bằng chính xác gốc vay ban đầu. |
 
 ---
 
@@ -442,6 +443,10 @@ erDiagram
     CREDIT_STATEMENT_FILES ||--o{ CREDIT_STATEMENT_ITEMS : "contains"
     CREDIT_FACILITIES ||--o{ CREDIT_STATEMENT_ITEMS : "snapshots"
     CREDIT_FACILITIES ||--o{ DISBURSEMENT_DOCUMENTS : "dossier_files"
+    CREDIT_FACILITIES ||--o{ LOAN_INVOICE_ALLOCATIONS : "secured_by"
+    INVOICES ||--o{ LOAN_INVOICE_ALLOCATIONS : "allocated_to"
+    INVOICES ||--o{ INVOICE_ITEMS : "line_items"
+    INVOICES ||--o{ DISBURSEMENT_DOCUMENTS : "linked_as_doc"
     CREDIT_FACILITIES ||--o{ LOAN_REPAYMENT_HISTORY : "repaid_by"
     BANK_TRANSACTIONS ||--o| LOAN_REPAYMENT_HISTORY : "settles"
 
@@ -558,6 +563,51 @@ erDiagram
         decimal invoice_total_amount
         jsonb xml_raw_data
         varchar verification_status
+        bigint invoice_id FK
+    }
+
+    INVOICES {
+        bigint invoice_id PK
+        uuid invoice_uuid UK
+        bigint entity_id FK
+        varchar invoice_number
+        varchar invoice_series
+        varchar invoice_template
+        date invoice_date
+        varchar tax_authority_code
+        varchar seller_tax_code
+        varchar seller_name
+        varchar buyer_tax_code
+        varchar buyer_name
+        decimal total_amount
+        decimal allocated_amount
+        decimal remaining_amount
+        varchar locked_bank_code
+        varchar status
+        boolean has_pdf
+    }
+
+    INVOICE_ITEMS {
+        bigint item_id PK
+        bigint invoice_id FK
+        int line_number
+        varchar item_name
+        decimal quantity
+        decimal unit_price
+        decimal subtotal
+        varchar tax_rate
+        decimal tax_amount
+    }
+
+    LOAN_INVOICE_ALLOCATIONS {
+        bigint allocation_id PK
+        uuid allocation_uuid UK
+        bigint loan_id FK
+        bigint invoice_id FK
+        varchar bank_code
+        varchar contract_number
+        decimal allocated_amount
+        date allocation_date
     }
 
     CATEGORIES {

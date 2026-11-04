@@ -5,6 +5,7 @@ import { TopHeader } from './components/layout/TopHeader';
 import { UploadPage } from './pages/UploadPage';
 import { TransactionsPage } from './pages/TransactionsPage';
 import { CreditStatementsPage } from './pages/CreditStatementsPage';
+import { InvoiceRegistryPage } from './pages/InvoiceRegistryPage';
 import { LoanRepaymentReconcilePage } from './pages/LoanRepaymentReconcilePage';
 import { ContractDetailsPage } from './pages/ContractDetailsPage';
 import { CFODashboardPage } from './pages/CFODashboardPage';
@@ -29,6 +30,7 @@ export const App: React.FC = () => {
               <Route path="/" element={<UploadPage />} />
               <Route path="/transactions" element={<TransactionsPage />} />
               <Route path="/credit-statements" element={<CreditStatementsPage />} />
+              <Route path="/invoices" element={<InvoiceRegistryPage />} />
               <Route path="/loan-repayments" element={<LoanRepaymentReconcilePage />} />
               <Route path="/contract-details" element={<ContractDetailsPage />} />
               <Route path="/cfo-dashboard" element={<CFODashboardPage />} />

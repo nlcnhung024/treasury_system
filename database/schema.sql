@@ -412,13 +412,124 @@ CREATE INDEX idx_credit_items_loan ON credit_statement_items(loan_id);
 CREATE INDEX idx_credit_items_contract ON credit_statement_items(contract_number);
 
 -- =============================================================================
--- 13. BẢNG HỒ SƠ GIẢI NGÂN & HÓA ĐƠN ĐIỆN TỬ XML (DISBURSEMENT DOCUMENTS)
--- Hỗ trợ bóc tách hóa đơn XML theo NĐ 123/TT 78 và kiểm soát độ phủ chứng từ sử dụng vốn
+-- =============================================================================
+-- 13. KHO HÓA ĐƠN ĐỘC LẬP CỦA DOANH NGHIỆP (INVOICES REPOSITORY)
+-- CSDL tách biệt lưu trữ thông tin hóa đơn điện tử từ file XML và liên kết file PDF
+-- =============================================================================
+CREATE TABLE invoices (
+    invoice_id BIGSERIAL PRIMARY KEY,
+    invoice_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
+    invoice_number VARCHAR(50) NOT NULL,                    -- Số hóa đơn (<SHDon>)
+    invoice_series VARCHAR(20) NOT NULL,                    -- Ký hiệu hóa đơn (<KHHDon>)
+    invoice_template VARCHAR(20) DEFAULT '1',               -- Ký hiệu mẫu số (<KHMSHDon>: 1 = GTGT)
+    invoice_date DATE NOT NULL,                             -- Ngày lập hóa đơn (<NLap>)
+    tax_authority_code VARCHAR(100),                        -- Mã của Cơ quan Thuế (<MCCQT>)
+    
+    -- Thông tin Bên bán & Bên mua
+    seller_tax_code VARCHAR(50) NOT NULL,                   -- MST bên bán
+    seller_name VARCHAR(255) NOT NULL,                      -- Tên bên bán
+    seller_address TEXT,                                    -- Địa chỉ bên bán
+    buyer_tax_code VARCHAR(50) NOT NULL,                    -- MST bên mua
+    buyer_name VARCHAR(255) NOT NULL,                       -- Tên bên mua
+    buyer_address TEXT,                                     -- Địa chỉ bên mua
+    
+    -- Giá trị tài chính
+    currency VARCHAR(10) NOT NULL DEFAULT 'VND',            -- Đơn vị tiền tệ (<DVTTe>)
+    exchange_rate DECIMAL(18, 4) NOT NULL DEFAULT 1.0000,   -- Tỷ giá (<TGia>)
+    subtotal_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Tổng tiền chưa thuế (<TgTCThue>)
+    tax_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,        -- Tiền thuế GTGT (<TgTThue>)
+    total_amount DECIMAL(18, 2) NOT NULL,                   -- Tổng tiền thanh toán bằng số (<TgTTTBSo>)
+    
+    -- Quản lý Phân bổ Nhận nợ Khoản vay
+    allocated_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,  -- Tổng số tiền đã được nhận nợ cho các khoản vay
+    remaining_amount DECIMAL(18, 2) NOT NULL,               -- Số tiền còn lại có thể nhận nợ (= total_amount - allocated_amount)
+    locked_bank_code VARCHAR(20),                           -- Ngân hàng/TCTD duy nhất đang được bảo đảm bởi hóa đơn này
+    status VARCHAR(30) NOT NULL DEFAULT 'AVAILABLE',        -- 'AVAILABLE' (Chưa dùng), 'PARTIALLY_ALLOCATED' (1 phần), 'FULLY_ALLOCATED' (Hết)
+    
+    -- Lưu trữ tệp XML và PDF tương ứng
+    xml_file_name VARCHAR(255),                             -- Tên file XML gốc
+    xml_storage_path VARCHAR(500),                          -- Đường dẫn lưu file XML
+    xml_file_sha256 CHAR(64),                               -- SHA-256 file XML
+    xml_file_size BIGINT,                                   -- Dung lượng XML (bytes)
+    pdf_file_name VARCHAR(255),                             -- Tên file PDF liên kết
+    pdf_storage_path VARCHAR(500),                          -- Đường dẫn lưu file PDF
+    pdf_file_sha256 CHAR(64),                               -- SHA-256 file PDF
+    pdf_file_size BIGINT,                                   -- Dung lượng PDF (bytes)
+    has_pdf BOOLEAN NOT NULL DEFAULT FALSE,                 -- Cờ xác định đã có file PDF liên kết
+    
+    raw_xml_data JSONB,                                     -- Toàn bộ chi tiết payload XML lưu trữ JSON
+    note TEXT,                                              -- Ghi chú bổ sung
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT uq_invoice_seller_series_number UNIQUE (seller_tax_code, invoice_series, invoice_number),
+    CONSTRAINT chk_invoice_allocated_amount CHECK (allocated_amount >= 0 AND allocated_amount <= total_amount),
+    CONSTRAINT chk_invoice_remaining_amount CHECK (remaining_amount >= 0 AND remaining_amount <= total_amount)
+);
+
+CREATE INDEX idx_invoices_number ON invoices(invoice_number);
+CREATE INDEX idx_invoices_series ON invoices(invoice_series);
+CREATE INDEX idx_invoices_date ON invoices(invoice_date);
+CREATE INDEX idx_invoices_seller ON invoices(seller_tax_code);
+CREATE INDEX idx_invoices_buyer ON invoices(buyer_tax_code);
+CREATE INDEX idx_invoices_status ON invoices(status);
+CREATE INDEX idx_invoices_locked_bank ON invoices(locked_bank_code);
+
+-- =============================================================================
+-- 13.1 BẢNG CHI TIẾT HÀNG HÓA HÓA ĐƠN (INVOICE ITEMS)
+-- =============================================================================
+CREATE TABLE invoice_items (
+    item_id BIGSERIAL PRIMARY KEY,
+    invoice_id BIGINT NOT NULL REFERENCES invoices(invoice_id) ON DELETE CASCADE,
+    line_number INT NOT NULL,                               -- STT dòng hàng hóa (<STT>)
+    item_name VARCHAR(500) NOT NULL,                        -- Tên hàng hóa, dịch vụ (<THHDVu>)
+    unit VARCHAR(50),                                       -- Đơn vị tính (<DVTinh>)
+    quantity DECIMAL(18, 4),                                -- Số lượng (<SLuong>)
+    unit_price DECIMAL(18, 4),                              -- Đơn giá (<DGia>)
+    subtotal DECIMAL(18, 2) NOT NULL,                       -- Thành tiền (<ThTien>)
+    tax_rate VARCHAR(20),                                   -- Thuế suất GTGT (<TSuat>: 8%, 10%...)
+    tax_amount DECIMAL(18, 2) DEFAULT 0.00,                 -- Tiền thuế GTGT dòng hàng
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_invoice_items_invoice_id ON invoice_items(invoice_id);
+
+-- =============================================================================
+-- 13.2 BẢNG PHÂN BỔ HÓA ĐƠN BẢO ĐẢM NHẬN NỢ KHOẢN VAY (LOAN INVOICE ALLOCATIONS)
+-- Quản lý mối quan hệ N-N giữa Khoản vay và Hóa đơn, kiểm soát ràng buộc cùng một TCTD
+-- =============================================================================
+CREATE TABLE loan_invoice_allocations (
+    allocation_id BIGSERIAL PRIMARY KEY,
+    allocation_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE CASCADE,
+    invoice_id BIGINT NOT NULL REFERENCES invoices(invoice_id) ON DELETE RESTRICT,
+    bank_code VARCHAR(20) NOT NULL,                         -- Mã ngân hàng của khoản vay (ràng buộc cùng TCTD)
+    contract_number VARCHAR(50) NOT NULL,                   -- Số khế ước nhận nợ / hợp đồng tín dụng
+    allocated_amount DECIMAL(18, 2) NOT NULL,               -- Số tiền nhận nợ trên hóa đơn này
+    allocation_date DATE NOT NULL DEFAULT CURRENT_DATE,     -- Ngày phân bổ nhận nợ
+    notes TEXT,                                             -- Ghi chú phân bổ
+    created_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    
+    CONSTRAINT uq_loan_invoice_allocation UNIQUE (loan_id, invoice_id),
+    CONSTRAINT chk_allocation_positive_amount CHECK (allocated_amount > 0)
+);
+
+CREATE INDEX idx_alloc_loan_id ON loan_invoice_allocations(loan_id);
+CREATE INDEX idx_alloc_invoice_id ON loan_invoice_allocations(invoice_id);
+CREATE INDEX idx_alloc_bank_code ON loan_invoice_allocations(bank_code);
+
+-- =============================================================================
+-- 13.3 BẢNG HỒ SƠ GIẢI NGÂN CÁC LOẠI TÀI LIỆU KHÁC (DISBURSEMENT DOCUMENTS)
+-- Quản lý các chứng từ phi hóa đơn (Hợp đồng, Khế ước, Biên bản giao nhận, Đề nghị giải ngân, UNC...)
 -- =============================================================================
 CREATE TABLE disbursement_documents (
     document_id BIGSERIAL PRIMARY KEY,
     document_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
     loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE CASCADE,
+    invoice_id BIGINT REFERENCES invoices(invoice_id) ON DELETE SET NULL, -- Liên kết tùy chọn sang kho hóa đơn
     file_name VARCHAR(255) NOT NULL,                        -- Tên file tài liệu gốc (.pdf, .xml, .jpg, .docx...)
     storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: disbursement_dossiers/{bank}/{contract}/{uuid}_{name}
     file_size_bytes BIGINT NOT NULL,                        -- Kích thước file (bytes)
@@ -428,9 +539,9 @@ CREATE TABLE disbursement_documents (
     -- 'CONTRACT', 'DISBURSEMENT_RECORD', 'DEBT_NOTE', 'INVOICE', 'COLLATERAL', 'APPROVAL', 'OTHER'
     description TEXT,                                       -- Mô tả hoặc ghi chú chứng từ
     
-    -- Đặc tả Siêu dữ liệu Hóa đơn Điện tử XML (US-07.10)
+    -- Đặc tả Siêu dữ liệu Hóa đơn Điện tử (nếu có)
     invoice_number VARCHAR(50),                             -- Số hóa đơn điện tử (<SHDon>)
-    invoice_series VARCHAR(20),                             -- Ký hiệu hóa đơn điện tử (<KHHDon>: 1C24TLL...)
+    invoice_series VARCHAR(20),                             -- Ký hiệu hóa đơn điện tử (<KHHDon>)
     invoice_issue_date DATE,                                -- Ngày lập hóa đơn (<NLap>)
     seller_tax_code VARCHAR(50),                            -- MST bên bán
     seller_name VARCHAR(255),                               -- Tên bên bán
@@ -450,6 +561,7 @@ CREATE INDEX idx_disburse_docs_loan_id ON disbursement_documents(loan_id);
 CREATE INDEX idx_disburse_docs_uuid ON disbursement_documents(document_uuid);
 CREATE INDEX idx_disburse_docs_invoice ON disbursement_documents(invoice_number);
 CREATE INDEX idx_disburse_docs_status ON disbursement_documents(verification_status);
+CREATE INDEX idx_disburse_docs_invoice_fk ON disbursement_documents(invoice_id);
 
 -- =============================================================================
 -- 14. BẢNG NHẬT KÝ ĐỐI SOÁT & LỊCH SỬ TRẢ NỢ (LOAN REPAYMENT HISTORY)

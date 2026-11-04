@@ -51,7 +51,9 @@ flowchart TD
         Table_Rules["classification_rules & categories"]
         Table_Cash["cash_ledger"]
         Table_CreditFiles["credit_statement_files"]
-        Table_CreditFac["credit_facilities, credit_statement_items & disbursement_documents"]
+        Table_CreditFac["credit_facilities, credit_statement_items & loan_invoice_allocations"]
+        Table_Invoices["invoices & invoice_items (Kho HĐĐT độc lập)"]
+        Table_DisburseDocs["disbursement_documents (Hồ sơ giải ngân khác)"]
         Table_Audit["audit_logs"]
         View_CFO["v_cfo_daily_liquidity & v_cfo_debt_obligations"]
     end
@@ -168,7 +170,10 @@ Cơ sở dữ liệu được tổ chức theo chuẩn **PostgreSQL 15+**, tuân
 | **`credit_statement_files`** | Quản lý file sao kê tín dụng gốc, metadata tổng dư nợ và trạng thái đối soát | `file_id (PK)`, `file_sha256 (UNIQUE)` |
 | **`credit_facilities`** | Danh mục hợp đồng vay & khế ước LD hiện hành, lịch trả nợ gốc/lãi, hình thức trả lãi, lãi tính theo TT14/2017 | `loan_id (PK)`, `UNIQUE(bank_code, contract_number)` |
 | **`credit_statement_items`** | Chi tiết từng khế ước vay bóc tách theo file sao kê tín dụng | `item_id (PK)`, `file_id (FK)`, `loan_id (FK)` |
-| **`disbursement_documents`** | Quản lý bộ hồ sơ giải ngân của từng khoản vay lưu tại Object Storage (MinIO On-Premise) | `document_id (PK)`, `document_uuid (UK)`, `loan_id (FK)` |
+| **`invoices`** | Kho hóa đơn điện tử độc lập của doanh nghiệp, bóc tách XML và liên kết file PDF tương ứng | `invoice_id (PK)`, `invoice_uuid (UK)`, `UNIQUE(seller_tax_code, invoice_series, invoice_number)` |
+| **`invoice_items`** | Chi tiết danh mục hàng hóa, dịch vụ và thuế suất bóc tách từ hóa đơn XML | `item_id (PK)`, `invoice_id (FK)` |
+| **`loan_invoice_allocations`** | Phân bổ hóa đơn bảo đảm nhận nợ khoản vay (ràng buộc bằng đúng gốc vay ban đầu, cùng một TCTD) | `allocation_id (PK)`, `loan_id (FK)`, `invoice_id (FK)`, `UNIQUE(loan_id, invoice_id)` |
+| **`disbursement_documents`** | Quản lý bộ hồ sơ giải ngân các chứng từ khác (Hợp đồng, khế ước, biên bản...) lưu tại Object Storage | `document_id (PK)`, `document_uuid (UK)`, `loan_id (FK)`, `invoice_id (FK)` |
 | **`v_cfo_daily_liquidity`** | View tổng hợp tồn quỹ ngân hàng hợp nhất hôm nay (2 khối NH) | View tổng hợp phục vụ CFO |
 | **`v_cfo_debt_obligations`** | View tổng hợp nghĩa vụ nợ tín dụng và lịch trả nợ theo ngân hàng | View phục vụ giám sát Thanh khoản Ròng |
 

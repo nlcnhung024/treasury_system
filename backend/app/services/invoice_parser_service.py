@@ -23,156 +23,8 @@ def clean_xml_tag(tag: str) -> str:
     return tag
 
 
-def parse_xml_invoice_bytes(xml_bytes: bytes) -> Dict[str, Any]:
-    """
-    Bóc tách dữ liệu hóa đơn điện tử XML.
-    Hỗ trợ chuẩn Tổng cục Thuế (NĐ 123 / TT 78) và các nhà cung cấp giải pháp (VNPT, Viettel, MISA, BKAV, FPT, CMC,...).
-    
-    Returns dict:
-        {
-            "invoice_number": str or None,
-            "invoice_series": str or None,
-            "invoice_date": str or None,
-            "seller_name": str or None,
-            "seller_tax_code": str or None,
-            "buyer_name": str or None,
-            "buyer_tax_code": str or None,
-            "total_amount": Decimal or None,
-            "currency": str,
-            "is_valid_invoice": bool
-        }
-    """
-    result: Dict[str, Any] = {
-        "invoice_number": None,
-        "invoice_series": None,
-        "invoice_date": None,
-        "seller_name": None,
-        "seller_tax_code": None,
-        "buyer_name": None,
-        "buyer_tax_code": None,
-        "total_amount": None,
-        "currency": "VND",
-        "is_valid_invoice": False,
-    }
-
-    try:
-        # Decode sang text trước để xử lý encoding declaration nếu có
-        try:
-            xml_text = xml_bytes.decode("utf-8")
-        except UnicodeDecodeError:
-            try:
-                xml_text = xml_bytes.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                xml_text = xml_bytes.decode("latin-1")
-
-        # Parse XML tree
-        root = ET.fromstring(xml_text.encode("utf-8"))
-    except Exception as e:
-        logger.warning(f"Lỗi khi parse XML hóa đơn: {e}")
-        return result
-
-    # Duyệt qua toàn bộ node để tìm các trường quan trọng (case-insensitive & namespace-agnostic)
-    nodes_by_tag: Dict[str, List[str]] = {}
-    for elem in root.iter():
-        tag_clean = clean_xml_tag(elem.tag).strip().upper()
-        text_val = (elem.text or "").strip()
-        if text_val:
-            if tag_clean not in nodes_by_tag:
-                nodes_by_tag[tag_clean] = []
-            nodes_by_tag[tag_clean].append(text_val)
-
-    # 1. Bóc tách số hóa đơn (SHDon / InvoiceNumber / SoHoaDon / InvNum)
-    invoice_number = None
-    for candidate in ["SHDON", "INVOICENUMBER", "SOHOADON", "INVNUM", "INVOICENO", "SHD"]:
-        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-            invoice_number = nodes_by_tag[candidate][0]
-            break
-
-    # 2. Bóc tách ký hiệu hóa đơn (KHHDon / InvoiceSeries / MauSo / KHMSHDon)
-    invoice_series = None
-    for candidate in ["KHHDON", "INVOICESERIES", "SERIES", "KHMSHDON"]:
-        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-            invoice_series = nodes_by_tag[candidate][0]
-            break
-
-    # 3. Bóc tách ngày lập hóa đơn (NLap / IssueDate / NgayLap)
-    invoice_date = None
-    for candidate in ["NLAP", "ISSUEDATE", "NGAYLAP", "INVOICEDATE", "DATE"]:
-        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-            invoice_date = nodes_by_tag[candidate][0]
-            break
-
-    # 4. Bóc tách tổng số tiền thanh toán (TgTTTBSo / TotalPayment / TgTToan / TongTienThanhToan)
-    total_amount: Optional[Decimal] = None
-    total_candidates = [
-        "TGTTTBSO",
-        "TOTALPAYMENT",
-        "TGTTOAN",
-        "TONGTIENTHANHTOAN",
-        "TOTALAMOUNT",
-        "AMOUNT",
-        "SUMAMOUNT",
-    ]
-    for candidate in total_candidates:
-        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-            raw_val = nodes_by_tag[candidate][0]
-            parsed_dec = clean_numeric_string(raw_val)
-            if parsed_dec is not None and parsed_dec > 0:
-                total_amount = parsed_dec
-                break
-
-    # Nếu chưa tìm thấy tổng tiền, thử cộng tiền chưa thuế (TgTCThue) + tiền thuế (TgTThue)
-    if total_amount is None:
-        amount_pre_tax = None
-        tax_amount = None
-        for candidate in ["TGTCTHUE", "TOTALTAXABLEAMOUNT", "SUBTOTAL"]:
-            if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-                amount_pre_tax = clean_numeric_string(nodes_by_tag[candidate][0])
-                break
-        for candidate in ["TGTTHUE", "TOTALVATAMOUNT", "TAXAMOUNT"]:
-            if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-                tax_amount = clean_numeric_string(nodes_by_tag[candidate][0])
-                break
-        if amount_pre_tax is not None:
-            total_amount = amount_pre_tax + (tax_amount or Decimal("0.00"))
-
-    # 5. Tiền tệ (DVTTe)
-    currency = "VND"
-    if "DVTTE" in nodes_by_tag and nodes_by_tag["DVTTE"]:
-        currency = nodes_by_tag["DVTTE"][0].upper()
-    elif "CURRENCY" in nodes_by_tag and nodes_by_tag["CURRENCY"]:
-        currency = nodes_by_tag["CURRENCY"][0].upper()
-
-    # 6. Người bán & Người mua
-    seller_name = None
-    if "NBAN" in nodes_by_tag:
-        seller_name = nodes_by_tag["NBAN"][0]
-    elif "TEN" in nodes_by_tag and len(nodes_by_tag["TEN"]) > 0:
-        seller_name = nodes_by_tag["TEN"][0]
-
-    seller_tax_code = None
-    for candidate in ["MST", "TAXCODE"]:
-        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
-            seller_tax_code = nodes_by_tag[candidate][0]
-            break
-
-    is_valid = bool(invoice_number or (total_amount is not None and total_amount > 0))
-
-    result.update({
-        "invoice_number": invoice_number,
-        "invoice_series": invoice_series,
-        "invoice_date": invoice_date,
-        "seller_name": seller_name,
-        "seller_tax_code": seller_tax_code,
-        "total_amount": total_amount,
-        "currency": currency,
-        "is_valid_invoice": is_valid,
-    })
-    return result
-
-
 def clean_numeric_string(raw: str) -> Optional[Decimal]:
-    """Chuyển chuỗi số dạng 1.489.259.199 hoặc 1489259199.00 thành Decimal."""
+    """Chuyển chuỗi số dạng 1.489.259.199 hoặc 1489259199.00 hoặc 19398960 thành Decimal."""
     if not raw:
         return None
     val = raw.strip().replace(" ", "")
@@ -192,7 +44,7 @@ def clean_numeric_string(raw: str) -> Optional[Decimal]:
         else:
             val = val.replace(",", "")
     
-    # Loại bỏ ký tự không phải số hoặc dấu chấm
+    # Loại bỏ ký tự không phải số hoặc dấu chấm/dấu trừ
     val = re.sub(r"[^\d.-]", "", val)
     if not val:
         return None
@@ -200,6 +52,256 @@ def clean_numeric_string(raw: str) -> Optional[Decimal]:
         return Decimal(val)
     except (InvalidOperation, ValueError):
         return None
+
+
+def parse_xml_invoice_bytes(xml_bytes: bytes) -> Dict[str, Any]:
+    """
+    Bóc tách dữ liệu hóa đơn điện tử XML toàn diện.
+    Hỗ trợ chuẩn Tổng cục Thuế (NĐ 123 / TT 78) và các nhà cung cấp giải pháp (VNPT, Viettel, MISA, BKAV, FPT, CMC,...).
+    
+    Returns dict:
+        {
+            "invoice_number": str or None,
+            "invoice_series": str or None,
+            "invoice_template": str or "1",
+            "invoice_date": str or None,
+            "tax_authority_code": str or None,
+            "seller_name": str or None,
+            "seller_tax_code": str or None,
+            "seller_address": str or None,
+            "buyer_name": str or None,
+            "buyer_tax_code": str or None,
+            "buyer_address": str or None,
+            "currency": str,
+            "exchange_rate": Decimal,
+            "subtotal_amount": Decimal,
+            "tax_amount": Decimal,
+            "total_amount": Decimal or None,
+            "items": list of dict,
+            "is_valid_invoice": bool
+        }
+    """
+    result: Dict[str, Any] = {
+        "invoice_number": None,
+        "invoice_series": None,
+        "invoice_template": "1",
+        "invoice_date": None,
+        "tax_authority_code": None,
+        "seller_name": None,
+        "seller_tax_code": None,
+        "seller_address": None,
+        "buyer_name": None,
+        "buyer_tax_code": None,
+        "buyer_address": None,
+        "currency": "VND",
+        "exchange_rate": Decimal("1.0000"),
+        "subtotal_amount": Decimal("0.00"),
+        "tax_amount": Decimal("0.00"),
+        "total_amount": None,
+        "items": [],
+        "is_valid_invoice": False,
+    }
+
+    try:
+        # Decode sang text trước để xử lý encoding declaration nếu có
+        try:
+            xml_text = xml_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                xml_text = xml_bytes.decode("utf-8-sig")
+            except UnicodeDecodeError:
+                xml_text = xml_bytes.decode("latin-1")
+
+        # Parse XML tree
+        root = ET.fromstring(xml_text.encode("utf-8"))
+    except Exception as e:
+        logger.warning(f"Lỗi khi parse XML hóa đơn: {e}")
+        return result
+
+    # 1. Tìm thông tin người bán (NBan) và người mua (NMua) theo cấu trúc chuẩn
+    for elem in root.iter():
+        tag = clean_xml_tag(elem.tag).strip().upper()
+        
+        # Mã cơ quan thuế (MCCQT)
+        if tag in ["MCCQT", "TAXAUTHORITYCODE", "MACOQUANTHUE"] and elem.text:
+            result["tax_authority_code"] = elem.text.strip()
+            
+        # Thông tin bên bán (NBan / Seller)
+        if tag in ["NBAN", "SELLER"]:
+            for child in elem:
+                c_tag = clean_xml_tag(child.tag).strip().upper()
+                c_text = (child.text or "").strip()
+                if c_tag in ["TEN", "NAME", "SELLERNAME"] and not result["seller_name"]:
+                    result["seller_name"] = c_text
+                elif c_tag in ["MST", "TAXCODE", "SELLERTAXCODE"] and not result["seller_tax_code"]:
+                    result["seller_tax_code"] = c_text
+                elif c_tag in ["DCHI", "ADDRESS", "SELLERADDRESS"] and not result["seller_address"]:
+                    result["seller_address"] = c_text
+
+        # Thông tin bên mua (NMua / Buyer)
+        if tag in ["NMUA", "BUYER"]:
+            for child in elem:
+                c_tag = clean_xml_tag(child.tag).strip().upper()
+                c_text = (child.text or "").strip()
+                if c_tag in ["TEN", "NAME", "BUYERNAME"] and not result["buyer_name"]:
+                    result["buyer_name"] = c_text
+                elif c_tag in ["MST", "TAXCODE", "BUYERTAXCODE"] and not result["buyer_tax_code"]:
+                    result["buyer_tax_code"] = c_text
+                elif c_tag in ["DCHI", "ADDRESS", "BUYERADDRESS"] and not result["buyer_address"]:
+                    result["buyer_address"] = c_text
+
+        # Danh sách hàng hóa (DSHHDVu -> HHDVu)
+        if tag in ["DSHHDVU", "ITEMS", "INVOICEDETAILS"]:
+            line_no = 1
+            for hhdvu in elem:
+                h_tag = clean_xml_tag(hhdvu.tag).strip().upper()
+                if h_tag in ["HHDVU", "ITEM", "ROW"]:
+                    item_data: Dict[str, Any] = {
+                        "line_number": line_no,
+                        "item_name": "",
+                        "unit": "",
+                        "quantity": None,
+                        "unit_price": None,
+                        "subtotal": Decimal("0.00"),
+                        "tax_rate": "8%",
+                        "tax_amount": Decimal("0.00"),
+                    }
+                    for field in hhdvu:
+                        f_tag = clean_xml_tag(field.tag).strip().upper()
+                        f_text = (field.text or "").strip()
+                        if f_tag in ["STT", "LINENO"]:
+                            try:
+                                item_data["line_number"] = int(f_text)
+                            except ValueError:
+                                pass
+                        elif f_tag in ["THHDVU", "ITEMNAME", "NAME"]:
+                            item_data["item_name"] = f_text
+                        elif f_tag in ["DVTINH", "UNIT"]:
+                            item_data["unit"] = f_text
+                        elif f_tag in ["SLUONG", "QUANTITY"]:
+                            item_data["quantity"] = clean_numeric_string(f_text)
+                        elif f_tag in ["DGIA", "UNITPRICE", "PRICE"]:
+                            item_data["unit_price"] = clean_numeric_string(f_text)
+                        elif f_tag in ["THTIEN", "AMOUNT", "TOTAL"]:
+                            amt = clean_numeric_string(f_text)
+                            if amt is not None:
+                                item_data["subtotal"] = amt
+                        elif f_tag in ["TSUAT", "TAXRATE"]:
+                            item_data["tax_rate"] = f_text
+
+                    if item_data["item_name"] or item_data["subtotal"] > 0:
+                        result["items"].append(item_data)
+                        line_no += 1
+
+    # Duyệt qua toàn bộ node để tìm các trường flat (fallback & tổng quát)
+    nodes_by_tag: Dict[str, List[str]] = {}
+    for elem in root.iter():
+        tag_clean = clean_xml_tag(elem.tag).strip().upper()
+        text_val = (elem.text or "").strip()
+        if text_val:
+            if tag_clean not in nodes_by_tag:
+                nodes_by_tag[tag_clean] = []
+            nodes_by_tag[tag_clean].append(text_val)
+
+    # 2. Bóc tách số hóa đơn (SHDon / InvoiceNumber / SoHoaDon / InvNum)
+    for candidate in ["SHDON", "INVOICENUMBER", "SOHOADON", "INVNUM", "INVOICENO", "SHD"]:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            result["invoice_number"] = nodes_by_tag[candidate][0]
+            break
+
+    # 3. Ký hiệu hóa đơn (KHHDon / InvoiceSeries / MauSo / Series)
+    for candidate in ["KHHDON", "INVOICESERIES", "SERIES"]:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            result["invoice_series"] = nodes_by_tag[candidate][0]
+            break
+
+    # 4. Mẫu số hóa đơn (KHMSHDon / InvoiceTemplate)
+    for candidate in ["KHMSHDON", "INVOICETEMPLATE", "MAUSO"]:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            result["invoice_template"] = nodes_by_tag[candidate][0]
+            break
+
+    # 5. Ngày lập hóa đơn (NLap / IssueDate / NgayLap)
+    for candidate in ["NLAP", "ISSUEDATE", "NGAYLAP", "INVOICEDATE", "DATE"]:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            result["invoice_date"] = nodes_by_tag[candidate][0]
+            break
+
+    # 6. Đơn vị tiền tệ & Tỷ giá
+    if "DVTTE" in nodes_by_tag and nodes_by_tag["DVTTE"]:
+        result["currency"] = nodes_by_tag["DVTTE"][0].upper()
+    elif "CURRENCY" in nodes_by_tag and nodes_by_tag["CURRENCY"]:
+        result["currency"] = nodes_by_tag["CURRENCY"][0].upper()
+
+    if "TGIA" in nodes_by_tag and nodes_by_tag["TGIA"]:
+        ex = clean_numeric_string(nodes_by_tag["TGIA"][0])
+        if ex:
+            result["exchange_rate"] = ex
+
+    # 7. Tổng tiền thanh toán (TgTTTBSo / TotalPayment / TgTToan)
+    total_candidates = [
+        "TGTTTBSO",
+        "TOTALPAYMENT",
+        "TGTTOAN",
+        "TONGTIENTHANHTOAN",
+        "TOTALAMOUNT",
+        "AMOUNT",
+        "SUMAMOUNT",
+    ]
+    for candidate in total_candidates:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            parsed_dec = clean_numeric_string(nodes_by_tag[candidate][0])
+            if parsed_dec is not None and parsed_dec > 0:
+                result["total_amount"] = parsed_dec
+                break
+
+    # Tiền chưa thuế (TgTCThue) & Tiền thuế (TgTThue)
+    for candidate in ["TGTCTHUE", "TOTALTAXABLEAMOUNT", "SUBTOTAL"]:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            sub = clean_numeric_string(nodes_by_tag[candidate][0])
+            if sub is not None:
+                result["subtotal_amount"] = sub
+                break
+
+    for candidate in ["TGTTHUE", "TOTALVATAMOUNT", "TAXAMOUNT"]:
+        if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+            tax = clean_numeric_string(nodes_by_tag[candidate][0])
+            if tax is not None:
+                result["tax_amount"] = tax
+                break
+
+    # Nếu chưa tìm thấy tổng tiền, thử cộng subtotal + tax
+    if result["total_amount"] is None:
+        if result["subtotal_amount"] > Decimal("0.00"):
+            result["total_amount"] = result["subtotal_amount"] + result["tax_amount"]
+
+    # Fallback cho Bên bán / Bên mua nếu chưa có
+    if not result["seller_name"]:
+        if "NBAN" in nodes_by_tag and nodes_by_tag["NBAN"]:
+            result["seller_name"] = nodes_by_tag["NBAN"][0]
+        elif "TEN" in nodes_by_tag and len(nodes_by_tag["TEN"]) > 0:
+            result["seller_name"] = nodes_by_tag["TEN"][0]
+
+    if not result["seller_tax_code"]:
+        for candidate in ["MST", "TAXCODE"]:
+            if candidate in nodes_by_tag and nodes_by_tag[candidate]:
+                result["seller_tax_code"] = nodes_by_tag[candidate][0]
+                break
+
+    if not result["buyer_name"]:
+        if "NMUA" in nodes_by_tag and nodes_by_tag["NMUA"]:
+            result["buyer_name"] = nodes_by_tag["NMUA"][0]
+        elif "TEN" in nodes_by_tag and len(nodes_by_tag["TEN"]) > 1:
+            result["buyer_name"] = nodes_by_tag["TEN"][1]
+
+    if not result["buyer_tax_code"]:
+        if "MST" in nodes_by_tag and len(nodes_by_tag["MST"]) > 1:
+            result["buyer_tax_code"] = nodes_by_tag["MST"][1]
+
+    result["is_valid_invoice"] = bool(
+        result["invoice_number"] or (result["total_amount"] is not None and result["total_amount"] > 0)
+    )
+    return result
 
 
 def calculate_loan_invoice_reconciliation(

@@ -40,6 +40,8 @@ tags:
     description: Truy vết nhật ký kiểm toán bất biến phục vụ an toàn thông tin và kiểm toán kế toán
   - name: Credit Statements & Loans
     description: Tiếp nhận file sao kê tín dụng, bóc tách khế ước LD, đối soát dư nợ và quản trị lịch trả nợ vay
+  - name: Invoices Management
+    description: Kho hóa đơn điện tử độc lập của doanh nghiệp, ghép cặp XML-PDF và phân bổ nhận nợ cho khoản vay (US-07.10)
 
 paths:
   # ===========================================================================
@@ -1805,6 +1807,306 @@ paths:
                       $ref: '#/components/schemas/UnreconciledDebtTransactionItem'
                   total_count:
                     type: integer
+
+  # ===========================================================================
+  # 12. PHÂN HỆ QUẢN LÝ KHO HÓA ĐƠN & PHÂN BỔ NHẬN NỢ (INVOICES & ALLOCATIONS)
+  # ===========================================================================
+  /invoices/upload:
+    post:
+      summary: Nạp và bóc tách hóa đơn XML độc lập kèm tùy chọn file PDF
+      tags:
+        - Invoices Management
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - xml_file
+              properties:
+                xml_file:
+                  type: string
+                  format: binary
+                  description: File XML hóa đơn điện tử (NĐ 123 / TT 78)
+                pdf_file:
+                  type: string
+                  format: binary
+                  description: File PDF hóa đơn tương ứng (tùy chọn)
+      responses:
+        '201':
+          description: Bóc tách và lưu trữ hóa đơn thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '400':
+          description: File không hợp lệ hoặc lỗi bóc tách XML
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /invoices/upload-batch:
+    post:
+      summary: Nạp gói ZIP hóa đơn và tự động ghép cặp XML-PDF
+      tags:
+        - Invoices Management
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - zip_file
+              properties:
+                zip_file:
+                  type: string
+                  format: binary
+                  description: File ZIP chứa các file XML và PDF (tự động ghép cặp theo tên cơ sở)
+      responses:
+        '201':
+          description: Nạp gói hóa đơn thành công
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InvoiceResponse'
+
+  /invoices/{invoice_id}/attach-pdf:
+    post:
+      summary: Bổ sung file PDF liên kết cho hóa đơn đã có sẵn
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - pdf_file
+              properties:
+                pdf_file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Đã gắn file PDF thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+
+  /invoices/sync-from-loans:
+    post:
+      tags:
+        - Invoices Management
+      summary: Đồng bộ hóa đơn từ hồ sơ giải ngân các khoản vay vào kho
+      description: Quét toàn bộ hồ sơ giải ngân (disbursement_documents). Nếu phát hiện file hóa đơn (XML/PDF) chưa có trong kho, tự động bóc tách và nạp bổ sung vào kho, đồng thời liên kết 2 chiều.
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Kết quả đồng bộ thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncInvoicesFromLoansResponse'
+
+  /invoices:
+    get:
+      summary: Lấy danh sách Bảng thống kê hóa đơn mà doanh nghiệp hiện có
+      tags:
+        - Invoices Management
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [AVAILABLE, PARTIALLY_ALLOCATED, FULLY_ALLOCATED]
+        - name: locked_bank_code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Danh sách hóa đơn kèm tổng hợp giá trị và hạn mức
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+
+  /invoices/{invoice_id}:
+    get:
+      summary: Xem chi tiết hóa đơn kèm mặt hàng và lịch sử nhận nợ
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Chi tiết hóa đơn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+
+  /invoices/{invoice_id}/download-pdf:
+    get:
+      summary: Tải hoặc xem trực quan file PDF của hóa đơn
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: File PDF nhị phân
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /invoices/{invoice_id}/download-xml:
+    get:
+      summary: Tải file XML hóa đơn gốc
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: File XML
+          content:
+            application/xml:
+              schema:
+                type: string
+                format: binary
+
+  /invoices/{invoice_id}:
+    delete:
+      summary: Xóa hóa đơn khỏi kho dữ liệu (chỉ áp dụng nếu chưa nhận nợ)
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Xóa thành công
+
+  /loans/{loan_id}/allocate-invoices:
+    post:
+      summary: Phân bổ hóa đơn bảo đảm nhận nợ cho khoản vay
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: strict_principal_check
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanBatchAllocationRequest'
+      responses:
+        '200':
+          description: Kết quả phân bổ nhận nợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanAllocatedInvoicesResponse'
+
+  /loans/{loan_id}/allocated-invoices:
+    get:
+      summary: Xem danh sách hóa đơn và số tiền nhận nợ đang bảo đảm cho khoản vay
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Danh sách hóa đơn nhận nợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanAllocatedInvoicesResponse'
+
+  /loans/{loan_id}/allocated-invoices/{allocation_id}:
+    delete:
+      summary: Hủy phân bổ hóa đơn khỏi khoản vay và hoàn lại hạn mức
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: allocation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Hủy phân bổ thành công
                   total_unreconciled_amount:
                     type: number
                     format: decimal
@@ -1971,6 +2273,290 @@ paths:
                       $ref: '#/components/schemas/LoanRepaymentHistoryItem'
                   total_count:
                     type: integer
+
+  # ===========================================================================
+  # 12. PHÂN HỆ QUẢN LÝ KHO HÓA ĐƠN & PHÂN BỔ NHẬN NỢ (INVOICES & ALLOCATIONS)
+  # ===========================================================================
+  /invoices/upload:
+    post:
+      summary: Nạp và bóc tách hóa đơn XML độc lập kèm tùy chọn file PDF
+      tags:
+        - Invoices Management
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - xml_file
+              properties:
+                xml_file:
+                  type: string
+                  format: binary
+                  description: File XML hóa đơn điện tử (NĐ 123 / TT 78)
+                pdf_file:
+                  type: string
+                  format: binary
+                  description: File PDF hóa đơn tương ứng (tùy chọn)
+      responses:
+        '201':
+          description: Bóc tách và lưu trữ hóa đơn thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+        '400':
+          description: File không hợp lệ hoặc lỗi bóc tách XML
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /invoices/upload-batch:
+    post:
+      summary: Nạp gói ZIP hóa đơn và tự động ghép cặp XML-PDF
+      tags:
+        - Invoices Management
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - zip_file
+              properties:
+                zip_file:
+                  type: string
+                  format: binary
+                  description: File ZIP chứa các file XML và PDF (tự động ghép cặp theo tên cơ sở)
+      responses:
+        '201':
+          description: Nạp gói hóa đơn thành công
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/InvoiceResponse'
+
+  /invoices/{invoice_id}/attach-pdf:
+    post:
+      summary: Bổ sung file PDF liên kết cho hóa đơn đã có sẵn
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - pdf_file
+              properties:
+                pdf_file:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Đã gắn file PDF thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+
+  /invoices:
+    get:
+      summary: Lấy danh sách Bảng thống kê hóa đơn mà doanh nghiệp hiện có
+      tags:
+        - Invoices Management
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [AVAILABLE, PARTIALLY_ALLOCATED, FULLY_ALLOCATED]
+        - name: locked_bank_code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Danh sách hóa đơn kèm tổng hợp giá trị và hạn mức
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceListResponse'
+
+  /invoices/{invoice_id}:
+    get:
+      summary: Xem chi tiết hóa đơn kèm mặt hàng và lịch sử nhận nợ
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Chi tiết hóa đơn
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvoiceResponse'
+
+  /invoices/{invoice_id}/download-pdf:
+    get:
+      summary: Tải hoặc xem trực quan file PDF của hóa đơn
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: File PDF nhị phân
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /invoices/{invoice_id}/download-xml:
+    get:
+      summary: Tải file XML hóa đơn gốc
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: File XML
+          content:
+            application/xml:
+              schema:
+                type: string
+                format: binary
+
+  /invoices/{invoice_id}:
+    delete:
+      summary: Xóa hóa đơn khỏi kho dữ liệu (chỉ áp dụng nếu chưa nhận nợ)
+      tags:
+        - Invoices Management
+      parameters:
+        - name: invoice_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Xóa thành công
+
+  /loans/{loan_id}/allocate-invoices:
+    post:
+      summary: Phân bổ hóa đơn bảo đảm nhận nợ cho khoản vay
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: strict_principal_check
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanBatchAllocationRequest'
+      responses:
+        '200':
+          description: Kết quả phân bổ nhận nợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanAllocatedInvoicesResponse'
+
+  /loans/{loan_id}/allocated-invoices:
+    get:
+      summary: Xem danh sách hóa đơn và số tiền nhận nợ đang bảo đảm cho khoản vay
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Danh sách hóa đơn nhận nợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanAllocatedInvoicesResponse'
+
+  /loans/{loan_id}/allocated-invoices/{allocation_id}:
+    delete:
+      summary: Hủy phân bổ hóa đơn khỏi khoản vay và hoàn lại hạn mức
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: allocation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Hủy phân bổ thành công
 
 # =============================================================================
 # THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
@@ -3787,3 +4373,246 @@ components:
           nullable: true
 
 
+
+    InvoiceItemResponse:
+      type: object
+      properties:
+        item_id:
+          type: integer
+        line_number:
+          type: integer
+        item_name:
+          type: string
+        unit:
+          type: string
+          nullable: true
+        quantity:
+          type: number
+          nullable: true
+        unit_price:
+          type: number
+          nullable: true
+        subtotal:
+          type: number
+        tax_rate:
+          type: string
+          nullable: true
+        tax_amount:
+          type: number
+
+    LoanAllocationItemResponse:
+      type: object
+      properties:
+        allocation_id:
+          type: integer
+        loan_id:
+          type: integer
+        invoice_id:
+          type: integer
+        bank_code:
+          type: string
+        contract_number:
+          type: string
+        allocated_amount:
+          type: number
+        allocation_date:
+          type: string
+          format: date
+        notes:
+          type: string
+          nullable: true
+        invoice_number:
+          type: string
+          nullable: true
+        invoice_series:
+          type: string
+          nullable: true
+        seller_name:
+          type: string
+          nullable: true
+        total_invoice_amount:
+          type: number
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    InvoiceResponse:
+      type: object
+      properties:
+        invoice_id:
+          type: integer
+        invoice_uuid:
+          type: string
+          format: uuid
+        entity_id:
+          type: integer
+          nullable: true
+        invoice_number:
+          type: string
+        invoice_series:
+          type: string
+        invoice_template:
+          type: string
+        invoice_date:
+          type: string
+          format: date
+        tax_authority_code:
+          type: string
+          nullable: true
+        seller_tax_code:
+          type: string
+        seller_name:
+          type: string
+        seller_address:
+          type: string
+          nullable: true
+        buyer_tax_code:
+          type: string
+        buyer_name:
+          type: string
+        buyer_address:
+          type: string
+          nullable: true
+        currency:
+          type: string
+        exchange_rate:
+          type: number
+        subtotal_amount:
+          type: number
+        tax_amount:
+          type: number
+        total_amount:
+          type: number
+        allocated_amount:
+          type: number
+        remaining_amount:
+          type: number
+        locked_bank_code:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [AVAILABLE, PARTIALLY_ALLOCATED, FULLY_ALLOCATED]
+        xml_file_name:
+          type: string
+          nullable: true
+        pdf_file_name:
+          type: string
+          nullable: true
+        has_pdf:
+          type: boolean
+        note:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+          nullable: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceItemResponse'
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanAllocationItemResponse'
+
+    InvoiceListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceResponse'
+        total:
+          type: integer
+        total_value:
+          type: number
+        total_allocated:
+          type: number
+        total_remaining:
+          type: number
+
+    SingleAllocationItem:
+      type: object
+      required:
+        - invoice_id
+        - allocated_amount
+      properties:
+        invoice_id:
+          type: integer
+        allocated_amount:
+          type: number
+        notes:
+          type: string
+          nullable: true
+
+    LoanBatchAllocationRequest:
+      type: object
+      required:
+        - allocations
+      properties:
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/SingleAllocationItem'
+
+    SyncInvoicesFromLoansResponse:
+      type: object
+      required:
+        - total_scanned_documents
+        - total_xml_found
+        - newly_added_invoices
+        - already_existing_invoices
+        - linked_documents_count
+        - total_value_added
+        - message
+      properties:
+        total_scanned_documents:
+          type: integer
+          example: 152
+        total_xml_found:
+          type: integer
+          example: 67
+        newly_added_invoices:
+          type: integer
+          example: 64
+        already_existing_invoices:
+          type: integer
+          example: 3
+        linked_documents_count:
+          type: integer
+          example: 134
+        total_value_added:
+          type: number
+          format: float
+          example: 15555189471.00
+        message:
+          type: string
+          example: "Đồng bộ thành công: Đã thêm mới 64 hóa đơn vào kho..."
+
+    LoanAllocatedInvoicesResponse:
+      type: object
+      properties:
+        loan_id:
+          type: integer
+        contract_number:
+          type: string
+        bank_code:
+          type: string
+        original_principal_balance:
+          type: number
+        total_allocated_amount:
+          type: number
+        difference_amount:
+          type: number
+        is_fully_secured:
+          type: boolean
+        status_message:
+          type: string
+        allocations:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanAllocationItemResponse'

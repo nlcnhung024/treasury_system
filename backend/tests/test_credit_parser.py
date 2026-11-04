@@ -250,7 +250,15 @@ async def test_vietinbank_interest_payment_monthly_day_5():
     """
     import uuid
     from httpx import AsyncClient, ASGITransport
+    from sqlalchemy import delete
     from app.main import app
+    from app.core.database import AsyncSessionLocal
+    from app.models.credit import CreditFacility
+
+    # Dọn dẹp trước để không rò rỉ dữ liệu test ra CSDL
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete(CreditFacility).where(CreditFacility.contract_number.ilike("CTG-TEST-%")))
+        await session.commit()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -298,6 +306,9 @@ async def test_vietinbank_interest_payment_monthly_day_5():
             assert Decimal(str(upd_data["accrued_interest"])) < Decimal(str(created["accrued_interest"]))
         finally:
             await ac.delete(f"/api/v1/loans/{new_loan_id}")
+            async with AsyncSessionLocal() as session:
+                await session.execute(delete(CreditFacility).where(CreditFacility.contract_number.ilike("CTG-TEST-%")))
+                await session.commit()
 
 
 
