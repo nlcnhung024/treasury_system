@@ -98,20 +98,30 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 - **Băm Chống trùng Dòng Giao dịch (6-Tuple Canonical Hash):**
   $$\text{dedup\_hash} = \text{SHA256}(\text{account\_number} \parallel \text{"|"} \parallel \text{trans\_date\_iso} \parallel \text{"|"} \parallel \text{debit} \parallel \text{"|"} \parallel \text{credit} \parallel \text{"|"} \parallel \text{ref\_no} \parallel \text{"|"} \parallel \text{running\_balance})$$
   Phân biệt chính xác $100\%$ các giao dịch tách Phí/VAT có cùng mã tham chiếu và cùng giây giao dịch.
+- **Đối soát Sao kê Tín dụng & Động cơ Hoàn nguyên Gốc (Pre/Post Snapshot Reconciliation Engine):**
+  - Cột "Dư nợ hiện tại" trên file sao kê ngân hàng là Dư nợ tại thời điểm xuất file ($T_{\text{snapshot}}$ - `statement_date`), không phải dư nợ ban đầu lúc giải ngân.
+  - Giao dịch chi trả nợ trước/tại ngày xuất file ($T_{\text{tx}} \le T_{\text{snapshot}}$): Hệ thống không giảm trừ tiếp vào Dư nợ snapshot (chống trừ 2 lần), mà hoàn nguyên tăng Dư nợ ban đầu: $\text{original\_principal\_balance} = \text{snapshot\_balance} + \sum \text{repaid\_before}$.
+  - Giao dịch chi trả nợ sau ngày xuất file ($T_{\text{tx}} > T_{\text{snapshot}}$): Hệ thống giảm trừ trực tiếp vào Dư nợ hiện tại: $\text{current\_principal\_balance} = \text{snapshot\_balance} - \sum \text{repaid\_after}$.
+  - Đẳng thức bảo toàn tuyệt đối: $\text{current\_principal\_balance} = \text{original\_principal\_balance} - \text{total\_repaid\_principal}$.
 
-### Phân hệ 5: Lưu trữ Cơ sở Dữ liệu Quan hệ (Database Persistence - 3NF)
-- Cơ sở dữ liệu PostgreSQL 15+ chuẩn hóa 3NF, lưu trữ 10 bảng và view nghiệp vụ:
-  1. `bank_accounts`: Danh mục tài khoản ngân hàng và tài khoản ủy quyền CEO.
-  2. `bank_statement_files`: Metadata file sao kê tài khoản và trạng thái đối soát.
-  3. `bank_transactions`: Dòng giao dịch chi tiết, đối tượng thụ hưởng/chuyển (`counter_party`), cờ khóa ghi đè, ghi chú nội bộ.
-  4. `categories`: Danh mục Thu/Chi do người dùng tự tạo trên giao diện.
-  5. `classification_rules`: Bộ quy tắc từ khóa kết hợp điều kiện đa trường (AND/OR).
-  6. `cash_ledger`: Sổ theo dõi dòng tiền mặt đối ứng từ TK MBBank của CEO.
-  7. `audit_logs`: Nhật ký kiểm toán bất biến (Trigger cấm UPDATE/DELETE).
-  8. `credit_statement_files`: Metadata file sao kê tín dụng và kết quả đối soát dư nợ.
-  9. `credit_facilities`: Danh mục hợp đồng vay và khế ước LD hiện hành.
-  10. `credit_statement_items`: Snapshot chi tiết từng khoản vay theo từng file sao kê.
-  11. View `v_cfo_daily_liquidity` & `v_cfo_debt_obligations`: Báo cáo hợp nhất tốc độ cao (< 100ms).
+### Phân hệ 5: Lưu trữ Cơ sở Dữ liệu Quan hệ (Database Persistence - 3NF+)
+- Cơ sở dữ liệu PostgreSQL 15+ chuẩn hóa 3NF+, lưu trữ các bảng và view nghiệp vụ:
+  1. `corporate_entities`: Danh mục pháp nhân doanh nghiệp (Multi-Entity / Multi-Tenant Isolation qua `tax_code`, `entity_code`).
+  2. `bank_accounts`: Danh mục tài khoản ngân hàng Khối 1 (Doanh nghiệp) và Khối 2 (Ủy quyền CEO).
+  3. `bank_statement_files`: Metadata file sao kê tài khoản, trạng thái đối soát và cờ lệch khoảng trống kỳ (`has_data_gap`).
+  4. `bank_transactions`: Dòng giao dịch chi tiết, đối tượng thụ hưởng/chuyển (`counter_party`), cờ khóa ghi đè, cờ điểm neo số dư (`is_anchor_point`).
+  5. `statement_anchor_points`: Lịch sử điều chỉnh điểm neo số dư lan truyền 2 chiều (US-04.9).
+  6. `categories`: Danh mục Thu/Chi do người dùng tự tạo trên giao diện.
+  7. `classification_rules`: Bộ quy tắc từ khóa kết hợp điều kiện đa trường (AND/OR).
+  8. `cash_ledger`: Sổ theo dõi dòng tiền mặt đối ứng từ TK MBBank của CEO.
+  9. `audit_logs`: Nhật ký kiểm toán bất biến (Trigger cấm UPDATE/DELETE).
+  10. `credit_statement_files`: Metadata file sao kê tín dụng và kết quả đối soát dư nợ.
+  11. `credit_facilities`: Danh mục hợp đồng vay và khế ước LD hiện hành (phân tách 3 cột dư nợ gốc).
+  12. `credit_statement_items`: Snapshot chi tiết từng khoản vay theo từng file sao kê.
+  13. `disbursement_documents`: Bộ hồ sơ giải ngân và bóc tách HĐĐT XML theo NĐ 123/TT 78 (US-07.10).
+  14. `loan_repayment_history`: Lịch sử đối soát chi trả nợ và giảm trừ nợ gốc (US-07.9).
+  15. `loan_repayment_plans` & `loan_repayment_plan_items`: Kịch bản kế hoạch trả nợ và điều phối dòng tiền tuần hoàn (US-07.8 / SRPR v2.0).
+  16. View `v_cfo_daily_liquidity`, `v_cfo_debt_obligations` & `v_cfo_net_liquidity_position`: Báo cáo hợp nhất tốc độ cao (< 100ms).
 
 ### Phân hệ 6: Trích xuất Báo cáo & Trực quan hóa (Reporting & Analytics)
 - **Bộ lọc đa chiều:** Theo khoảng ngày, tài khoản ngân hàng, loại thu/chi, khoảng số tiền, từ khóa nội dung diễn giải.
@@ -161,6 +171,10 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - Phân loại theo hình thức:
     - `MONTHLY`: Tính số lãi của kỳ tháng tới hạn dựa trên số ngày thực tế trong chu kỳ trả lãi hàng tháng (căn cứ theo `monthly_interest_due_day`).
     - `END_OF_TERM`: Tính tổng số lãi phải thanh toán vào ngày đáo hạn dựa trên số ngày thực tế từ ngày giải ngân đến ngày đáo hạn.
+  - **Cơ chế Lãi Cộng Dồn Tự Động Tính Bằng Hệ Thống (Auto-Calculated Accrued Interest):**
+    - Hệ thống tự động tính toán 100% số Lãi cộng dồn / dự trả (`accrued_interest`) theo quy định của Thông tư 14/2017/TT-NHNN (`Actual / 365`) dựa trên Dư nợ gốc hiện tại, Lãi suất, Hình thức trả nợ và Ngày chốt lãi.
+    - **Tuyệt đối không yêu cầu người dùng phải tự điền hoặc nhập tay số lãi cộng dồn**.
+    - Trên giao diện Form/Modal thêm mới hoặc sửa khoản vay, trường này hiển thị dưới dạng Read-Only / Computed Display trực quan kèm nhãn "Hệ thống tự tính", tự động nhảy số tức thời khi điều chỉnh dư nợ gốc, lãi suất, phương thức trả nợ hoặc ngày tính lãi.
 - **Liên Kết Bộ Hồ Sơ Giải Ngân Lưu Trữ Tại Object Storage:**
   - Mỗi khoản vay tín dụng bắt buộc liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage (MinIO On-Premise kết hợp Local Disk).
   - Đường dẫn lưu trữ chuẩn: `disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{sanitized_filename}`.
@@ -212,22 +226,44 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - Lịch đến hạn trả nợ gốc và lãi (trong 7 ngày, 30 ngày tới).
   - Tự động tính Lãi suất bình quân gia quyền của toàn bộ danh mục nợ vay.
   - Tích hợp số liệu vào CFO Dashboard phục vụ giám sát Thanh khoản Ròng.
+- **Màn hình Chi tiết khế ước (`/contract-details`):**
+  - Nằm dưới nhóm *Theo dõi khoản vay*. Bảng liệt kê toàn bộ khế ước với các cột: Ngân hàng, Số khế ước (kèm nút 1-chạm sao chép nhanh số khế ước vào clipboard), Dư nợ gốc, Tổng dư nợ gốc đã trả, Dư nợ gốc hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn.
+  - **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hỗ trợ thanh lọc chuyên sâu bên dưới từng tiêu đề cột (bật/tắt bằng nút *Lọc cột*, hiển thị số lượng bộ lọc đang kích hoạt và nút *Xóa lọc* 1-chạm):
+    - *Ngân hàng:* Dropdown chọn theo danh sách ngân hàng thực tế có trong hệ thống (VietinBank, MBBank, TPBank, VPBank,...).
+    - *Số khế ước:* Lọc nhanh theo chuỗi ký tự khế ước không phân biệt hoa thường.
+    - *Dư nợ gốc / Tổng gốc đã trả / Lãi ước tính / Tổng lãi đã trả:* Lọc linh hoạt theo số tiền (hỗ trợ nhập có hoặc không dấu chấm).
+    - *Dư nợ gốc hiện tại:* Dropdown lọc nhanh theo trạng thái nợ (*Tất cả nợ*, *Còn nợ (> 0)*, *Tất toán (= 0)*).
+    - *Lãi suất:* Lọc theo tỷ lệ phần trăm (vd: 8.5, 9.38).
+    - *Ngày giải ngân / Ngày đáo hạn:* Lọc linh hoạt theo ngày/tháng/năm (vd: 10/3, 2026).
+    - Badge đếm số lượng: *Hiển thị X / Y khế ước*.
+  - **Lãi ước tính** = Dư nợ gốc × Lãi suất năm × Số ngày (từ ngày giải ngân đến ngày đáo hạn) / 365.
+  - **Tổng dư nợ gốc đã trả / Tổng lãi đã trả** = tổng các giao dịch trả gốc / trả lãi đã đối soát từ sao kê (`loan_repayment_history`).
+  - Bấm vào khế ước để mở **Bảng dòng tiền**: Thời điểm giao dịch, Nội dung giao dịch, Nợ gốc đầu kỳ, Tổng giá trị giao dịch, Số tiền trả gốc, Số tiền trả lãi, Gốc còn lại. Dòng có trả gốc sau ngày đáo hạn được tô nền hồng (trả nợ quá hạn).
+  - Nợ gốc đầu kỳ / Gốc còn lại được **dựng lại theo thứ tự thời gian giao dịch** bắt đầu từ Dư nợ gốc khế ước (không dùng số dư chụp tại thời điểm bấm đối soát). Gốc còn lại âm (tô đỏ) = tổng gốc đã trả vượt dư nợ gốc, cần kiểm tra lại đối soát/giải ngân.
 - **Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn (`/loan-repayment-plan`):**
   - Màn hình chuyên dụng cho CFO và Kế toán nằm dưới mục *Theo dõi khoản vay*.
-  - Thuật toán *SRPR Engine v2.0 (Stepped Rollover & Prepay-to-Reroute)*:
-    - **Bảo đảm hoàn lại gốc 100% sau khi cắt nợ:** Mọi khoản nợ bị cắt/trả (dù là trả trước hạn để tái định tuyến hay trả đúng hạn) đều được giải ngân vay lại đúng bằng số tiền gốc đã cắt.
-    - **Bắc cầu kỳ hạn cho VietinBank (CTG):** Chia nhỏ nợ T11 thành 4 nhánh (1T, 2T, 3T, 4T); khi đáo hạn tại trạm T12, T01, T02 tiếp tục tái vay đúng gốc 4T sang T04, T05, T06/2027 mà không vi phạm quy định 4 tháng của VietinBank.
-    - **Cắt nợ & Vay lại ngay trong ngày cho MBBank (MBB):** Cắt trước hạn 29.87 tỷ nợ MBB ở đỉnh T03/2027 tại T12, T01, T02 và vay lại đúng số tiền gốc với kỳ hạn mới 5–6 tháng (đẩy sang T05–T08/2027).
-    - **Triệt tiêu đỉnh nợ T03/2027:** Đưa tổng nợ thực tế T03 từ 73.76 tỷ về đúng bằng trần an toàn **14.00 tỷ VND** ($10.56$ tỷ MBB + $3.44$ tỷ CTG).
+  - Thuật toán *Tối ưu theo trần chi trả* (tính động 100% từ danh mục khoản vay, không cố định số liệu):
+    - **Nguyên tắc duy nhất:** Không để tổng nợ gốc đến hạn (kể cả trả trước hạn) của bất kỳ tháng nào vượt trần chi trả.
+    - **Vay lại theo tỷ lệ:** Mọi khoản tất toán/cắt sớm được vay lại theo `reborrow_rate`, chia vào các tháng còn trống trần trong giới hạn kỳ hạn tối đa từng ngân hàng (MBB/CTG cấu hình được).
+    - **Cắt đỉnh:** Tháng vượt trần được trả trước hạn một phần tại các tháng trước còn dư trần và vay lại ngay với kỳ hạn đáo hạn sau tháng đỉnh.
+    - **Cảnh báo trung thực:** Tháng không khả thi hiển thị `OVER_CAPACITY` và thẻ an toàn hiển thị % tháng đạt thực tế.
   - Hỗ trợ 2 chế độ thiết lập ngân sách: *Cố định đều các tháng* (mặc định 14 tỷ VND/tháng) và *Tùy chỉnh theo mùa vụ kinh doanh*.
   - Biểu đồ Cột Stacked Bar: Phân tách minh bạch nợ gốc tự nhiên cũ (cam/xám), nợ bắc cầu đổ về (tím) và nợ thanh toán đề xuất (xanh), đảm bảo 100% các tháng nằm an toàn dưới đường trần chi trả.
   - Ma trận Điều phối Dòng tiền 7 Tháng (7 cột chuẩn CFO) và Bảng lịch trình chi tiết từng khế ước (70+ hành động thực thi, ghi chú nghiệp vụ và tiền lãi tiết kiệm được).
 - **Phân hệ 7.9: Đối soát Giao dịch Chi Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9):**
   - **Lọc tự động:** Quét toàn bộ giao dịch chi (`debit_amount > 0`) đã phân loại là "Trả nợ" (Category ID 25) trên các tài khoản ngân hàng doanh nghiệp, loại trừ các giao dịch đã đối soát.
-  - **Gợi ý khế ước thông minh:** Tự động trích xuất số khế ước (VietinBank 12 số, MBBank `LD...`, `040MAZS...`) và số tiền gốc/lãi gợi ý từ nội dung diễn giải sao kê ngân hàng (`description`).
-  - **Khung chia Gốc & Lãi trực quan:** Đảm bảo đẳng thức $\text{Số tiền trả gốc} + \text{Số tiền trả lãi} = \text{Tổng tiền giao dịch chi}$. Cung cấp nút 1-click **[100% Trả Gốc]** để gán toàn bộ số tiền là trả gốc một chạm, nút [100% Trả Lãi] và cơ chế tự động cân bằng 2 chiều giữa 2 ô nhập.
+  - **Gợi ý khế ước thông minh:** Tự động trích xuất số khế ước (VietinBank 12 số, MBBank `LD...`, `040MAZS...`) và số tiền gốc/lãi gợi ý từ nội dung diễn giải sao kê ngân hàng (`description`). **Quy tắc nghiêm ngặt:** Chỉ hiển thị gợi ý khế ước nếu khế ước đó đã tồn tại trong danh mục khế ước đã nạp (`credit_facilities`). Nếu diễn giải chứa số khế ước nhưng chưa từng nạp vào hệ thống thì để trống, không hiển thị thẻ gợi ý ảo với dư nợ 0 đ.
+  - **Đối soát trực tiếp trên bảng không qua cửa sổ phụ (Direct In-Table Reconciliation):**
+    - **Hiển thị trực quan 2 cột Trả gốc & Trả lãi ngay trên bảng:** Bảng đối soát hiển thị trực tiếp 2 cột **Trả Gốc** và **Trả Lãi** gợi ý bóc tách tự động từ diễn giải sao kê ngân hàng (đặt ngay cạnh cột *Số tiền chi ra*), cho phép kế toán viên nhìn thấy ngay tỷ lệ phân bổ mà không cần mở dropdown/thanh chỉnh sửa.
+    - **1-chạm đối soát ngay:** Nút *Đối soát ngay* ngay trên từng dòng cho phép thực thi đối soát và giảm trừ nợ gốc tức thì trên bảng theo tỷ lệ an toàn đã tính toán (`calculateSafeSplit` - ưu tiên nợ gốc trong hạn mức dư nợ, phần còn lại hoặc thu lãi đưa vào chi phí lãi; tự động nhận diện tất toán kèm lãi hoàn/âm).
+    - **Hỗ trợ Tất toán và Lãi âm (Negative Accrued Interest Support):** Khi khách hàng tất toán khế ước vay, ngân hàng có thể thoái thu/hoàn lãi cộng dồn dưới dạng số âm (ví dụ: *Lai cong don: -888,657 VND* trên giao dịch chi 920.111.343 đ của nợ gốc 921.000.000 đ). Hệ thống cho phép điền số tiền lãi âm thỏa mãn công thức $\text{principal\_amount} + \text{interest\_amount} = \text{debit\_amount}$, cung cấp nút tiện ích 1-chạm **[Tất toán gốc (Số dư hiện tại)]** và hiển thị badge nhãn xanh "Hoàn / Giảm trừ lãi".
+    - **Phân loại Pre-Snapshot & Post-Snapshot:** Giao dịch có thời điểm $\le$ ngày chốt file sao kê tín dụng được ghi nhận `PRE_SNAPSHOT`, dùng để hoàn nguyên Dư nợ ban đầu mà không giảm trừ tiếp vào Dư nợ hiện tại trên file. Giao dịch sau ngày chốt file được ghi nhận `POST_SNAPSHOT` để giảm trừ trực tiếp vào Dư nợ hiện tại và chuyển trạng thái `SETTLED` khi số dư về 0.
+    - **Đối soát tự động hàng loạt:** Nút *Đối soát tự động tất cả (X GD đã khớp)* trên thanh công cụ bảng cho phép xử lý tuần tự toàn bộ các giao dịch đã nhận diện được khế ước chỉ với một xác nhận.
+    - **Khung chỉnh sửa nội tuyến (Inline Expander):** Hỗ trợ mở rộng trực tiếp dòng dữ liệu (`<tr><td colSpan={8}>`) để chọn lại khế ước hoặc tùy biến phân bổ Gốc/Lãi với nút 1-click **[100% Trả Gốc]**, **[100% Trả Lãi]**, và **[Tất toán gốc]**, tuyệt đối không mở popup/modal che khuất dữ liệu.
   - **Tự động giảm trừ nợ gốc & Tất toán:** Giảm trừ tức thì `current_principal_balance = current_principal_balance - principal_amount`. Tự động chuyển trạng thái khoản vay sang `SETTLED` khi dư nợ gốc về 0.
   - **Lịch sử trả nợ chuẩn kiểm toán:** Bảng `loan_repayment_history` ghi nhận trường `repayment_date` **chính xác bằng thời điểm giao dịch trên sao kê** (`transaction_date`).
+  - **Tìm kiếm & Lọc đa tầng đồng bộ 2 Tab:** Thanh tìm kiếm phía trên (`searchTerm`) hoạt động đồng bộ cho cả tab *Chờ đối soát* và tab *Nhật ký lịch sử trả nợ*. Hỗ trợ tìm kiếm tức thời và qua backend theo số khế ước, diễn giải giao dịch sao kê ngân hàng, mã ngân hàng, số tham chiếu giao dịch và ghi chú đối soát.
+  - **Bộ lọc Ngân hàng Tự Động Toàn Diện (Dynamic Bank Filter):** Dropdown chọn ngân hàng không bị giới hạn cố định mà được tổng hợp động từ toàn bộ tài khoản ngân hàng doanh nghiệp, danh mục khế ước tín dụng và các giao dịch phát sinh thực tế (VietinBank CTG, MBBank MBB, TPBank TPB, VPBank VPB, MBV Business, SHB, BIDV, EVF Finance, Vietcombank VCB,...), tự động hiển thị đầy đủ mọi ngân hàng có dữ liệu trong hệ thống.
   - **Cơ chế Hoàn tác (Rollback):** Cho phép kế toán hủy đối soát nếu thao tác nhầm, khôi phục lại dư nợ gốc ban đầu và ghi nhận `audit_logs`.
 - **Phân hệ 7.10: Bóc tách Hóa đơn Điện tử XML & Đối soát Hóa đơn Giải ngân (US-07.10):**
   - **Hỗ trợ định dạng Hóa đơn:** Hồ sơ dạng hóa đơn giải ngân lưu trữ gồm cả file XML và PDF theo quy chuẩn Nghị định 123/2020/NĐ-CP và Thông tư 78/2021/TT-BTC.
@@ -253,3 +289,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   3. **Bà Nguyễn Thị Lan Anh (Tổng Giám đốc - CEO):**
      - Mặc định truy cập: `/ceo-waterfall` (Biểu đồ Thác nước Thu/Chi).
      - Quyền truy cập: Xem biểu đồ Waterfall WTD/MTD, cơ cấu chi phí, giám sát tồn quỹ tổng thể.
+
+- **Tiêu chuẩn Bảng Dữ liệu Toàn Hệ thống (System-wide 100% Sortable Data Tables):**
+  - Toàn bộ các bảng danh sách và ma trận dữ liệu trên tất cả các trang frontend (UploadPage, TransactionsPage, RuleManagementPage, LoanRepaymentReconcilePage, LoanRepaymentPlanPage, CFODashboardPage, CreditStatementsPage) đều được trang bị tiêu đề cột hỗ trợ sắp xếp 2 chiều linh hoạt (Ascending/Descending).
+  - Tích hợp component dùng chung `<SortableTh>`, hỗ trợ tooltip giải thích, biểu tượng trạng thái trực quan (`ArrowUp`/`ArrowDown`/`ArrowUpDown`) và thuật toán so sánh tiếng Việt chuẩn (`localeCompare('vi', { numeric: true })`) cho cả văn bản, tiền tệ, ngày tháng và trạng thái.

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Search,
@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { Transaction, Category, BankAccount } from '../types';
+import { SortableTh } from '../components/common/SortableTh';
+import { SortDirection, sortList } from '../utils/sort';
 
 export const TransactionsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -48,6 +50,25 @@ export const TransactionsPage: React.FC = () => {
   const [editingBalanceId, setEditingBalanceId] = useState<number | null>(null);
   const [balanceDraft, setBalanceDraft] = useState<string>('');
   const [savingBalance, setSavingBalance] = useState<boolean>(false);
+
+  // Sorting State
+  const [sortField, setSortField] = useState<string>('transaction_date');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedTransactions = useMemo(() => {
+    return sortList(transactions, sortField, sortDirection, {
+      bank_account: (tx) => `${tx.bank_code || ''} ${tx.account_number || ''}`,
+    });
+  }, [transactions, sortField, sortDirection]);
 
   useEffect(() => {
     fetchCategories();
@@ -402,32 +423,52 @@ export const TransactionsPage: React.FC = () => {
                 <th className="px-3 py-3 text-center">
                   <input
                     type="checkbox"
-                    checked={transactions.length > 0 && selectedIds.length === transactions.length}
+                    checked={sortedTransactions.length > 0 && selectedIds.length === sortedTransactions.length}
                     onChange={toggleSelectAll}
                     className="rounded border-slate-300"
                   />
                 </th>
-                <th className="px-3 py-3">Ngày giờ GD</th>
-                <th className="px-3 py-3">NH / Số TK</th>
-                <th className="px-3 py-3 min-w-[180px]">Đối tác (Thụ hưởng/Chuyển)</th>
-                <th className="px-3 py-3 min-w-[260px]">Nội dung Diễn giải</th>
-                <th className="px-3 py-3 text-right">Phát sinh Nợ (-)</th>
-                <th className="px-3 py-3 text-right">Phát sinh Có (+)</th>
-                <th className="px-3 py-3 text-right">Số dư Lũy kế</th>
-                <th className="px-3 py-3">Danh mục (Inline Tagging)</th>
-                <th className="px-3 py-3">Ghi chú Nội bộ</th>
-                <th className="px-3 py-3 text-center">Khóa</th>
+                <SortableTh field="transaction_date" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Ngày giờ GD
+                </SortableTh>
+                <SortableTh field="bank_account" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  NH / Số TK
+                </SortableTh>
+                <SortableTh field="counterparty_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} className="min-w-[180px]">
+                  Đối tác (Thụ hưởng/Chuyển)
+                </SortableTh>
+                <SortableTh field="description" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} className="min-w-[260px]">
+                  Nội dung Diễn giải
+                </SortableTh>
+                <SortableTh field="debit_amount" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Phát sinh Nợ (-)
+                </SortableTh>
+                <SortableTh field="credit_amount" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Phát sinh Có (+)
+                </SortableTh>
+                <SortableTh field="running_balance" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Số dư Lũy kế
+                </SortableTh>
+                <SortableTh field="category_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Danh mục (Inline Tagging)
+                </SortableTh>
+                <SortableTh field="internal_note" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Ghi chú Nội bộ
+                </SortableTh>
+                <SortableTh field="is_locked" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
+                  Khóa
+                </SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {transactions.length === 0 ? (
+              {sortedTransactions.length === 0 ? (
                 <tr>
                   <td colSpan={11} className="px-4 py-8 text-center text-slate-400 text-sm">
                     {loading ? 'Đang tải dữ liệu...' : 'Không có giao dịch nào khớp điều kiện lọc.'}
                   </td>
                 </tr>
               ) : (
-                transactions.map((tx) => (
+                sortedTransactions.map((tx) => (
                   <tr key={tx.transaction_id} className="hover:bg-slate-50 transition-colors align-top">
                     <td className="px-3 py-2.5 text-center">
                       <input
@@ -509,11 +550,18 @@ export const TransactionsPage: React.FC = () => {
                             setEditingBalanceId(tx.transaction_id);
                             setBalanceDraft(String(Math.round(Number(tx.running_balance))));
                           }}
-                          title="Bấm để sửa số dư lũy kế tại dòng này (Hệ thống sẽ lấy làm mốc căn cứ để tính lại toàn bộ số dư lũy kế của tài khoản)"
-                          className="group inline-flex items-center justify-end gap-1.5 cursor-pointer hover:bg-blue-50 hover:text-blue-700 px-2 py-1 rounded transition-colors"
+                          title="Bấm để sửa số dư lũy kế tại dòng này (Hệ thống sẽ lấy làm mốc Điểm Neo để tính lại toàn bộ số dư lũy kế xuôi & ngược - US-04.9)"
+                          className="group inline-flex flex-col items-end gap-0.5 cursor-pointer hover:bg-blue-50 hover:text-blue-700 px-2 py-1 rounded transition-colors"
                         >
-                          <span>{Number(tx.running_balance).toLocaleString('vi-VN')}</span>
-                          <Edit3 className="w-3 h-3 text-slate-400 group-hover:text-blue-600 opacity-0 group-hover:opacity-100 flex-shrink-0" />
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span>{Number(tx.running_balance).toLocaleString('vi-VN')}</span>
+                            <Edit3 className="w-3 h-3 text-slate-400 group-hover:text-blue-600 opacity-0 group-hover:opacity-100 flex-shrink-0" />
+                          </div>
+                          {tx.is_anchor_point && (
+                            <span className="inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 border border-amber-300">
+                              📌 Mốc neo
+                            </span>
+                          )}
                         </div>
                       )}
                     </td>

@@ -1,25 +1,46 @@
 -- =============================================================================
 -- HỆ THỐNG XỬ LÝ & BÁO CÁO SAO KÊ NGÂN HÀNG TỰ ĐỘNG (BANK STATEMENT PROCESSOR)
 -- DATABASE SCHEMA DEFINITION (POSTGRESQL 15+ / STANDARD RDBMS COMPLIANT)
--- CHUẨN THIẾT KẾ: 3NF, HIGH-PRECISION DECIMAL, COMPOSITE INDEXES, AUDIT TRAIL
+-- CHUẨN THIẾT KẾ: 3NF+, HIGH-PRECISION DECIMAL, COMPOSITE & PARTIAL INDEXES,
+-- MULTI-ENTITY ISOLATION, DEBT REPAYMENT PLANNING & AUDIT TRAIL
 -- THIẾT KẾ BỞI: Lead System & Data Architect (@SystemArchitect)
 -- =============================================================================
 
--- Kích hoạt extension hỗ trợ UUID và sinh mã ngẫu nhiên nếu cần
+-- Kích hoạt extension hỗ trợ UUID và sinh mã ngẫu nhiên
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- =============================================================================
--- 1. BẢNG NGÂN HÀNG & TÀI KHOẢN (BANK ACCOUNTS)
--- Lưu thông tin cấu hình của >= 7 ngân hàng thương mại và tài khoản cá nhân MBBank
+-- 1. BẢNG PHÁP NHÂN & TỔ CHỨC DOANH NGHIỆP (CORPORATE ENTITIES)
+-- Mô hình hóa cô lập đa pháp nhân (Multi-Entity / Multi-Tenant Isolation)
+-- =============================================================================
+CREATE TABLE corporate_entities (
+    entity_id BIGSERIAL PRIMARY KEY,
+    entity_code VARCHAR(50) NOT NULL UNIQUE,                -- Mã định danh: HQ_CORP, SUB_LOGISTICS, SUB_TRADING...
+    company_name VARCHAR(255) NOT NULL,                     -- Tên đầy đủ pháp nhân doanh nghiệp
+    tax_code VARCHAR(50) NOT NULL UNIQUE,                   -- Mã số thuế doanh nghiệp
+    is_holding_parent BOOLEAN NOT NULL DEFAULT FALSE,       -- TRUE nếu là Công ty Mẹ / Trụ sở tập đoàn
+    description TEXT,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_corporate_entities_tax_code ON corporate_entities(tax_code);
+CREATE INDEX idx_corporate_entities_code ON corporate_entities(entity_code);
+
+-- =============================================================================
+-- 2. BẢNG NGÂN HÀNG & TÀI KHOẢN THANH TOÁN (BANK ACCOUNTS)
+-- Lưu thông tin tài khoản doanh nghiệp (Khối 1) và tài khoản cá nhân CEO ủy quyền (Khối 2)
 -- =============================================================================
 CREATE TABLE bank_accounts (
     account_id BIGSERIAL PRIMARY KEY,
-    bank_code VARCHAR(20) NOT NULL,                         -- MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB, ...
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
+    bank_code VARCHAR(20) NOT NULL,                         -- MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB...
     bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng đầy đủ
     account_number VARCHAR(50) NOT NULL UNIQUE,             -- Số tài khoản thanh toán
     account_holder VARCHAR(150) NOT NULL,                   -- Tên chủ tài khoản / Pháp nhân (Cty hoặc Bà Nguyễn Thị Lan Anh)
-    tax_code VARCHAR(50),                                   -- Mã số thuế / Mã định danh Pháp nhân (Multi-Entity Isolation)
-    account_type VARCHAR(20) NOT NULL DEFAULT 'CORPORATE',  -- 'CORPORATE' (Cty) hoặc 'SPECIAL_CASH' (MBBank rút tiền mặt)
+    tax_code VARCHAR(50),                                   -- Mã số thuế / Mã định danh Pháp nhân
+    account_type VARCHAR(20) NOT NULL DEFAULT 'CORPORATE',  -- 'CORPORATE' (Khối 1: Cty) hoặc 'SPECIAL_CASH' (Khối 2: MBBank rút tiền mặt CEO)
     currency VARCHAR(5) NOT NULL DEFAULT 'VND',             -- Đơn vị tiền tệ
     opening_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số dư khởi tạo ban đầu
     current_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số dư cập nhật mới nhất
@@ -32,18 +53,21 @@ CREATE INDEX idx_bank_accounts_code ON bank_accounts(bank_code);
 CREATE INDEX idx_bank_accounts_type ON bank_accounts(account_type);
 CREATE INDEX idx_bank_accounts_tax_code ON bank_accounts(tax_code);
 CREATE INDEX idx_bank_accounts_holder ON bank_accounts(account_holder);
+CREATE INDEX idx_bank_accounts_entity ON bank_accounts(entity_id);
 
 -- =============================================================================
--- 2. BẢNG QUẢN LÝ FILE SAO KÊ GỐC (BANK STATEMENT FILES)
--- Quản lý metadata, vị trí lưu trữ trên Object Storage và trạng thái đối soát
+-- 3. BẢNG QUẢN LÝ FILE SAO KÊ TÀI KHOẢN (BANK STATEMENT FILES)
+-- Quản lý metadata, vị trí Object Storage, trạng thái đối soát và khoảng trống kỳ sao kê
 -- =============================================================================
 CREATE TABLE bank_statement_files (
     file_id BIGSERIAL PRIMARY KEY,
     file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     account_id BIGINT REFERENCES bank_accounts(account_id) ON DELETE SET NULL,
+    statement_type VARCHAR(30) NOT NULL DEFAULT 'CASA',     -- 'CASA' (Thanh toán), 'SPECIAL_CASH' (Ủy quyền CEO)
     template_code VARCHAR(50),                              -- MBB_CORP_XLSX, MBB_PERSONAL_XLSX, MBV_CORP_XLSX, VPB_CORP_XLSX, TPB_CORP_XLSX, CTG_EFAST_XLS, SHB_CORP_XLS...
     reconciliation_mode VARCHAR(50),                        -- MODE_1_FULL_HEADER_FOOTER .. MODE_5_CUTOFF_INTEREST_INCLUDED
-    original_filename VARCHAR(255) NOT NULL,               -- Tên file gốc người dùng tải lên (.xlsx, .xls)
+    original_filename VARCHAR(255) NOT NULL,                -- Tên file gốc người dùng tải lên (.xlsx, .xls)
     storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: /statements/{bank}/{YYYY}/{MM}/{uuid}.xlsx
     file_size_bytes BIGINT NOT NULL,                        -- Dung lượng file (Bytes)
     file_sha256 CHAR(64) NOT NULL UNIQUE,                   -- Mã băm toàn vẹn SHA-256 chống trùng lặp upload
@@ -65,10 +89,12 @@ CREATE TABLE bank_statement_files (
     processing_status VARCHAR(30) NOT NULL DEFAULT 'UPLOADED', 
     -- 'UPLOADED' -> 'QUEUED' -> 'PARSING' -> 'RECONCILING' -> 'COMPLETED' -> 'FAILED'
     
-    -- Trạng thái đối soát số dư
+    -- Trạng thái đối soát số dư & Cảnh báo lệch kỳ (Data Gap Indicator)
     reconciliation_status VARCHAR(30) NOT NULL DEFAULT 'PENDING',
     -- 'PENDING' -> 'BALANCED' (Khớp 100%) -> 'DISCREPANCY' (Lệch số dư)
     discrepancy_amount DECIMAL(18, 2) DEFAULT 0.00,         -- Chênh lệch số dư nếu có (|header - calculated|)
+    has_data_gap BOOLEAN NOT NULL DEFAULT FALSE,            -- TRUE nếu phát hiện lệch số dư ĐK - CK giữa các kỳ sao kê
+    gap_discrepancy_amount DECIMAL(18, 2) DEFAULT 0.00,     -- Số tiền chênh lệch giữa cuối kỳ trước và đầu kỳ sau
     error_message TEXT,                                     -- Chi tiết lỗi nếu parsing thất bại
     
     uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',     -- Chị Nghiêm Lê Cẩm Nhung
@@ -77,18 +103,21 @@ CREATE TABLE bank_statement_files (
 );
 
 CREATE INDEX idx_files_account_id ON bank_statement_files(account_id);
+CREATE INDEX idx_files_entity_id ON bank_statement_files(entity_id);
 CREATE INDEX idx_files_status ON bank_statement_files(processing_status);
 CREATE INDEX idx_files_reconciliation ON bank_statement_files(reconciliation_status);
 CREATE INDEX idx_files_created_at ON bank_statement_files(created_at DESC);
+CREATE INDEX idx_files_data_gap ON bank_statement_files(has_data_gap) WHERE has_data_gap = TRUE;
 
 -- =============================================================================
--- 3. BẢNG DANH MỤC THU / CHI (CATEGORIES)
+-- 4. BẢNG DANH MỤC THU / CHI (CATEGORIES)
 -- Người dùng (Chị Nhung) hoàn toàn tự tạo, chỉnh sửa và quản lý trên giao diện
 -- =============================================================================
 CREATE TABLE categories (
     category_id BIGSERIAL PRIMARY KEY,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL, -- NULL: Dùng chung toàn tập đoàn
     category_type VARCHAR(10) NOT NULL CHECK (category_type IN ('INCOME', 'EXPENSE')), -- THU hoặc CHI
-    category_name VARCHAR(150) NOT NULL,                    -- Tên danh mục (ví dụ: Chi Nhà cung cấp, Chi Lương...)
+    category_name VARCHAR(150) NOT NULL,                    -- Tên danh mục (Chi Nhà cung cấp, Chi Lương...)
     color_code VARCHAR(10) DEFAULT '#3B82F6',               -- Màu đại diện hiển thị trên biểu đồ Waterfall / Tag
     description VARCHAR(255),
     display_order INT DEFAULT 0,                            -- Thứ tự hiển thị trên báo cáo
@@ -99,14 +128,16 @@ CREATE TABLE categories (
 );
 
 CREATE INDEX idx_categories_type ON categories(category_type);
+CREATE INDEX idx_categories_entity ON categories(entity_id);
 
 -- =============================================================================
--- 4. BẢNG QUY TẮC PHÂN LOẠI NÂNG CAO (CLASSIFICATION RULES)
+-- 5. BẢNG QUY TẮC PHÂN LOẠI NÂNG CAO (CLASSIFICATION RULES)
 -- Trình thiết lập luật phân loại từ khóa kết hợp điều kiện đa trường (AND/OR)
 -- =============================================================================
 CREATE TABLE classification_rules (
     rule_id BIGSERIAL PRIMARY KEY,
     category_id BIGINT NOT NULL REFERENCES categories(category_id) ON DELETE CASCADE,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     rule_name VARCHAR(150) NOT NULL,
     priority INT NOT NULL DEFAULT 10,                       -- Mức độ ưu tiên (số nhỏ ưu tiên chạy trước)
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -128,22 +159,24 @@ CREATE TABLE classification_rules (
 CREATE INDEX idx_rules_priority ON classification_rules(priority ASC);
 CREATE INDEX idx_rules_category ON classification_rules(category_id);
 CREATE INDEX idx_rules_active ON classification_rules(is_active);
+CREATE INDEX idx_rules_entity ON classification_rules(entity_id);
 
 -- =============================================================================
--- 5. BẢNG GIAO DỊCH CHI TIẾT (BANK TRANSACTIONS)
--- Lưu trữ từng dòng giao dịch đã làm sạch, độ chính xác Decimal(18,2), Audit Trail
+-- 6. BẢNG GIAO DỊCH CHI TIẾT (BANK TRANSACTIONS)
+-- Lưu trữ từng dòng giao dịch làm sạch, kiểm soát điểm neo số dư và khóa ghi đè
 -- =============================================================================
 CREATE TABLE bank_transactions (
     transaction_id BIGSERIAL PRIMARY KEY,
     file_id BIGINT NOT NULL REFERENCES bank_statement_files(file_id) ON DELETE CASCADE,
     account_id BIGINT NOT NULL REFERENCES bank_accounts(account_id) ON DELETE RESTRICT,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     category_id BIGINT REFERENCES categories(category_id) ON DELETE SET NULL,
     
     -- Dữ liệu giao dịch chuẩn hóa
     transaction_date TIMESTAMP WITH TIME ZONE NOT NULL,     -- Ngày giờ giao dịch chuẩn hóa ISO 8601
     value_date DATE,                                        -- Ngày hiệu lực / giá trị
     reference_number VARCHAR(100),                          -- Số tham chiếu / Mã bút toán ngân hàng
-    counter_party VARCHAR(255),                             -- Đối tượng thụ hưởng hoặc đối tượng chuyển (để trống nếu không có trong sao kê)
+    counter_party VARCHAR(255),                             -- Đối tượng thụ hưởng hoặc đối tượng chuyển
     description TEXT NOT NULL,                              -- Nội dung diễn giải nguyên bản từ sao kê
     
     -- Số tiền chính xác cao (DECIMAL 18, 2)
@@ -160,13 +193,19 @@ CREATE TABLE bank_transactions (
     applied_rule_id BIGINT REFERENCES classification_rules(rule_id) ON DELETE SET NULL,
     internal_note TEXT,                                     -- Ghi chú nội bộ do chị Cẩm Nhung nhập tay
     
+    -- Điểm neo Số dư Lũy kế (Anchor Balance Point - US-04.9)
+    is_anchor_point BOOLEAN NOT NULL DEFAULT FALSE,         -- TRUE nếu dòng này là mốc chuẩn do người dùng thiết lập
+    anchor_adjusted_at TIMESTAMP WITH TIME ZONE,            -- Thời điểm thực hiện hiệu chỉnh điểm neo
+    
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
-    CONSTRAINT uq_transaction_dedup UNIQUE (account_id, dedup_hash)
+    CONSTRAINT uq_transaction_dedup UNIQUE (account_id, dedup_hash),
+    CONSTRAINT chk_trans_amounts_non_negative CHECK (debit_amount >= 0 AND credit_amount >= 0),
+    CONSTRAINT chk_trans_has_flow CHECK (debit_amount > 0 OR credit_amount > 0)
 );
 
--- Chỉ mục tối ưu cho truy vấn báo cáo tốc độ cao (< 500ms)
+-- Chỉ mục tối ưu cho truy vấn báo cáo tốc độ cao (< 100ms)
 CREATE INDEX idx_trans_file_id ON bank_transactions(file_id);
 CREATE INDEX idx_trans_account_date ON bank_transactions(account_id, transaction_date DESC);
 CREATE INDEX idx_trans_date ON bank_transactions(transaction_date DESC);
@@ -174,13 +213,37 @@ CREATE INDEX idx_trans_category ON bank_transactions(category_id);
 CREATE INDEX idx_trans_counter_party ON bank_transactions(counter_party);
 CREATE INDEX idx_trans_manual_override ON bank_transactions(is_manual_override);
 CREATE INDEX idx_trans_search_desc ON bank_transactions USING gin(to_tsvector('simple', description));
+CREATE INDEX idx_trans_uncategorized ON bank_transactions(account_id, transaction_date DESC) WHERE category_id IS NULL;
+CREATE INDEX idx_trans_repayment_filter ON bank_transactions(account_id, transaction_date DESC) WHERE debit_amount > 0;
+CREATE INDEX idx_trans_anchor ON bank_transactions(account_id) WHERE is_anchor_point = TRUE;
 
 -- =============================================================================
--- 6. BẢNG SỔ QUỸ TIỀN MẶT ĐỐI ỨNG (CASH LEDGER)
+-- 7. BẢNG LỊCH SỬ ĐIỂM NEO SỐ DƯ (STATEMENT ANCHOR POINTS)
+-- Theo dõi vết kiểm toán của các lần can thiệp mốc neo số dư 2 chiều (US-04.9)
+-- =============================================================================
+CREATE TABLE statement_anchor_points (
+    anchor_id BIGSERIAL PRIMARY KEY,
+    account_id BIGINT NOT NULL REFERENCES bank_accounts(account_id) ON DELETE CASCADE,
+    transaction_id BIGINT NOT NULL REFERENCES bank_transactions(transaction_id) ON DELETE CASCADE,
+    anchor_balance DECIMAL(18, 2) NOT NULL,                 -- Số dư mốc chuẩn do người dùng nhập
+    previous_balance DECIMAL(18, 2) NOT NULL,               -- Số dư ghi nhận trước khi hiệu chỉnh
+    propagation_direction VARCHAR(20) NOT NULL DEFAULT 'BIDIRECTIONAL', -- 'FORWARD', 'BACKWARD', 'BIDIRECTIONAL'
+    records_updated_count INT DEFAULT 0,                    -- Số lượng giao dịch được tính toán cập nhật lại
+    reason TEXT,                                            -- Lý do điều chỉnh
+    set_by VARCHAR(100) NOT NULL DEFAULT 'USER',            -- Người thực hiện hiệu chỉnh
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_anchor_account ON statement_anchor_points(account_id);
+CREATE INDEX idx_anchor_trans ON statement_anchor_points(transaction_id);
+
+-- =============================================================================
+-- 8. BẢNG SỔ QUỸ TIỀN MẶT ĐỐI ỨNG (CASH LEDGER)
 -- Theo dõi luồng tiền mặt rút từ TK MBBank của bà Nguyễn Thị Lan Anh về quỹ
 -- =============================================================================
 CREATE TABLE cash_ledger (
     cash_entry_id BIGSERIAL PRIMARY KEY,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     linked_transaction_id BIGINT REFERENCES bank_transactions(transaction_id) ON DELETE SET NULL,
     entry_date DATE NOT NULL,
     entry_type VARCHAR(10) NOT NULL CHECK (entry_type IN ('INFLOW', 'OUTFLOW')), -- NHẬP QUỸ hoặc XUẤT QUỸ
@@ -193,17 +256,18 @@ CREATE TABLE cash_ledger (
 );
 
 CREATE INDEX idx_cash_date ON cash_ledger(entry_date DESC);
+CREATE INDEX idx_cash_entity ON cash_ledger(entity_id);
 
 -- =============================================================================
--- 7. BẢNG NHẬT KÝ KIỂM TOÁN HỆ THỐNG (AUDIT LOGS)
+-- 9. BẢNG NHẬT KÝ KIỂM TOÁN HỆ THỐNG (AUDIT LOGS)
 -- Ghi nhận toàn bộ thao tác upload, đối soát, áp dụng luật và sửa đổi thủ công
 -- =============================================================================
 CREATE TABLE audit_logs (
     log_id BIGSERIAL PRIMARY KEY,
     correlation_id UUID NOT NULL DEFAULT uuid_generate_v4(),
     actor VARCHAR(100) NOT NULL,                            -- User hoặc Background Worker
-    action VARCHAR(50) NOT NULL,                            -- 'UPLOAD_FILE', 'PARSE_COMPLETED', 'MANUAL_TAG', ...
-    target_entity VARCHAR(50) NOT NULL,                     -- 'STATEMENT_FILE', 'TRANSACTION', 'RULE'
+    action VARCHAR(50) NOT NULL,                            -- 'UPLOAD_FILE', 'PARSE_COMPLETED', 'MANUAL_TAG', 'RECALCULATE_ANCHOR'...
+    target_entity VARCHAR(50) NOT NULL,                     -- 'STATEMENT_FILE', 'TRANSACTION', 'RULE', 'LOAN', 'REPAYMENT_PLAN'
     target_id VARCHAR(50) NOT NULL,
     details JSONB,                                          -- Lưu chi tiết thay đổi (Before/After)
     ip_address VARCHAR(45),
@@ -215,40 +279,13 @@ CREATE INDEX idx_audit_target ON audit_logs(target_entity, target_id);
 CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
 
 -- =============================================================================
--- 8. VIEW BÁO CÁO CFO (TỔNG TỒN QUỸ HỢP NHẤT HÔM NAY - TRƯỚC 9H SÁNG)
--- =============================================================================
-CREATE OR REPLACE VIEW v_cfo_daily_liquidity AS
-WITH bank_totals AS (
-    SELECT 
-        ba.account_id,
-        ba.bank_code,
-        ba.bank_name,
-        ba.account_number,
-        ba.account_holder,
-        ba.account_type,
-        ba.current_balance AS account_balance
-    FROM bank_accounts ba
-    WHERE ba.is_active = TRUE
-),
-cash_total AS (
-    SELECT COALESCE(
-        (SELECT running_cash_balance FROM cash_ledger ORDER BY entry_date DESC, cash_entry_id DESC LIMIT 1),
-        0.00
-    ) AS cash_on_hand_balance
-)
-SELECT 
-    COALESCE((SELECT SUM(account_balance) FROM bank_totals), 0.00) AS total_bank_balance,
-    0.00::DECIMAL(18, 2) AS total_cash_on_hand,
-    COALESCE((SELECT SUM(account_balance) FROM bank_totals), 0.00) AS total_consolidated_liquidity,
-    CURRENT_DATE AS report_date;
-
--- =============================================================================
--- 9. BẢNG QUẢN LÝ FILE SAO KÊ TÍN DỤNG GỐC (CREDIT STATEMENT FILES)
+-- 10. BẢNG QUẢN LÝ FILE SAO KÊ TÍN DỤNG GỐC (CREDIT STATEMENT FILES)
 -- =============================================================================
 CREATE TABLE credit_statement_files (
     file_id BIGSERIAL PRIMARY KEY,
     file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
-    bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB, BIDV...
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
+    bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB...
     template_code VARCHAR(50) NOT NULL,                     -- CTG_LOAN_XLS, MBB_LOAN_LD_XLSX
     original_filename VARCHAR(255) NOT NULL,                -- Tên file gốc người dùng tải lên (.xlsx, .xls)
     storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: /credit_statements/{bank}/{YYYY}/{uuid}.ext
@@ -277,17 +314,19 @@ CREATE TABLE credit_statement_files (
 );
 
 CREATE INDEX idx_credit_files_bank ON credit_statement_files(bank_code);
+CREATE INDEX idx_credit_files_entity ON credit_statement_files(entity_id);
 CREATE INDEX idx_credit_files_status ON credit_statement_files(processing_status);
 CREATE INDEX idx_credit_files_reconcile ON credit_statement_files(reconciliation_status);
 CREATE INDEX idx_credit_files_created ON credit_statement_files(created_at DESC);
 
 -- =============================================================================
--- 10. BẢNG DANH MỤC HỢP ĐỒNG VAY & KHẾ ƯỚC (CREDIT FACILITIES / LOANS)
--- Lưu trữ trạng thái mới nhất của các khoản vay tín dụng
+-- 11. BẢNG DANH MỤC HỢP ĐỒNG VAY & KHẾ ƯỚC (CREDIT FACILITIES / LOANS)
+-- Quản trị danh mục nợ vay hiện hành, phân tách 3 cột dư nợ và tính lãi TT14
 -- =============================================================================
 CREATE TABLE credit_facilities (
     loan_id BIGSERIAL PRIMARY KEY,
-    bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB, ...
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
+    bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB...
     bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng
     contract_number VARCHAR(50) NOT NULL,                   -- Số tài khoản vay / Số LD / Số HĐ tín dụng
     borrower_name VARCHAR(150) NOT NULL,                    -- Tên đơn vị vay (Doanh nghiệp)
@@ -307,11 +346,16 @@ CREATE TABLE credit_facilities (
     -- Hình thức trả lãi & Lịch trả lãi (Thông tư 14/2017/TT-NHNN)
     interest_payment_method VARCHAR(20) NOT NULL DEFAULT 'MONTHLY' CHECK (interest_payment_method IN ('MONTHLY', 'END_OF_TERM')), -- 'MONTHLY' (Hằng tháng), 'END_OF_TERM' (Cuối kỳ)
     monthly_interest_due_day INT CHECK (monthly_interest_due_day IS NULL OR (monthly_interest_due_day >= 1 AND monthly_interest_due_day <= 31)), -- Ngày trả lãi trong tháng (1-31, VietinBank mặc định ngày 5)
-    calculated_interest_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Số lãi cần trả tính theo quy định pháp luật (TT 14/2017/TT-NHNN Actual/365)
+    calculated_interest_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Số lãi cần trả tính theo TT 14/2017/TT-NHNN Actual/365
 
-    -- Số dư & nghĩa vụ trả nợ
-    original_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc ban đầu (không đổi)
-    current_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc hiện tại (sau khi trừ các lần trả nợ gốc)
+    -- Mốc Snapshot Sao kê Tín dụng & Phân tách 3 Cột Dư nợ Gốc (US-07.11 & Pre/Post Snapshot)
+    snapshot_date DATE,                                     -- Thời điểm xuất file sao kê tín dụng gần nhất (As-of Date)
+    snapshot_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- Dư nợ gốc tại thời điểm xuất file (không phải gốc ban đầu giải ngân)
+    original_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00, -- 1. Dư nợ gốc ban đầu (snapshot + lũy kế trả gốc trước/tại ngày xuất file)
+    total_repaid_principal DECIMAL(18, 2) NOT NULL DEFAULT 0.00,     -- 2. Đã trả gốc toàn bộ vòng đời (lũy kế từ đối soát sao kê)
+    repaid_before_snapshot DECIMAL(18, 2) NOT NULL DEFAULT 0.00,     -- Lũy kế trả gốc trước/tại ngày xuất file (hoàn nguyên vào gốc ban đầu)
+    repaid_after_snapshot DECIMAL(18, 2) NOT NULL DEFAULT 0.00,      -- Lũy kế trả gốc sau ngày xuất file (giảm trừ dư nợ hiện tại)
+    current_principal_balance DECIMAL(18, 2) NOT NULL DEFAULT 0.00,  -- 3. Dư nợ gốc hiện tại (snapshot - lũy kế trả gốc sau ngày xuất file)
     accrued_interest DECIMAL(18, 2) DEFAULT 0.00,           -- Lãi cộng dồn
     next_repayment_date DATE,                               -- Ngày đến hạn tiếp theo
     next_principal_amount DECIMAL(18, 2) DEFAULT 0.00,      -- Số tiền gốc đến hạn gần nhất
@@ -326,6 +370,7 @@ CREATE TABLE credit_facilities (
 );
 
 CREATE INDEX idx_credit_facilities_bank ON credit_facilities(bank_code);
+CREATE INDEX idx_credit_facilities_entity ON credit_facilities(entity_id);
 CREATE INDEX idx_credit_facilities_institution_type ON credit_facilities(institution_type);
 CREATE INDEX idx_credit_facilities_is_manual ON credit_facilities(is_manual);
 CREATE INDEX idx_credit_facilities_maturity ON credit_facilities(maturity_date);
@@ -333,7 +378,7 @@ CREATE INDEX idx_credit_facilities_next_repayment ON credit_facilities(next_repa
 CREATE INDEX idx_credit_facilities_status ON credit_facilities(status);
 
 -- =============================================================================
--- 11. BẢNG CHI TIẾT KHOẢN VAY THEO FILE SAO KÊ (CREDIT STATEMENT ITEMS)
+-- 12. BẢNG CHI TIẾT KHOẢN VAY THEO FILE SAO KÊ (CREDIT STATEMENT ITEMS)
 -- Lưu trữ snapshot lịch sử theo từng lần upload sao kê phục vụ kiểm toán
 -- =============================================================================
 CREATE TABLE credit_statement_items (
@@ -367,24 +412,35 @@ CREATE INDEX idx_credit_items_loan ON credit_statement_items(loan_id);
 CREATE INDEX idx_credit_items_contract ON credit_statement_items(contract_number);
 
 -- =============================================================================
--- 12. BẢNG HỒ SƠ GIẢI NGÂN KHOẢN VAY (DISBURSEMENT DOCUMENTS / DOSSIER)
--- Mỗi khoản vay liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage
--- Đường dẫn Object Storage: /disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{filename}
+-- 13. BẢNG HỒ SƠ GIẢI NGÂN & HÓA ĐƠN ĐIỆN TỬ XML (DISBURSEMENT DOCUMENTS)
+-- Hỗ trợ bóc tách hóa đơn XML theo NĐ 123/TT 78 và kiểm soát độ phủ chứng từ sử dụng vốn
 -- =============================================================================
 CREATE TABLE disbursement_documents (
     document_id BIGSERIAL PRIMARY KEY,
     document_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
     loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE CASCADE,
-    file_name VARCHAR(255) NOT NULL,                        -- Tên file tài liệu gốc (.pdf, .jpg, .docx, .zip...)
+    file_name VARCHAR(255) NOT NULL,                        -- Tên file tài liệu gốc (.pdf, .xml, .jpg, .docx...)
     storage_path VARCHAR(500) NOT NULL,                     -- Đường dẫn Object Storage: disbursement_dossiers/{bank}/{contract}/{uuid}_{name}
     file_size_bytes BIGINT NOT NULL,                        -- Kích thước file (bytes)
     file_sha256 CHAR(64) NOT NULL,                          -- Mã băm SHA-256 toàn vẹn tài liệu
     mime_type VARCHAR(100) NOT NULL,                        -- MIME type tài liệu
     document_type VARCHAR(50) NOT NULL DEFAULT 'DISBURSEMENT_RECORD',
-    -- 'CONTRACT' (Hợp đồng tín dụng), 'DISBURSEMENT_RECORD' (Hồ sơ/Biên bản giải ngân), 'DEBT_NOTE' (Khế ước nhận nợ), 'INVOICE' (Hóa đơn/chứng từ sử dụng vốn/UNC), 'COLLATERAL' (Tài sản bảo đảm/thế chấp), 'APPROVAL' (Phê duyệt tín dụng), 'OTHER' (Khác)
+    -- 'CONTRACT', 'DISBURSEMENT_RECORD', 'DEBT_NOTE', 'INVOICE', 'COLLATERAL', 'APPROVAL', 'OTHER'
     description TEXT,                                       -- Mô tả hoặc ghi chú chứng từ
-    invoice_number VARCHAR(50),                             -- Số hóa đơn điện tử bóc tách từ file XML (SHDon)
-    invoice_total_amount NUMERIC(18, 2),                    -- Tổng số tiền thanh toán trên hóa đơn XML (TgTTTBSo)
+    
+    -- Đặc tả Siêu dữ liệu Hóa đơn Điện tử XML (US-07.10)
+    invoice_number VARCHAR(50),                             -- Số hóa đơn điện tử (<SHDon>)
+    invoice_series VARCHAR(20),                             -- Ký hiệu hóa đơn điện tử (<KHHDon>: 1C24TLL...)
+    invoice_issue_date DATE,                                -- Ngày lập hóa đơn (<NLap>)
+    seller_tax_code VARCHAR(50),                            -- MST bên bán
+    seller_name VARCHAR(255),                               -- Tên bên bán
+    buyer_tax_code VARCHAR(50),                             -- MST bên mua
+    buyer_name VARCHAR(255),                                -- Tên bên mua
+    invoice_total_amount DECIMAL(18, 2),                    -- Tổng số tiền thanh toán (<TgTTTBSo>)
+    xml_raw_data JSONB,                                     -- Toàn bộ chi tiết mặt hàng, thuế suất từ file XML
+    verification_status VARCHAR(30) NOT NULL DEFAULT 'UNVERIFIED',
+    -- 'UNVERIFIED' -> 'VERIFIED_MATCH' -> 'DEFICIENT_AMOUNT' -> 'INVALID_SCHEMA'
+    
     uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -392,24 +448,8 @@ CREATE TABLE disbursement_documents (
 
 CREATE INDEX idx_disburse_docs_loan_id ON disbursement_documents(loan_id);
 CREATE INDEX idx_disburse_docs_uuid ON disbursement_documents(document_uuid);
-
--- =============================================================================
--- 13. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG & THANH KHOẢN RÒNG CFO
--- =============================================================================
-CREATE OR REPLACE VIEW v_cfo_debt_obligations AS
-SELECT 
-    cf.bank_code,
-    cf.bank_name,
-    COUNT(cf.loan_id) AS total_active_loans,
-    SUM(cf.current_principal_balance) AS total_principal_balance,
-    SUM(cf.accrued_interest) AS total_accrued_interest,
-    SUM(cf.next_principal_amount) AS upcoming_principal_due,
-    SUM(cf.next_interest_amount) AS upcoming_interest_due,
-    SUM(cf.next_principal_amount + cf.next_interest_amount) AS total_upcoming_debt_obligation,
-    ROUND(SUM(cf.current_principal_balance * cf.interest_rate) / NULLIF(SUM(cf.current_principal_balance), 0), 4) AS weighted_avg_interest_rate
-FROM credit_facilities cf
-WHERE cf.is_active = TRUE AND cf.status = 'ACTIVE'
-GROUP BY cf.bank_code, cf.bank_name;
+CREATE INDEX idx_disburse_docs_invoice ON disbursement_documents(invoice_number);
+CREATE INDEX idx_disburse_docs_status ON disbursement_documents(verification_status);
 
 -- =============================================================================
 -- 14. BẢNG NHẬT KÝ ĐỐI SOÁT & LỊCH SỬ TRẢ NỢ (LOAN REPAYMENT HISTORY)
@@ -422,6 +462,8 @@ CREATE TABLE loan_repayment_history (
     contract_number VARCHAR(50) NOT NULL,
     bank_code VARCHAR(20) NOT NULL,
     repayment_date TIMESTAMP WITH TIME ZONE NOT NULL,       -- Thời điểm trả nợ ĐÚNG BẰNG transaction_date trên sao kê
+    repayment_timing VARCHAR(20) NOT NULL DEFAULT 'POST_SNAPSHOT' CHECK (repayment_timing IN ('PRE_SNAPSHOT', 'POST_SNAPSHOT')), -- 'PRE_SNAPSHOT' (trước/tại ngày xuất file) | 'POST_SNAPSHOT' (sau ngày xuất file)
+    snapshot_date DATE,                                     -- Mốc snapshot của khế ước tại thời điểm đối soát
     principal_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,  -- Số tiền trả nợ gốc
     interest_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số tiền trả nợ lãi
     total_amount DECIMAL(18, 2) NOT NULL,                  -- Tổng số tiền (principal_amount + interest_amount == debit_amount)
@@ -432,7 +474,7 @@ CREATE TABLE loan_repayment_history (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     
     CONSTRAINT chk_repayment_split CHECK (principal_amount + interest_amount = total_amount),
-    CONSTRAINT chk_repayment_amounts_non_negative CHECK (principal_amount >= 0 AND interest_amount >= 0)
+    CONSTRAINT chk_repayment_principal_non_negative CHECK (principal_amount >= 0)
 );
 
 CREATE INDEX idx_repay_hist_loan ON loan_repayment_history(loan_id);
@@ -440,5 +482,118 @@ CREATE INDEX idx_repay_hist_trans ON loan_repayment_history(transaction_id);
 CREATE INDEX idx_repay_hist_contract ON loan_repayment_history(contract_number);
 CREATE INDEX idx_repay_hist_date ON loan_repayment_history(repayment_date DESC);
 
+-- =============================================================================
+-- 15. BẢNG KỊCH BẢN KẾ HOẠCH TRẢ NỢ & ĐIỀU PHỐI DÒNG TIỀN (LOAN REPAYMENT PLANS)
+-- Lưu trữ các phương án điều phối thanh khoản tuần hoàn (US-07.8 / Thuật toán SRPR v2.0)
+-- =============================================================================
+CREATE TABLE loan_repayment_plans (
+    plan_id BIGSERIAL PRIMARY KEY,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
+    plan_name VARCHAR(150) NOT NULL,                        -- Tên phương án (Phương án cơ sở 14 tỷ/tháng, Kịch bản mùa vụ...)
+    monthly_capacity_ceiling DECIMAL(18, 2) NOT NULL DEFAULT 14000000000.00, -- Trần khả năng chi trả hàng tháng
+    reborrow_rate DECIMAL(6, 4) NOT NULL DEFAULT 1.0000,    -- Tỷ lệ vay lại vốn quay vòng (mặc định 100%)
+    budget_mode VARCHAR(20) NOT NULL DEFAULT 'FIXED_CAPACITY', -- 'FIXED_CAPACITY' hoặc 'SEASONAL_CUSTOM'
+    start_period DATE NOT NULL,                             -- Tháng bắt đầu mô phỏng (ví dụ: 2026-11-01)
+    end_period DATE NOT NULL,                               -- Tháng kết thúc mô phỏng (ví dụ: 2027-05-31)
+    total_original_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00,-- Tổng nghĩa vụ nợ gốc trước điều phối
+    total_optimized_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00,-- Tổng nợ gốc sau khi làm phẳng dòng tiền
+    total_interest_saved DECIMAL(18, 2) NOT NULL DEFAULT 0.00,-- Dự kiến tiền lãi tiết kiệm được
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',            -- 'DRAFT', 'SIMULATED', 'APPROVED_BASELINE', 'ARCHIVED'
+    created_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    approved_by VARCHAR(100),                               -- CFO Trần Ngọc Tuấn phê duyệt
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
 
+CREATE INDEX idx_plans_entity ON loan_repayment_plans(entity_id);
+CREATE INDEX idx_plans_status ON loan_repayment_plans(status);
 
+-- =============================================================================
+-- 16. BẢNG CHI TIẾT ĐIỀU PHỐI KHẾ ƯỚC THEO THÁNG (LOAN REPAYMENT PLAN ITEMS)
+-- Chi tiết từng hành động trả trước hạn, cắt đỉnh, bắc cầu và vay lại
+-- =============================================================================
+CREATE TABLE loan_repayment_plan_items (
+    item_id BIGSERIAL PRIMARY KEY,
+    plan_id BIGINT NOT NULL REFERENCES loan_repayment_plans(plan_id) ON DELETE CASCADE,
+    loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE CASCADE,
+    contract_number VARCHAR(50) NOT NULL,
+    bank_code VARCHAR(20) NOT NULL,
+    action_month VARCHAR(7) NOT NULL,                       -- Tháng thực hiện hành động: YYYY-MM (2026-11 .. 2027-05)
+    action_type VARCHAR(30) NOT NULL,                       -- 'NATURAL_DUE', 'PREPAY_CUT', 'BRIDGE_ROLLOVER', 'REBORROW_DISBURSE'
+    scheduled_amount DECIMAL(18, 2) NOT NULL,               -- Số tiền nợ gốc kế hoạch chi trả
+    reborrow_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số tiền vay lại ngay sau tất toán
+    reborrow_term VARCHAR(20),                              -- Kỳ hạn vay lại (1M, 2M, 3M, 4M, 6M)
+    interest_saved DECIMAL(18, 2) DEFAULT 0.00,             -- Số tiền lãi tiết kiệm được từ hành động này
+    notes TEXT,                                             -- Ghi chú kỹ thuật điều phối
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_plan_items_plan ON loan_repayment_plan_items(plan_id);
+CREATE INDEX idx_plan_items_loan ON loan_repayment_plan_items(loan_id);
+CREATE INDEX idx_plan_items_month ON loan_repayment_plan_items(action_month);
+
+-- =============================================================================
+-- 17. VIEW BÁO CÁO CFO (TỔNG TỒN QUỸ HỢP NHẤT HÔM NAY - TRƯỚC 9H SÁNG)
+-- Phân tách 2 Khối nguồn tiền độc lập (Khối 1: Cty + Khối 2: Ủy quyền CEO), loại bỏ tiền mặt
+-- =============================================================================
+CREATE OR REPLACE VIEW v_cfo_daily_liquidity AS
+WITH account_summary AS (
+    SELECT 
+        ba.account_id,
+        ba.entity_id,
+        ba.bank_code,
+        ba.bank_name,
+        ba.account_number,
+        ba.account_holder,
+        ba.account_type,
+        ba.current_balance
+    FROM bank_accounts ba
+    WHERE ba.is_active = TRUE
+)
+SELECT 
+    COALESCE(SUM(CASE WHEN account_type = 'CORPORATE' THEN current_balance ELSE 0.00 END), 0.00) AS corporate_bank_balance,
+    COALESCE(SUM(CASE WHEN account_type = 'SPECIAL_CASH' THEN current_balance ELSE 0.00 END), 0.00) AS special_cash_balance,
+    0.00::DECIMAL(18, 2) AS total_cash_on_hand,             -- Đã loại bỏ quỹ tiền mặt theo chuẩn BRD 1.3.0
+    COALESCE(SUM(current_balance), 0.00) AS total_consolidated_liquidity, -- Khối 1 + Khối 2
+    CURRENT_DATE AS report_date
+FROM account_summary;
+
+-- =============================================================================
+-- 18. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG THEO NGÂN HÀNG
+-- =============================================================================
+CREATE OR REPLACE VIEW v_cfo_debt_obligations AS
+SELECT 
+    cf.entity_id,
+    cf.bank_code,
+    cf.bank_name,
+    COUNT(cf.loan_id) AS total_active_loans,
+    SUM(cf.original_principal_balance) AS total_original_principal,
+    SUM(cf.total_repaid_principal) AS total_repaid_principal,
+    SUM(cf.current_principal_balance) AS total_principal_balance,
+    SUM(cf.accrued_interest) AS total_accrued_interest,
+    SUM(cf.next_principal_amount) AS upcoming_principal_due,
+    SUM(cf.next_interest_amount) AS upcoming_interest_due,
+    SUM(cf.next_principal_amount + cf.next_interest_amount) AS total_upcoming_debt_obligation,
+    ROUND(SUM(cf.current_principal_balance * cf.interest_rate) / NULLIF(SUM(cf.current_principal_balance), 0), 4) AS weighted_avg_interest_rate
+FROM credit_facilities cf
+WHERE cf.is_active = TRUE AND cf.status = 'ACTIVE'
+GROUP BY cf.entity_id, cf.bank_code, cf.bank_name;
+
+-- =============================================================================
+-- 19. VIEW BÁO CÁO THANH KHOẢN RÒNG HỢP NHẤT (NET LIQUIDITY POSITION)
+-- Thanh khoản Ròng = Tổng tồn quỹ hợp nhất (2 khối) - Nghĩa vụ nợ đến hạn kỳ tới
+-- =============================================================================
+CREATE OR REPLACE VIEW v_cfo_net_liquidity_position AS
+WITH liquidity AS (
+    SELECT total_consolidated_liquidity FROM v_cfo_daily_liquidity
+),
+debt AS (
+    SELECT COALESCE(SUM(total_upcoming_debt_obligation), 0.00) AS total_upcoming_debt
+    FROM v_cfo_debt_obligations
+)
+SELECT 
+    l.total_consolidated_liquidity,
+    d.total_upcoming_debt,
+    (l.total_consolidated_liquidity - d.total_upcoming_debt) AS net_liquidity_position,
+    CURRENT_DATE AS as_of_date
+FROM liquidity l CROSS JOIN debt d;

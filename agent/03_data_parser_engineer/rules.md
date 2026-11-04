@@ -9,6 +9,7 @@
 - **Cấm Eager-Loading:** TUYỆT ĐỐI CẤM tải toàn bộ nội dung file Excel vào bộ nhớ RAM bằng các hàm load đầy đủ (như `openpyxl.load_workbook()` ở chế độ mặc định hoặc `pd.read_excel()` nguyên file) trên môi trường production.
 - **Bắt buộc Stream / Read-Only Chunking:**
   - Trong Python: Bắt buộc dùng `openpyxl.load_workbook(filename, read_only=True, data_only=True)` hoặc các thư viện stream tương đương.
+  - **Xử lý Khiếm khuyết Metadata Kích thước Bảng tính (Worksheet Dimension Resetting):** Khi đọc file `.xlsx` ở chế độ `read_only=True` được xuất từ hệ thống phần mềm ngân hàng (như MBBank e-banking) có khai báo kích thước sai lệch `<dimension ref="A1"/>`, `openpyxl` mặc định sẽ ngắt lặp sau dòng 1. Parser bắt buộc phải thực thi `ws.reset_dimensions()` trước khi lặp qua `ws.iter_rows()` để đảm bảo đọc đủ 100% các dòng thực tế mà vẫn bảo toàn bộ nhớ stream.
   - Trong Node.js: Bắt buộc dùng `exceljs` streaming reader hoặc `xlsx-stream-reader`.
 - **Giới hạn kích thước Chunk:** Đọc và xử lý theo từng khối (chunk size) cố định từ 500 đến 1.000 dòng một lần.
 - **Tương thích Đa Định dạng & Cấu trúc Bảng Phức tạp:**
@@ -39,4 +40,5 @@
 
 ## 5. Tiêu chuẩn Cấu hình Mẫu Mở rộng & Độc lập Pháp nhân (Config-Driven & Entity-Agnostic Parsing)
 - **Không gắn cứng Pháp nhân trong Template:** Mọi cấu hình mẫu (`template_config`) chỉ định nghĩa tọa độ/Regex và từ khóa tiêu đề (`header_aliases`), tuyệt đối không hardcode tên doanh nghiệp, mã số thuế hay số tài khoản cụ thể.
+- **Triệt tiêu Hardcode Tọa độ Cột trong Code:** Toàn bộ quá trình bóc tách các dòng chi tiết (cả sao kê tài khoản và sao kê tín dụng/khoản vay) bắt buộc phải dựa vào hàm ánh xạ động `_get_row_cell(row, cols.get(field_name))` từ file declarative config YAML, cấm hardcode các chỉ số cột cố định (`row[2]`, `row[5]`...) trong thân hàm parser.
 - **Trích xuất Động Định danh Pháp nhân:** Parser bắt buộc trích xuất động `(account_number, account_holder, tax_code)` từ Header tài liệu để định tuyến dữ liệu về đúng pháp nhân sở hữu, cho phép dùng chung 1 mẫu cấu hình để quét cho nhiều doanh nghiệp khác nhau.

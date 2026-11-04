@@ -19,13 +19,19 @@ import {
   ShieldCheck,
   PieChart,
   UserCheck,
+  CreditCard,
+  Landmark,
+  ArrowUpRight,
 } from 'lucide-react';
 import api from '../services/api';
 import {
   CFOLiquidityData,
   CFOBankBreakdownItem,
   Transaction,
+  CreditFacilitySummary,
 } from '../types';
+import { SortableTh } from '../components/common/SortableTh';
+import { SortDirection, sortList } from '../utils/sort';
 
 type TimeframeType = 'TODAY' | 'YESTERDAY' | 'WTD' | 'MTD' | 'ALL' | 'CUSTOM';
 
@@ -33,6 +39,7 @@ export const CFODashboardPage: React.FC = () => {
   const navigate = useNavigate();
 
   const [data, setData] = useState<CFOLiquidityData | null>(null);
+  const [debtSummary, setDebtSummary] = useState<CreditFacilitySummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [exporting, setExporting] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
@@ -65,15 +72,24 @@ export const CFODashboardPage: React.FC = () => {
       const fDate = customFrom !== undefined ? customFrom : fromDate;
       const tDate = customTo !== undefined ? customTo : toDate;
 
-      const liqRes = await api.get('/reports/cfo/daily-liquidity', {
-        params: {
-          timeframe,
-          from_date: fDate || undefined,
-          to_date: tDate || undefined,
-          exclude_internal_transfers: excludeInternal,
-        },
-      });
+      const [liqRes, debtRes] = await Promise.all([
+        api.get('/reports/cfo/daily-liquidity', {
+          params: {
+            timeframe,
+            from_date: fDate || undefined,
+            to_date: tDate || undefined,
+            exclude_internal_transfers: excludeInternal,
+          },
+        }),
+        api.get('/loans/summary').catch((e) => {
+          console.warn('Không thể tải tổng quan nợ vay:', e);
+          return { data: null };
+        }),
+      ]);
       setData(liqRes.data);
+      if (debtRes?.data) {
+        setDebtSummary(debtRes.data);
+      }
 
       // Nếu đang mở drill-down của 1 tài khoản, làm mới luôn danh sách giao dịch kỳ đó
       if (expandedAccountId !== null) {
@@ -242,6 +258,17 @@ export const CFODashboardPage: React.FC = () => {
   }, [filteredBankItems]);
 
   // Dữ liệu giao dịch trong Drill-down đã lọc và sắp xếp
+  const [drillSortField, setDrillSortField] = useState<string>('transaction_date');
+  const [drillSortDirection, setDrillSortDirection] = useState<SortDirection>('desc');
+  const handleDrillSort = (field: string) => {
+    if (drillSortField === field) {
+      setDrillSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setDrillSortField(field);
+      setDrillSortDirection('asc');
+    }
+  };
+
   const displayedDrilldownTxs = useMemo(() => {
     let list = [...drilldownTxs];
     if (drilldownFlowFilter === 'CREDIT') {
@@ -249,19 +276,53 @@ export const CFODashboardPage: React.FC = () => {
     } else if (drilldownFlowFilter === 'DEBIT') {
       list = list.filter((t) => Number(t.debit_amount) > 0);
     }
-    if (drilldownSort === 'AMOUNT_DESC') {
-      list.sort(
-        (a, b) =>
-          Math.max(Number(b.credit_amount), Number(b.debit_amount)) -
-          Math.max(Number(a.credit_amount), Number(a.debit_amount))
-      );
+    return sortList(list, drillSortField, drillSortDirection, {
+      amount: (t) => Math.max(Number(t.credit_amount || 0), Number(t.debit_amount || 0)),
+    });
+  }, [drilldownTxs, drilldownFlowFilter, drillSortField, drillSortDirection]);
+
+  // Sắp xếp Bảng Thống kê Giao dịch (Table 2)
+  const [summarySortField, setSummarySortField] = useState<string>('bank_code');
+  const [summarySortDirection, setSummarySortDirection] = useState<SortDirection>('asc');
+  const handleSummarySort = (field: string) => {
+    if (summarySortField === field) {
+      setSummarySortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
     } else {
-      list.sort(
-        (a, b) => new Date(b.transaction_date).getTime() - new Date(a.transaction_date).getTime()
-      );
+      setSummarySortField(field);
+      setSummarySortDirection('asc');
     }
-    return list;
-  }, [drilldownTxs, drilldownFlowFilter, drilldownSort]);
+  };
+  const sortedSummaryBankItems = useMemo(() => {
+    return sortList(filteredBankItems, summarySortField, summarySortDirection, {
+      account: (b) => `${b.bank_code || ''} ${b.account_number || ''}`,
+      net_flow: (b) => (b.total_inflow || 0) - (b.total_outflow || 0),
+    });
+  }, [filteredBankItems, summarySortField, summarySortDirection]);
+
+  // Sắp xếp Bảng Chi tiết Tồn quỹ Các Tài khoản (Table 3)
+  const [cfoTableSortField, setCfoTableSortField] = useState<string>('closing_balance');
+  const [cfoTableSortDirection, setCfoTableSortDirection] = useState<SortDirection>('desc');
+  const handleCfoTableSort = (field: string) => {
+    if (cfoTableSortField === field) {
+      setCfoTableSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setCfoTableSortField(field);
+      setCfoTableSortDirection('asc');
+    }
+  };
+  const sortedCorporateAccounts = useMemo(() => {
+    return sortList(corporateAccounts, cfoTableSortField, cfoTableSortDirection, {
+      account: (b) => `${b.bank_code || ''} ${b.account_number || ''}`,
+      closing_balance: (b) => b.closing_balance ?? b.balance ?? 0,
+    });
+  }, [corporateAccounts, cfoTableSortField, cfoTableSortDirection]);
+
+  const sortedSpecialCashAccounts = useMemo(() => {
+    return sortList(specialCashAccounts, cfoTableSortField, cfoTableSortDirection, {
+      account: (b) => `${b.bank_code || ''} ${b.account_number || ''}`,
+      closing_balance: (b) => b.closing_balance ?? b.balance ?? 0,
+    });
+  }, [specialCashAccounts, cfoTableSortField, cfoTableSortDirection]);
 
   const formatMoney = (val?: number | null) => {
     const num = Number(val || 0);
@@ -598,13 +659,27 @@ export const CFODashboardPage: React.FC = () => {
                     <table className="w-full text-left text-[11px] text-slate-600">
                       <thead className="bg-slate-50 uppercase font-semibold text-slate-700 sticky top-0 border-b border-slate-200">
                         <tr>
-                          <th className="px-3 py-2">Ngày GD</th>
-                          <th className="px-3 py-2">Mã tham chiếu</th>
-                          <th className="px-3 py-2 min-w-[240px]">Nội dung diễn giải</th>
-                          <th className="px-3 py-2">Danh mục</th>
-                          <th className="px-3 py-2 text-right">Thu (Có)</th>
-                          <th className="px-3 py-2 text-right">Chi (Nợ)</th>
-                          <th className="px-3 py-2 text-right">Số dư sau GD</th>
+                          <SortableTh field="transaction_date" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} className="px-3 py-2">
+                            Ngày GD
+                          </SortableTh>
+                          <SortableTh field="reference_number" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} className="px-3 py-2">
+                            Mã tham chiếu
+                          </SortableTh>
+                          <SortableTh field="description" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} className="px-3 py-2 min-w-[240px]">
+                            Nội dung diễn giải
+                          </SortableTh>
+                          <SortableTh field="category_name" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} className="px-3 py-2">
+                            Danh mục
+                          </SortableTh>
+                          <SortableTh field="credit_amount" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} align="right" className="px-3 py-2">
+                            Thu (Có)
+                          </SortableTh>
+                          <SortableTh field="debit_amount" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} align="right" className="px-3 py-2">
+                            Chi (Nợ)
+                          </SortableTh>
+                          <SortableTh field="running_balance" currentSortField={drillSortField} currentSortDirection={drillSortDirection} onSort={handleDrillSort} align="right" className="px-3 py-2">
+                            Số dư sau GD
+                          </SortableTh>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -899,7 +974,64 @@ export const CFODashboardPage: React.FC = () => {
         </div>
       )}
 
-      {/* 4. Hệ Thống 4 Thẻ KPI Điều Hành Hợp Nhất */}
+      {/* 4. Thanh Khoản Ròng Sau Nghĩa Vụ Nợ Tín Dụng Đến Hạn (Net Liquidity Position) */}
+      {debtSummary && (
+        <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-xl p-5 text-white shadow-lg border border-indigo-800/40">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 uppercase tracking-wider flex items-center gap-1">
+                  <Landmark className="w-3.5 h-3.5" />
+                  Chỉ số Quản trị CFO
+                </span>
+                <span className="text-sm font-bold text-white">
+                  Thanh Khoản Ròng Sau Nghĩa Vụ Nợ Tín Dụng (Net Liquidity Position)
+                </span>
+              </div>
+              <p className="text-xs text-slate-300">
+                = Tổng tồn quỹ 2 Khối ngân hàng ({formatMoney(data?.total_consolidated_liquidity)} VND) − Nghĩa vụ nợ gốc & lãi 30 ngày tới ({formatMoney(debtSummary.total_upcoming_due_30days)} VND)
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-4">
+              <div className="bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                <div className="text-[11px] text-slate-300 font-medium">Nợ đến hạn 30 ngày:</div>
+                <div className="text-base font-bold font-mono text-rose-300">
+                  {formatMoney(debtSummary.total_upcoming_due_30days)} <span className="text-[10px] font-normal">VND</span>
+                </div>
+              </div>
+
+              <div className="bg-white/5 rounded-lg px-3.5 py-2 border border-white/10">
+                <div className="text-[11px] text-slate-300 font-medium">Thanh khoản ròng khả dụng:</div>
+                <div className={`text-2xl font-bold font-mono ${((Number(data?.total_consolidated_liquidity || 0) - Number(debtSummary.total_upcoming_due_30days || 0)) >= 0) ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {formatSignedMoney(Number(data?.total_consolidated_liquidity || 0) - Number(debtSummary.total_upcoming_due_30days || 0))} <span className="text-xs font-normal text-slate-300">VND</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => navigate('/credit-statements')}
+                  className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow transition-colors flex items-center gap-1.5"
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  <span>Khoản vay ({debtSummary.total_active_loans} HĐ)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => navigate('/loan-repayment-plan')}
+                  className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold border border-white/20 transition-colors flex items-center gap-1"
+                >
+                  <span>Kế hoạch trả nợ</span>
+                  <ArrowUpRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Hệ Thống 4 Thẻ KPI Điều Hành Hợp Nhất */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* KPI 1: Tổng Tồn Quỹ Hợp Nhất Cuối Kỳ */}
         <div className="bg-gradient-to-br from-blue-700 via-blue-800 to-slate-900 rounded-xl p-5 text-white shadow-md flex flex-col justify-between">
@@ -1123,14 +1255,22 @@ export const CFODashboardPage: React.FC = () => {
             <table className="w-full text-left text-xs text-slate-600">
               <thead className="bg-slate-50 text-slate-700 text-[11px] font-semibold sticky top-0 border-b border-slate-200">
                 <tr>
-                  <th className="px-2.5 py-2">Tài khoản</th>
-                  <th className="px-2 py-2 text-center">Số GD kỳ</th>
-                  <th className="px-2.5 py-2 text-left">GD Mới Nhất</th>
-                  <th className="px-2.5 py-2 text-right">Thu / Chi Kỳ</th>
+                  <SortableTh field="account" currentSortField={summarySortField} currentSortDirection={summarySortDirection} onSort={handleSummarySort} className="px-2.5 py-2">
+                    Tài khoản
+                  </SortableTh>
+                  <SortableTh field="period_tx_count" currentSortField={summarySortField} currentSortDirection={summarySortDirection} onSort={handleSummarySort} align="center" className="px-2 py-2">
+                    Số GD kỳ
+                  </SortableTh>
+                  <SortableTh field="last_transaction_date" currentSortField={summarySortField} currentSortDirection={summarySortDirection} onSort={handleSummarySort} className="px-2.5 py-2">
+                    GD Mới Nhất
+                  </SortableTh>
+                  <SortableTh field="net_flow" currentSortField={summarySortField} currentSortDirection={summarySortDirection} onSort={handleSummarySort} align="right" className="px-2.5 py-2">
+                    Thu / Chi Kỳ
+                  </SortableTh>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredBankItems.map((b) => (
+                {sortedSummaryBankItems.map((b) => (
                   <tr
                     key={b.account_id || b.account_number}
                     onClick={() => handleToggleAccountExpand(b.account_id)}
@@ -1207,14 +1347,30 @@ export const CFODashboardPage: React.FC = () => {
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-800 text-white uppercase text-[11px] font-semibold">
               <tr>
-                <th className="px-4 py-3">Tài khoản Ngân hàng</th>
-                <th className="px-3 py-3 text-right">Số dư Đầu kỳ</th>
-                <th className="px-3 py-3 text-right">Tổng Thu (Tiền vào)</th>
-                <th className="px-3 py-3 text-right">Tổng Chi (Tiền ra)</th>
-                <th className="px-3 py-3 text-right">Số dư Cuối kỳ</th>
-                <th className="px-3 py-3 text-right">Biến động (+/-)</th>
-                <th className="px-3 py-3 text-right">Tỷ trọng</th>
-                <th className="px-4 py-3 text-right">Đối soát & Cập nhật</th>
+                <SortableTh field="account" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" className="px-4 py-3">
+                  Tài khoản Ngân hàng
+                </SortableTh>
+                <SortableTh field="opening_balance" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
+                  Số dư Đầu kỳ
+                </SortableTh>
+                <SortableTh field="total_inflow" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
+                  Tổng Thu (Tiền vào)
+                </SortableTh>
+                <SortableTh field="total_outflow" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
+                  Tổng Chi (Tiền ra)
+                </SortableTh>
+                <SortableTh field="closing_balance" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
+                  Số dư Cuối kỳ
+                </SortableTh>
+                <SortableTh field="net_change" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
+                  Biến động (+/-)
+                </SortableTh>
+                <SortableTh field="share_pct" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
+                  Tỷ trọng
+                </SortableTh>
+                <SortableTh field="reconciliation_status" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-4 py-3">
+                  Đối soát & Cập nhật
+                </SortableTh>
               </tr>
             </thead>
 
@@ -1226,14 +1382,14 @@ export const CFODashboardPage: React.FC = () => {
                 </td>
               </tr>
 
-              {corporateAccounts.length === 0 ? (
+              {sortedCorporateAccounts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-4 text-center text-slate-400 italic">
                     Không có tài khoản doanh nghiệp nào khớp điều kiện lọc.
                   </td>
                 </tr>
               ) : (
-                corporateAccounts.map((b) => renderAccountRow(b))
+                sortedCorporateAccounts.map((b) => renderAccountRow(b))
               )}
 
               {/* Dòng Tiểu tổng Khối 1 */}
@@ -1273,14 +1429,14 @@ export const CFODashboardPage: React.FC = () => {
                 </td>
               </tr>
 
-              {specialCashAccounts.length === 0 ? (
+              {sortedSpecialCashAccounts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-4 text-center text-slate-400 italic">
                     Chưa có tài khoản ủy quyền CEO.
                   </td>
                 </tr>
               ) : (
-                specialCashAccounts.map((b) => renderAccountRow(b))
+                sortedSpecialCashAccounts.map((b) => renderAccountRow(b))
               )}
 
               {/* Dòng Tiểu tổng Khối 2 */}

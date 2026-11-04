@@ -212,3 +212,261 @@ async def test_reconcile_validation_failure_overpayment(setup_test_data):
         res = await client.post("/api/v1/loans/repayment-reconciliations/reconcile", json=payload)
         assert res.status_code == 400
         assert "vượt quá dư nợ gốc hiện tại" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_pre_snapshot_reconstruct_original_principal(setup_test_data):
+    """
+    Kiểm chứng quy tắc mới:
+    - Giao dịch trước ngày xuất file (Pre-Snapshot):
+      + Không trừ tiếp vào current_principal_balance (chống trừ 2 lần)
+      + Hoàn nguyên tăng original_principal_balance
+      + Cho phép số tiền trả nợ lớn hơn current_principal_balance
+      + Lưu repayment_timing = 'PRE_SNAPSHOT'
+    """
+    data = setup_test_data
+    transport = ASGITransport(app=app)
+
+    # Thiết lập khế ước có snapshot_date = 2026-10-31 (giao dịch test_tx_date là 2026-10-20 <= 2026-10-31)
+    async with AsyncSessionLocal() as session:
+        stmt_loan = select(CreditFacility).where(CreditFacility.loan_id == data["loan_id"])
+        loan = (await session.execute(stmt_loan)).scalar_one()
+        loan.snapshot_date = date(2026, 10, 31)
+        loan.snapshot_principal_balance = Decimal("2880000000.00")
+        loan.original_principal_balance = Decimal("2880000000.00")
+        loan.current_principal_balance = Decimal("2880000000.00")
+        loan.repaid_before_snapshot = Decimal("0.00")
+        loan.repaid_after_snapshot = Decimal("0.00")
+        loan.total_repaid_principal = Decimal("0.00")
+        loan.status = "ACTIVE"
+        await session.commit()
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Kiểm tra API unreconciled nhận diện đúng PRE_SNAPSHOT
+        res_un = await client.get(f"/api/v1/loans/repayment-reconciliations/unreconciled?keyword={data['contract_number']}")
+        assert res_un.status_code == 200
+        un_items = res_un.json()["items"]
+        matched_tx = next((it for it in un_items if it["transaction_id"] == data["transaction_id"]), None)
+        assert matched_tx is not None
+        assert matched_tx["timing_prediction"] == "PRE_SNAPSHOT"
+
+        # 2. Thực hiện đối soát 1 tỷ trả gốc
+        payload = {
+            "transaction_id": data["transaction_id"],
+            "loan_id": data["loan_id"],
+            "principal_amount": "1000000000.00",
+            "interest_amount": "0.00",
+            "notes": "Test tra no truoc ngay xuat file",
+        }
+        res_rec = await client.post("/api/v1/loans/repayment-reconciliations/reconcile", json=payload)
+        assert res_rec.status_code == 200
+        rec_body = res_rec.json()
+
+        assert rec_body["repayment_timing"] == "PRE_SNAPSHOT"
+        # Dư nợ hiện tại vẫn là 2.88 tỷ (KHÔNG BỊ TRỪ 2 LẦN)
+        assert Decimal(str(rec_body["remaining_principal_balance"])) == Decimal("2880000000.00")
+        # Dư nợ gốc ban đầu được hoàn nguyên lên: 2.88 tỷ + 1.00 tỷ = 3.88 tỷ
+        assert Decimal(str(rec_body["original_principal_balance"])) == Decimal("3880000000.00")
+        assert Decimal(str(rec_body["total_repaid_principal"])) == Decimal("1000000000.00")
+        assert rec_body["loan_status"] == "ACTIVE"
+
+        repay_id = rec_body["repayment_id"]
+
+        # 3. Kiểm tra Rollback đối soát Pre-Snapshot
+        res_rb = await client.post(f"/api/v1/loans/repayment-reconciliations/{repay_id}/rollback")
+        assert res_rb.status_code == 200
+
+        # Kiểm tra lại số dư trong CSDL sau rollback
+        async with AsyncSessionLocal() as session:
+            stmt_chk = select(CreditFacility).where(CreditFacility.loan_id == data["loan_id"])
+            loan_after = (await session.execute(stmt_chk)).scalar_one()
+            assert loan_after.original_principal_balance == Decimal("2880000000.00")
+            assert loan_after.current_principal_balance == Decimal("2880000000.00")
+            assert loan_after.repaid_before_snapshot == Decimal("0.00")
+            assert loan_after.total_repaid_principal == Decimal("0.00")
+
+
+@pytest.mark.asyncio
+async def test_reconcile_pre_snapshot_larger_than_current_balance(setup_test_data):
+    """
+    Kiểm chứng: Giao dịch trước ngày xuất file có số tiền lớn hơn dư nợ hiện tại trên file
+    vẫn được chấp nhận và hoàn nguyên thành công (không bị lỗi overpayment).
+    """
+    data = setup_test_data
+    transport = ASGITransport(app=app)
+
+    async with AsyncSessionLocal() as session:
+        stmt_loan = select(CreditFacility).where(CreditFacility.loan_id == data["loan_id"])
+        loan = (await session.execute(stmt_loan)).scalar_one()
+        loan.snapshot_date = date(2026, 10, 31)
+        loan.snapshot_principal_balance = Decimal("500000000.00")  # 500tr
+        loan.original_principal_balance = Decimal("500000000.00")
+        loan.current_principal_balance = Decimal("500000000.00")
+        loan.repaid_before_snapshot = Decimal("0.00")
+        loan.total_repaid_principal = Decimal("0.00")
+        await session.commit()
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # Giao dịch chi 1 tỷ (lớn hơn số dư 500tr trên file)
+        payload = {
+            "transaction_id": data["transaction_id"],
+            "loan_id": data["loan_id"],
+            "principal_amount": "1000000000.00",
+            "interest_amount": "0.00",
+            "notes": "Tra no goc 1 ty trong khi tren file chi con 500tr",
+        }
+        res = await client.post("/api/v1/loans/repayment-reconciliations/reconcile", json=payload)
+        assert res.status_code == 200
+        body = res.json()
+        assert body["repayment_timing"] == "PRE_SNAPSHOT"
+        assert Decimal(str(body["remaining_principal_balance"])) == Decimal("500000000.00")
+        # Hoàn nguyên gốc ban đầu: 500tr + 1 tỷ = 1.5 tỷ
+        assert Decimal(str(body["original_principal_balance"])) == Decimal("1500000000.00")
+
+
+@pytest.mark.asyncio
+async def test_reconcile_with_negative_interest_payoff(setup_test_data):
+    """
+    Kiểm chứng: Cho phép đối soát với số tiền lãi âm (hoàn lãi / thoái thu / giảm trừ lãi khi tất toán).
+    Ví dụ: Dư nợ 921.000.000 đ, Tổng tiền GD 920.111.343 đ, Lãi cộng dồn -888.657 đ -> Tất toán về 0 đ.
+    """
+    data = setup_test_data
+    transport = ASGITransport(app=app)
+
+    async with AsyncSessionLocal() as session:
+        # Cập nhật số dư khoản vay thành 921 triệu
+        stmt_loan = select(CreditFacility).where(CreditFacility.loan_id == data["loan_id"])
+        loan = (await session.execute(stmt_loan)).scalar_one()
+        loan.snapshot_date = date(2026, 9, 3)
+        loan.snapshot_principal_balance = Decimal("1221000000.00")
+        loan.current_principal_balance = Decimal("921000000.00")
+        loan.original_principal_balance = Decimal("1950000000.00")
+        loan.status = "ACTIVE"
+
+        # Cập nhật số tiền transaction thành 920.111.343 đ (phát sinh sau snapshot: 2026-09-07)
+        stmt_tx = select(BankTransaction).where(BankTransaction.transaction_id == data["transaction_id"])
+        tx = (await session.execute(stmt_tx)).scalar_one()
+        tx.transaction_date = datetime(2026, 9, 7, 13, 43, 17, tzinfo=timezone.utc)
+        tx.debit_amount = Decimal("920111343.00")
+        tx.description = "Tat toan khoan vay TEST_HDTD_999001, So tien goc: 921,000,000 VND, Lai cong don: -888,657 VND"
+        await session.commit()
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Kiểm tra gợi ý tự động bóc tách được số tiền lãi âm và gốc đầy đủ
+        res_unrec = await client.get("/api/v1/loans/repayment-reconciliations/unreconciled?keyword=TEST_HDTD_999001")
+        assert res_unrec.status_code == 200
+        items = res_unrec.json().get("items", [])
+        assert len(items) >= 1
+        item = items[0]
+        assert Decimal(str(item["suggested_principal_amount"])) == Decimal("921000000.00")
+        assert Decimal(str(item["suggested_interest_amount"])) == Decimal("-888657.00")
+
+        # 2. Thực hiện đối soát với lãi âm
+        payload = {
+            "transaction_id": data["transaction_id"],
+            "loan_id": data["loan_id"],
+            "principal_amount": "921000000.00",
+            "interest_amount": "-888657.00",
+            "notes": "Tat toan tat ca no goc, lai am do ngan hang thoai thu lai",
+        }
+        res = await client.post("/api/v1/loans/repayment-reconciliations/reconcile", json=payload)
+        assert res.status_code == 200
+        body = res.json()
+
+        assert body["repayment_timing"] == "POST_SNAPSHOT"
+        assert Decimal(str(body["principal_amount"])) == Decimal("921000000.00")
+        assert Decimal(str(body["interest_amount"])) == Decimal("-888657.00")
+        assert Decimal(str(body["total_amount"])) == Decimal("920111343.00")
+        assert Decimal(str(body["remaining_principal_balance"])) == Decimal("0.00")
+        assert body["loan_status"] == "SETTLED"
+
+        # 3. Rollback hoàn tác
+        repay_id = body["repayment_id"]
+        res_rb = await client.post(f"/api/v1/loans/repayment-reconciliations/{repay_id}/rollback")
+        assert res_rb.status_code == 200
+
+
+
+@pytest.mark.asyncio
+async def test_unreconciled_transaction_unknown_contract_leaves_blank(setup_test_data):
+    """
+    Quy tắc nghiệp vụ: Chỉ gợi ý khế ước nếu khế ước đó có trong danh sách đã nạp (credit_facilities).
+    Nếu không có trong danh sách khế ước đã nạp thì tuyệt đối để trống (None).
+    """
+    data = setup_test_data
+    transport = ASGITransport(app=app)
+    async with AsyncSessionLocal() as session:
+        tx = await session.get(BankTransaction, data["transaction_id"])
+        tx.description = "Thu lai khe uoc LD999999999999, So tien: 500,000 VND"
+        await session.commit()
+
+    try:
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            res = await client.get("/api/v1/loans/repayment-reconciliations/unreconciled?keyword=LD999999999999")
+            assert res.status_code == 200
+            items = res.json().get("items", [])
+            matched = next((it for it in items if it["transaction_id"] == data["transaction_id"]), None)
+            assert matched is not None
+            # Bắt buộc để trống nếu khế ước không có trong danh sách đã nạp
+            assert matched["suggested_contract_number"] is None
+            assert matched["suggested_loan_id"] is None
+            assert matched["suggested_principal_balance"] is None
+            assert matched["match_confidence"] == "NONE"
+    finally:
+        async with AsyncSessionLocal() as session:
+            tx = await session.get(BankTransaction, data["transaction_id"])
+            if tx:
+                tx.description = f"Tra no khoan vay {data['contract_number']}, Goc: 1,000,000,000 VND"
+                await session.commit()
+
+
+@pytest.mark.asyncio
+async def test_repayment_history_keyword_search(setup_test_data):
+    """
+    Kiểm thử tìm kiếm theo từ khóa (keyword) trên tab Nhật ký lịch sử trả nợ.
+    Tìm kiếm đúng số khế ước, diễn giải sao kê, hoặc ghi chú.
+    Đảm bảo teardown 100% sau kiểm thử.
+    """
+    data = setup_test_data
+    transport = ASGITransport(app=app)
+    repay_id = None
+
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        # 1. Đối soát 1 giao dịch
+        res_rec = await client.post(
+            "/api/v1/loans/repayment-reconciliations/reconcile",
+            json={
+                "transaction_id": data["transaction_id"],
+                "loan_id": data["loan_id"],
+                "principal_amount": 1000000000.0,
+                "interest_amount": 0.0,
+                "repayment_timing": "POST_SNAPSHOT",
+                "notes": "Ghi chú test keyword search",
+            },
+        )
+        assert res_rec.status_code == 200
+        repay_id = res_rec.json()["repayment_id"]
+
+        try:
+            # 2. Tìm kiếm với keyword khớp số khế ước
+            res_kw1 = await client.get(
+                f"/api/v1/loans/repayment-reconciliations/history?keyword={data['contract_number']}"
+            )
+            assert res_kw1.status_code == 200
+            items1 = res_kw1.json().get("items", [])
+            assert any(it["repayment_id"] == repay_id for it in items1)
+
+            # 3. Tìm kiếm với keyword không khớp
+            res_kw2 = await client.get(
+                "/api/v1/loans/repayment-reconciliations/history?keyword=NON_EXISTENT_KEYWORD_XYZ_999"
+            )
+            assert res_kw2.status_code == 200
+            items2 = res_kw2.json().get("items", [])
+            assert not any(it["repayment_id"] == repay_id for it in items2)
+        finally:
+            # 4. Teardown: Rollback giao dịch để trả lại trạng thái CSDL
+            if repay_id:
+                res_rb = await client.post(
+                    f"/api/v1/loans/repayment-reconciliations/{repay_id}/rollback"
+                )
+                assert res_rb.status_code == 200

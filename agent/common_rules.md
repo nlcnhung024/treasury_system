@@ -37,6 +37,14 @@
 - **Structured Logging:** Ghi log hệ thống theo định dạng JSON có kèm mã lỗi (`error_code`), dấu vết thời gian (`timestamp`), và mã định danh phiên làm việc (`correlation_id`).
 - **Bất biến Nhật ký Kiểm toán (Audit Trail Invariant):** Toàn bộ bản ghi kiểm toán nghiệp vụ bắt buộc tuân thủ đúng cấu trúc 5 thành phần: `actor`, `action`, `target_entity`, `target_id`, và `details` (JSON object).
 - **Bất biến Thứ tự Route API (Route Ordering Invariant):** Mọi API Router trên backend bắt buộc đặt Static Routes trước Dynamic Parameter Routes để triệt tiêu lỗi ép kiểu path parameter (`int_parsing` collision).
+- **Bất biến Số dư Lũy kế theo Thời gian (Chronological Running Balance Invariant):**
+  - Mọi cột số dư lũy kế (đầu kỳ / còn lại / running balance) trên báo cáo, sổ phụ, bảng dòng tiền BẮT BUỘC được dựng lại bằng cách duyệt sự kiện nguồn theo `(event_date, id)` tăng dần, bắt đầu từ số dư gốc.
+  - CẤM hiển thị trực tiếp các snapshot số dư được ghi tại thời điểm người dùng thao tác (vd. `previous_*_balance`, `remaining_*_balance`), vì chúng phụ thuộc thứ tự thao tác chứ không phải thứ tự giao dịch.
+  - Số dư dựng lại âm phải được gắn cờ (vd. `is_over_*`) và hiển thị cảnh báo, không được clamp về 0.
+- **Cấm Phân bổ lại Ngầm giữa các Trường Tiền tệ (No Silent Reallocation):**
+  - Khi một giá trị vượt giới hạn hợp lệ (vd. số trả gốc > dư nợ), hệ thống BẮT BUỘC từ chối với HTTP 422 kèm thông điệp rõ ràng.
+  - CẤM tự động (hoặc gián tiếp ép người dùng) dồn phần vượt sang một trường tiền tệ khác (gốc → lãi, nợ → có…).
+  - Nếu nội dung giao dịch nguồn có ghi rõ số tiền theo từng thành phần, giá trị parse được là ràng buộc cứng; lệch so với giá trị ghi nhận phải được cảnh báo.
 - **Thực thi DDL tuần tự trên Asyncpg (Asyncpg Single-Statement Invariant):**
   - Trình điều khiển `asyncpg` của PostgreSQL KHÔNG hỗ trợ gộp nhiều câu lệnh SQL trong cùng một prepared statement (`cannot insert multiple commands into a prepared statement`).
   - Khi viết script khởi tạo hoặc migration CSDL (DDL), BẮT BUỘC phải tách và thực thi từng câu lệnh riêng biệt (tách riêng `CREATE TABLE`, `CREATE INDEX`, `ALTER TABLE`), cấm gộp chuỗi nhiều lệnh cách nhau bằng dấu chấm phẩy `;`.
@@ -80,3 +88,18 @@ Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thu
 
 
 
+
+## 9. Tiêu chuẩn Bảng Dữ liệu Phía Frontend (Frontend Data Table Sorting Standard)
+- **Bắt buộc hỗ trợ sắp xếp 2 chiều (Sort Ascending / Descending):** Toàn bộ các bảng hiển thị dữ liệu (Data Tables) trên giao diện Frontend BẮT BUỘC phải hỗ trợ tính năng sắp xếp 2 chiều trên tất cả các tiêu đề cột (Table Headers) có dữ liệu.
+  - Áp dụng NGAY khi tạo mới bất kỳ bảng nào (kể cả bảng con/bảng mở rộng trong dòng), không chờ yêu cầu bổ sung.
+- **Thành phần dùng chung (Reusable Sortable Header):** Sử dụng component `<SortableTh>` (`frontend/src/components/common/SortableTh.tsx`) kết hợp cùng hàm so sánh đa năng `sortList` / `compareValues` (`frontend/src/utils/sort.ts`).
+- **Độ chính xác so sánh đa kiểu dữ liệu:** Hỗ trợ chuẩn hóa so sánh tiếng Việt có dấu (`localeCompare('vi', { numeric: true, sensitivity: 'base' })`), số thực tiền tệ, ngày tháng ISO và boolean.
+- **Tiêu chuẩn Trợ năng (Accessibility & Visual UX):** Header có thuộc tính `role="columnheader"`, `aria-sort`, `tabIndex={0}`, hỗ trợ phím Enter/Space, có tooltip và biểu tượng trạng thái trực quan (`ArrowUp`, `ArrowDown`, `ArrowUpDown`).
+- **Bắt buộc có ô tìm kiếm (Search Bar):**
+  - Mọi bảng danh sách chính phải có ô tìm kiếm phía client đặt phía trên bảng, có icon `Search`, `aria-label`, placeholder mô tả các trường được tìm.
+  - So khớp không phân biệt hoa/thường và không dấu tiếng Việt: `normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/gi, 'd').toLowerCase()`.
+  - Lọc được thực hiện trước khi sort (`useMemo` gộp filter → `sortList`); khi không có kết quả phải hiển thị thông điệp phân biệt "chưa có dữ liệu" và "không tìm thấy kết quả phù hợp".
+
+## 10. Bất biến Trường Dữ liệu Tự động Tính toán (Auto-Calculated Fields Invariant)
+- **Tự động hóa 100% các giá trị phái sinh:** Các trường dữ liệu có quy tắc hoặc công thức luật định rõ ràng (như Lãi cộng dồn, Lãi dự trả theo Thông tư 14/2017/TT-NHNN, Tổng nghĩa vụ đến hạn) BẮT BUỘC phải do hệ thống tự động tính toán. TUYỆT ĐỐI KHÔNG yêu cầu người dùng phải tự tính nhẩm hoặc nhập tay trên giao diện người dùng.
+- **Bảo đảm tính toàn vẹn số học hai đầu (Client & Server):** Phía giao diện hiển thị trường dưới dạng Read-Only / Computed Display trực quan, cập nhật thời gian thực khi tham số gốc thay đổi; phía backend luôn tự động tính toán lại và đồng bộ chính xác khi thêm mới hoặc sửa đổi dữ liệu.

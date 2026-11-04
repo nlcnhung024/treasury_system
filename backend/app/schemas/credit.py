@@ -85,8 +85,12 @@ class CreditFacilityItem(BaseModel):
     interest_payment_method: str = "MONTHLY"  # 'MONTHLY', 'END_OF_TERM'
     monthly_interest_due_day: Optional[int] = None
     calculated_interest_due: Decimal = Decimal("0.00")
+    snapshot_date: Optional[date] = None
+    snapshot_principal_balance: Decimal = Decimal("0.00")
     original_principal_balance: Decimal = Decimal("0.00")
     total_repaid_principal: Decimal = Decimal("0.00")
+    repaid_before_snapshot: Decimal = Decimal("0.00")
+    repaid_after_snapshot: Decimal = Decimal("0.00")
     current_principal_balance: Decimal = Decimal("0.00")
     accrued_interest: Decimal = Decimal("0.00")
     next_repayment_date: Optional[date] = None
@@ -171,7 +175,7 @@ class CreditFacilityCreate(BaseModel):
     monthly_interest_due_day: Optional[int] = None
     original_principal_balance: Optional[Decimal] = None
     current_principal_balance: Optional[Decimal] = None
-    accrued_interest: Decimal = Decimal("0.00")
+    accrued_interest: Optional[Decimal] = None
     next_repayment_date: Optional[date] = None
     next_principal_amount: Decimal = Decimal("0.00")
     next_interest_amount: Decimal = Decimal("0.00")
@@ -348,6 +352,9 @@ class UnreconciledDebtTransactionItem(BaseModel):
     suggested_bank_code: Optional[str] = None
     suggested_borrower_name: Optional[str] = None
     suggested_principal_balance: Optional[Decimal] = None
+    suggested_snapshot_date: Optional[date] = None
+    suggested_snapshot_balance: Optional[Decimal] = None
+    timing_prediction: Optional[str] = None  # 'PRE_SNAPSHOT', 'POST_SNAPSHOT'
     suggested_interest_rate: Optional[Decimal] = None
     suggested_principal_amount: Optional[Decimal] = None
     suggested_interest_amount: Optional[Decimal] = None
@@ -362,6 +369,7 @@ class RepaymentReconcileRequest(BaseModel):
     loan_id: int
     principal_amount: Decimal
     interest_amount: Decimal
+    repayment_timing: Optional[str] = None  # 'PRE_SNAPSHOT', 'POST_SNAPSHOT'
     notes: Optional[str] = None
 
 
@@ -372,11 +380,15 @@ class RepaymentReconcileResponse(BaseModel):
     contract_number: str
     bank_code: str
     repayment_date: datetime
+    repayment_timing: str = "POST_SNAPSHOT"  # 'PRE_SNAPSHOT', 'POST_SNAPSHOT'
+    snapshot_date: Optional[date] = None
     principal_amount: Decimal
     interest_amount: Decimal
     total_amount: Decimal
     previous_principal_balance: Decimal
     remaining_principal_balance: Decimal
+    original_principal_balance: Decimal = Decimal("0.00")
+    total_repaid_principal: Decimal = Decimal("0.00")
     loan_status: str  # 'ACTIVE', 'SETTLED'
     message: str
 
@@ -388,6 +400,8 @@ class LoanRepaymentHistoryItem(BaseModel):
     contract_number: str
     bank_code: str
     repayment_date: datetime
+    repayment_timing: str = "POST_SNAPSHOT"  # 'PRE_SNAPSHOT', 'POST_SNAPSHOT'
+    snapshot_date: Optional[date] = None
     principal_amount: Decimal
     interest_amount: Decimal
     total_amount: Decimal

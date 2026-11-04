@@ -23,6 +23,8 @@
 | **1.6.0** | 2026-11-02 | `@SystemArchitect` | Mở rộng kiến trúc Quản lý Khoản vay: Bổ sung module Nhập lẻ khoản vay thủ công (Manual Loan Entry) từ các Ngân hàng, Công ty tài chính, Cho thuê tài chính; cập nhật schema `credit_facilities` (`institution_type`, `is_manual`, `note`), các REST endpoints CRUD và bộ lọc đa chiều |
 | **1.7.0** | 2026-11-02 | `@SystemArchitect` | Bổ sung trường Hình thức trả lãi (`interest_payment_method`), Ngày trả lãi hằng tháng (`monthly_interest_due_day`), module tính số lãi cần trả theo Thông tư 14/2017/TT-NHNN (`loan_interest_service.py`), liên kết Hồ sơ giải ngân lưu tại Object Storage (`disbursement_documents` & thư mục `/disbursement_dossiers/`) |
 | **1.8.0** | 2026-11-02 | `@SystemArchitect` | Bổ sung Phân hệ Đối soát Chi trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9): Cấu trúc bảng `loan_repayment_history`, cơ chế đối chiếu khế ước tự động bằng Regex, giao dịch nguyên tử cập nhật số dư nợ gốc kèm khóa dòng `FOR UPDATE`, và lưu vết lịch sử theo đúng `transaction_date`. |
+| **1.9.0** | 2026-11-03 | `@SystemArchitect` | Tái thiết kế toàn diện kiến trúc Database (3NF+, PostgreSQL 15+): Bổ sung `corporate_entities` (Multi-Entity Isolation), `statement_anchor_points` (US-04.9), chuẩn hóa HĐĐT XML (`disbursement_documents` US-07.10), phân hệ Kế hoạch trả nợ (`loan_repayment_plans`, `loan_repayment_plan_items` US-07.8), và View Thanh khoản Ròng `v_cfo_net_liquidity_position`. |
+| **1.10.0** | 2026-11-03 | `@SystemArchitect` | Tái cấu trúc Kiến trúc Phân hệ Đối soát Trả nợ Ngân hàng (US-07.9 & US-07.11): Xác lập cột Dư nợ trên file tín dụng là Dư nợ tại thời điểm xuất file (Snapshot Balance at `statement_date`), phân nhánh luồng Pre-Snapshot (hoàn nguyên gốc ban đầu, chống trừ 2 lần) vs Post-Snapshot (giảm trừ hiện tại), cập nhật bảng `loan_repayment_history` với `repayment_timing` và `snapshot_date`. |
 
 ---
 
@@ -426,6 +428,9 @@ flowchart LR
 
 ```mermaid
 erDiagram
+    CORPORATE_ENTITIES ||--o{ BANK_ACCOUNTS : "owns"
+    CORPORATE_ENTITIES ||--o{ CREDIT_FACILITIES : "borrows"
+    CORPORATE_ENTITIES ||--o{ LOAN_REPAYMENT_PLANS : "plans"
     BANK_ACCOUNTS ||--o{ BANK_STATEMENT_FILES : "contains"
     BANK_ACCOUNTS ||--o{ BANK_TRANSACTIONS : "holds"
     BANK_STATEMENT_FILES ||--o{ BANK_TRANSACTIONS : "persists"
@@ -433,24 +438,42 @@ erDiagram
     CATEGORIES ||--o{ BANK_TRANSACTIONS : "classified_as"
     CLASSIFICATION_RULES ||--o{ BANK_TRANSACTIONS : "applied_to"
     BANK_TRANSACTIONS ||--o| CASH_LEDGER : "counterparts"
+    BANK_TRANSACTIONS ||--o{ STATEMENT_ANCHOR_POINTS : "anchors"
     CREDIT_STATEMENT_FILES ||--o{ CREDIT_STATEMENT_ITEMS : "contains"
     CREDIT_FACILITIES ||--o{ CREDIT_STATEMENT_ITEMS : "snapshots"
     CREDIT_FACILITIES ||--o{ DISBURSEMENT_DOCUMENTS : "dossier_files"
+    CREDIT_FACILITIES ||--o{ LOAN_REPAYMENT_HISTORY : "repaid_by"
+    BANK_TRANSACTIONS ||--o| LOAN_REPAYMENT_HISTORY : "settles"
+    LOAN_REPAYMENT_PLANS ||--o{ LOAN_REPAYMENT_PLAN_ITEMS : "schedules"
+    CREDIT_FACILITIES ||--o{ LOAN_REPAYMENT_PLAN_ITEMS : "allocated_to"
+
+    CORPORATE_ENTITIES {
+        bigint entity_id PK
+        varchar entity_code UK
+        varchar company_name
+        varchar tax_code UK
+        boolean is_holding_parent
+        boolean is_active
+    }
 
     BANK_ACCOUNTS {
         bigint account_id PK
+        bigint entity_id FK
         varchar bank_code
         varchar account_number UK
         varchar account_holder
         varchar tax_code
         varchar account_type
+        decimal opening_balance
         decimal current_balance
     }
 
     BANK_STATEMENT_FILES {
         bigint file_id PK
         uuid file_uuid UK
+        bigint entity_id FK
         bigint account_id FK
+        varchar statement_type
         varchar template_code
         varchar reconciliation_mode
         varchar file_sha256 UK
@@ -458,6 +481,8 @@ erDiagram
         decimal header_opening_balance
         decimal header_closing_balance
         decimal calculated_closing_balance
+        boolean has_data_gap
+        decimal gap_discrepancy_amount
         varchar processing_status
         varchar reconciliation_status
         decimal discrepancy_amount
@@ -466,6 +491,7 @@ erDiagram
     CREDIT_STATEMENT_FILES {
         bigint file_id PK
         uuid file_uuid UK
+        bigint entity_id FK
         varchar bank_code
         varchar template_code
         varchar file_sha256 UK
@@ -481,6 +507,7 @@ erDiagram
 
     CREDIT_FACILITIES {
         bigint loan_id PK
+        bigint entity_id FK
         varchar bank_code
         varchar contract_number UK
         varchar borrower_name
@@ -490,6 +517,8 @@ erDiagram
         varchar interest_payment_method
         int monthly_interest_due_day
         decimal calculated_interest_due
+        decimal original_principal_balance
+        decimal total_repaid_principal
         decimal current_principal_balance
         decimal accrued_interest
         date next_repayment_date
@@ -523,11 +552,19 @@ erDiagram
         char file_sha256
         varchar mime_type
         varchar document_type
-        varchar uploaded_by
+        varchar invoice_number
+        varchar invoice_series
+        date invoice_issue_date
+        varchar seller_tax_code
+        varchar buyer_tax_code
+        decimal invoice_total_amount
+        jsonb xml_raw_data
+        varchar verification_status
     }
 
     CATEGORIES {
         bigint category_id PK
+        bigint entity_id FK
         varchar category_type
         varchar category_name
         varchar color_code
@@ -536,6 +573,7 @@ erDiagram
     CLASSIFICATION_RULES {
         bigint rule_id PK
         bigint category_id FK
+        bigint entity_id FK
         text keyword_patterns
         varchar target_bank_code
         decimal min_amount
@@ -548,6 +586,7 @@ erDiagram
         bigint transaction_id PK
         bigint file_id FK
         bigint account_id FK
+        bigint entity_id FK
         bigint category_id FK
         timestamp transaction_date
         decimal debit_amount
@@ -555,11 +594,25 @@ erDiagram
         decimal running_balance
         char dedup_hash UK
         boolean is_manual_override
+        boolean is_anchor_point
+        timestamp anchor_adjusted_at
         text internal_note
+    }
+
+    STATEMENT_ANCHOR_POINTS {
+        bigint anchor_id PK
+        bigint account_id FK
+        bigint transaction_id FK
+        decimal anchor_balance
+        decimal previous_balance
+        varchar propagation_direction
+        int records_updated_count
+        varchar set_by
     }
 
     CASH_LEDGER {
         bigint cash_entry_id PK
+        bigint entity_id FK
         bigint linked_transaction_id FK
         date entry_date
         varchar entry_type
@@ -573,9 +626,56 @@ erDiagram
         varchar actor
         varchar action
         varchar target_entity
+        varchar target_id
         jsonb details
     }
+
+    LOAN_REPAYMENT_HISTORY {
+        bigint repayment_id PK
+        bigint loan_id FK
+        bigint transaction_id FK
+        varchar contract_number
+        decimal principal_amount
+        decimal interest_amount
+        decimal total_amount
+        decimal previous_principal_balance
+        decimal remaining_principal_balance
+        timestamp repayment_date
+    }
+
+    LOAN_REPAYMENT_PLANS {
+        bigint plan_id PK
+        bigint entity_id FK
+        varchar plan_name
+        decimal monthly_capacity_ceiling
+        decimal reborrow_rate
+        varchar budget_mode
+        date start_period
+        date end_period
+        decimal total_original_due
+        decimal total_optimized_due
+        decimal total_interest_saved
+        varchar status
+    }
+
+    LOAN_REPAYMENT_PLAN_ITEMS {
+        bigint item_id PK
+        bigint plan_id FK
+        bigint loan_id FK
+        varchar contract_number
+        varchar bank_code
+        varchar action_month
+        varchar action_type
+        decimal scheduled_amount
+        decimal reborrow_amount
+        varchar reborrow_term
+        decimal interest_saved
+    }
 ```
+
+> **Ghi chú kiến trúc:**
+> - Toàn bộ sơ đồ ERD chi tiết kèm kiểu dữ liệu, index và foreign key chuẩn DBML được lưu trữ độc lập tại [`docs/schema.dbml`](./schema.dbml).
+> - Sơ đồ luồng dữ liệu toàn diện (End-to-End Data Flow) được trực quan hóa bằng Mermaid tại [`docs/data_flow.mmd`](./data_flow.mmd).
 
 ---
 
@@ -584,7 +684,7 @@ erDiagram
 | Thành phần | Kỹ thuật Tối ưu Hóa Áp dụng | Chỉ số Cam kết (SLA / Target) |
 | :--- | :--- | :--- |
 | **Stream Parser** | Kỹ thuật đọc chunk 500 dòng thông qua generator không tải cả file vào RAM | RAM $\le 512\text{MB}$; Xử lý file 50.000 dòng $\le 30\text{s}$ |
-| **CFO Daily Query** | View `v_cfo_daily_liquidity` (2 khối NH) kết hợp `v_cfo_debt_obligations` truy vấn trực tiếp trên bảng đã đánh index | Thời gian truy vấn API $\le 100\text{ms}$ |
+| **CFO Daily Query** | View `v_cfo_daily_liquidity` (2 khối NH), `v_cfo_debt_obligations` và `v_cfo_net_liquidity_position` truy vấn trực tiếp trên bảng đã đánh index | Thời gian truy vấn API $\le 100\text{ms}$ |
 | **Báo cáo Giao dịch** | Composite Index trên `(account_id, transaction_date DESC)` và Phân trang Cursor/Offset | Tải trang danh sách 50 dòng $\le 200\text{ms}$ |
 | **Full-text Search** | Chỉ mục GIN trên `to_tsvector('simple', description)` cho cột nội dung chuyển khoản | Tìm kiếm từ khóa tức thì trong hàng trăm ngàn dòng |
 | **Connection Pool** | Cấu hình PgBouncer / SQLAlchemy Pool (Pool Size: 20, Max Overflow: 10) | Hỗ trợ 200+ yêu cầu đồng thời không nghẽn kết nối |
@@ -645,26 +745,35 @@ flowchart LR
 ### 8.1. Phân hệ Đối soát Chi Trả Nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9)
 ```mermaid
 flowchart TD
-    TX["Giao dịch chi 'Trả nợ' (bank_transactions)"] --> Filter["Filter: debit_amount > 0 AND category='Trả nợ'"]
+    TX["Giao dịch chi 'Trả nợ' (bank_transactions, T_tx)"] --> Filter["Filter: debit_amount > 0 AND category='Trả nợ'"]
     Filter --> RegexParser["Contract Regex Parser (Extract 80xxxx, LDxxxx, Principal/Interest)"]
     RegexParser --> Suggest["Gợi ý Khế ước & Số tiền tương ứng"]
     Suggest --> ModalUI["Khung chia Gốc - Lãi (Nút 100% Gốc / Auto-balance)"]
     ModalUI --> Submit["Xác nhận đối soát (Atomic POST)"]
     Submit --> DB_Lock["SELECT ... FOR UPDATE (CreditFacility, BankTransaction)"]
-    DB_Lock --> UpdateBalance["Giảm trừ: balance = balance - principal_amount"]
-    UpdateBalance --> SettleCheck{"balance == 0?"}
+    DB_Lock --> TimingCheck{"T_tx <= loan.snapshot_date?<br/>(Trước hay Sau ngày xuất file?)"}
+    
+    TimingCheck -->|"Có (Pre-Snapshot)"| PreSnap["HOÀN NGUYÊN GỐC BAN ĐẦU:<br/>original_principal_balance += principal_amount<br/>(current_principal_balance KHÔNG ĐỔI)"]
+    TimingCheck -->|"Không (Post-Snapshot)"| PostSnap["GIẢM TRỪ HIỆN TẠI:<br/>current_principal_balance -= principal_amount"]
+    
+    PostSnap --> SettleCheck{"current_balance == 0?"}
     SettleCheck -->|Yes| SetSettled["status = 'SETTLED'"]
     SettleCheck -->|No| KeepActive["status = 'ACTIVE'"]
-    SetSettled --> InsertHist["INSERT loan_repayment_history (repayment_date = transaction_date)"]
+    
+    PreSnap --> InsertHist["INSERT loan_repayment_history<br/>(repayment_timing, snapshot_date, repayment_date=T_tx)"]
+    SetSettled --> InsertHist
     KeepActive --> InsertHist
+    
     InsertHist --> AuditLog["INSERT audit_logs (REPAYMENT_RECONCILED)"]
     AuditLog --> Commit["Commit Transaction"]
 ```
-- **Bảng `loan_repayment_history`:** Lưu trữ chi tiết các lần trả nợ với `repayment_date = transaction_date`, lưu số dư trước và sau giảm trừ nợ gốc (`previous_principal_balance`, `remaining_principal_balance`), ràng buộc toàn vẹn `principal_amount + interest_amount = total_amount`.
+- **Bản chất File Sao kê Tín dụng:** File sao kê ngân hàng là báo cáo snapshot tại thời điểm in/xuất file (`statement_date` / $T_{\text{snapshot}}$). Cột Dư nợ trên file là Dư nợ còn lại tại thời điểm xuất file, không phải số tiền giải ngân ban đầu.
+- **Bảng `loan_repayment_history`:** Lưu trữ chi tiết các lần trả nợ với `repayment_date = transaction_date`, kèm nhãn `repayment_timing` (`PRE_SNAPSHOT` | `POST_SNAPSHOT`) và `snapshot_date`, lưu số dư trước và sau đối soát, ràng buộc toàn vẹn `principal_amount + interest_amount = total_amount`, `principal_amount >= 0` (cho phép `interest_amount` âm khi ngân hàng thoái thu / hoàn lãi cộng dồn khi tất toán khoản vay).
+- **Cơ chế Hoàn nguyên Gốc (Pre-Snapshot Reconciliation):** Khoản nợ gốc trả trước ngày xuất file không bị trừ tiếp vào số dư snapshot (chống lỗi trừ 2 lần) mà dùng để hoàn nguyên Dư nợ ban đầu: $\text{original\_principal\_balance} = \text{snapshot\_balance} + \sum \text{repaid\_before}$.
 - **An toàn Giao dịch Kép (Concurrency & Idempotency):**
   - Khóa `UNIQUE` trên `transaction_id` ngăn ngừa triệt để việc một giao dịch sao kê bị đối soát nhiều lần.
   - Khóa dòng `SELECT FOR UPDATE` ngăn ngừa Race Condition khi 2 người dùng đồng thời đối soát cùng một khoản vay.
-  - Hỗ trợ hoàn tác (Rollback) khôi phục số dư nợ gốc ban đầu nếu phát hiện sai sót.
+  - Hỗ trợ hoàn tác (Rollback) khôi phục chính xác số dư theo phân loại `repayment_timing`.
 
 
 

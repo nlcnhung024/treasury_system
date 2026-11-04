@@ -16,6 +16,7 @@ import {
   Building2,
   CalendarClock,
   CheckCheck,
+  FileText,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -91,6 +92,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
     { to: '/credit-statements', label: 'Sao Kê Tín Dụng', icon: Landmark },
     { to: '/loan-repayments', label: 'Đối soát trả nợ', icon: CheckCheck },
     { to: '/loan-repayment-plan', label: 'Kế hoạch trả nợ', icon: CalendarClock },
+    { to: '/contract-details', label: 'Chi tiết khế ước', icon: FileText },
   ];
 
   const currentPersona = PERSONAS.find((p) => p.key === selectedPersona) || PERSONAS[0];

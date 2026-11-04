@@ -286,6 +286,16 @@ async def test_vietinbank_interest_payment_monthly_day_5():
             assert created["interest_payment_method"] == "MONTHLY"
             assert created["monthly_interest_due_day"] == 5
             assert Decimal(str(created["calculated_interest_due"])) > 0
+            # Lãi cộng dồn tự động tính bằng hệ thống
+            assert Decimal(str(created["accrued_interest"])) == Decimal(str(created["calculated_interest_due"]))
+
+            # Kiểm tra cập nhật khoản vay -> Lãi cộng dồn tự động tính toán lại
+            res_upd = await ac.put(f"/api/v1/loans/{new_loan_id}", json={"current_principal_balance": 500000000.00})
+            assert res_upd.status_code == 200
+            upd_data = res_upd.json()
+            assert Decimal(str(upd_data["current_principal_balance"])) == Decimal("500000000.00")
+            assert Decimal(str(upd_data["accrued_interest"])) == Decimal(str(upd_data["calculated_interest_due"]))
+            assert Decimal(str(upd_data["accrued_interest"])) < Decimal(str(created["accrued_interest"]))
         finally:
             await ac.delete(f"/api/v1/loans/{new_loan_id}")
 

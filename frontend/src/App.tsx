@@ -7,6 +7,7 @@ import { TransactionsPage } from './pages/TransactionsPage';
 import { CreditStatementsPage } from './pages/CreditStatementsPage';
 import { LoanRepaymentPlanPage } from './pages/LoanRepaymentPlanPage';
 import { LoanRepaymentReconcilePage } from './pages/LoanRepaymentReconcilePage';
+import { ContractDetailsPage } from './pages/ContractDetailsPage';
 import { CFODashboardPage } from './pages/CFODashboardPage';
 import { CEOWaterfallPage } from './pages/CEOWaterfallPage';
 import { RuleManagementPage } from './pages/RuleManagementPage';
@@ -31,6 +32,7 @@ export const App: React.FC = () => {
               <Route path="/credit-statements" element={<CreditStatementsPage />} />
               <Route path="/loan-repayments" element={<LoanRepaymentReconcilePage />} />
               <Route path="/loan-repayment-plan" element={<LoanRepaymentPlanPage />} />
+              <Route path="/contract-details" element={<ContractDetailsPage />} />
               <Route path="/cfo-dashboard" element={<CFODashboardPage />} />
               <Route path="/ceo-waterfall" element={<CEOWaterfallPage />} />
               <Route path="/rules" element={<RuleManagementPage />} />

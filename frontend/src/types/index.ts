@@ -1,5 +1,18 @@
+export interface CorporateEntity {
+  entity_id: number;
+  entity_code: string;
+  company_name: string;
+  tax_code: string;
+  is_holding_parent: boolean;
+  description?: string | null;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface BankAccount {
   account_id: number;
+  entity_id?: number | null;
   bank_code: string;
   bank_name: string;
   account_number: string;
@@ -16,6 +29,7 @@ export interface Transaction {
   transaction_id: number;
   file_id: number;
   account_id: number;
+  entity_id?: number | null;
   bank_code?: string;
   account_number?: string;
   account_holder?: string;
@@ -37,15 +51,19 @@ export interface Transaction {
   is_manual_override: boolean;
   applied_rule_id?: number | null;
   dedup_hash: string;
+  is_anchor_point?: boolean;
+  anchor_adjusted_at?: string | null;
 }
 
 export interface StatementFile {
   file_id: number;
   file_uuid: string;
+  entity_id?: number | null;
   account_id?: number | null;
   bank_code?: string | null;
   account_number?: string | null;
   account_holder?: string | null;
+  statement_type?: string;
   template_code?: string | null;
   reconciliation_mode?: string | null;
   original_filename: string;
@@ -61,6 +79,8 @@ export interface StatementFile {
   processing_status: 'UPLOADED' | 'QUEUED' | 'PARSING' | 'RECONCILING' | 'COMPLETED' | 'FAILED';
   reconciliation_status: 'PENDING' | 'BALANCED' | 'DISCREPANCY';
   discrepancy_amount: number;
+  has_data_gap?: boolean;
+  gap_discrepancy_amount?: number;
   error_message?: string | null;
   uploaded_by: string;
   created_at: string;
@@ -132,6 +152,8 @@ export interface CFOLiquidityData {
   corporate_bank_balance: number;
   special_cash_bank_balance: number;
   total_cash_on_hand: number;
+  net_liquidity_position?: number;
+  upcoming_debt_obligation?: number;
   cash_summary?: CFOCashFundSummary | null;
   discrepancy_accounts_count: number;
   unanchored_accounts_count: number;

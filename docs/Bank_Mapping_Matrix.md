@@ -19,6 +19,7 @@
 | **1.0.0** | 2026-10-29 | `@BusinessAnalyst` | Ban hành chính thức Ma trận Ánh xạ Dữ liệu cho 7 mẫu sao kê thực tế thuộc 6 ngân hàng (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`), tích hợp kiến trúc Mở rộng Mẫu Ngân hàng mới (Zero-Code Onboarding $\le 15$ phút) và Cơ chế Đa Doanh nghiệp / Đa Pháp nhân (Entity-Agnostic Multi-Company Mapping). |
 | **1.1.0** | 2026-10-31 | `@BusinessAnalyst` | Đồng bộ toàn diện theo sản phẩm thực tế: Bổ sung 3 bảng CSDL tín dụng (`credit_statement_files`, `credit_facilities`, `credit_statement_items`) và 2 View quản trị (`v_cfo_daily_liquidity`, `v_cfo_debt_obligations`) vào Từ điển dữ liệu chuẩn đích; cập nhật Ma trận nhận diện chữ ký cho mẫu khoản vay tín dụng `CTG_LOAN_XLS` và `MBB_LOAN_LD_XLSX`. |
 | **1.2.0** | 2026-11-02 | `@BusinessAnalyst` | Đính chính chuẩn hóa nghiệp vụ theo phản hồi người dùng: Cập nhật mẫu sao kê tín dụng khế ước `LD` (`Vay_LD (1).xlsx`) từ `BIDV_LOAN_LD_XLSX` (BIDV) thành `MBB_LOAN_LD_XLSX` (Ngân hàng TMCP Quân Đội - MBBank/MB) để phản ánh chính xác đơn vị cấp tín dụng. |
+| **1.3.0** | 2026-11-03 | `@BusinessAnalyst` | Chuẩn hóa quy tắc bóc tách sao kê tín dụng: Xác lập cột "Dư nợ hiện tại" là Dư nợ tại thời điểm xuất file (`statement_date` / `snapshot_date`), file không có dư nợ ban đầu giải ngân; bổ sung ánh xạ `snapshot_principal_balance` và mốc chốt thời gian in/xuất file. |
 | **1.3.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung các trường Hình thức trả lãi (`interest_payment_method`), Ngày trả lãi hằng tháng (`monthly_interest_due_day`), Số lãi cần trả theo luật (`calculated_interest_due` theo Thông tư 14/2017/TT-NHNN Actual/365), và đặc tả Bảng Hồ sơ giải ngân lưu tại Object Storage (`disbursement_documents`). |
 
 ### 1.2. Ma trận Truy vết Yêu cầu Kỹ thuật (Requirement Traceability Matrix)
@@ -1004,7 +1005,7 @@ Feature: Bóc tách, Chuẩn hóa và Đối soát Đa Mẫu Sao kê Ngân hàng
   - `maturity_date`: Cột `D` (Ngày đáo hạn, định dạng `DD-MM-YYYY`)
   - `term`: Cột `E` (Kỳ hạn, ví dụ: `4M`)
   - `next_repayment_date`: Cột `F` (Ngày đến hạn tiếp theo, định dạng `DD-MM-YYYY`)
-  - `current_principal_balance`: Cột `G` (Dư nợ hiện tại, kiểu Decimal)
+  - `snapshot_principal_balance`: Cột `G` (Dư nợ hiện tại tại thời điểm xuất file `statement_date`, kiểu Decimal, không phải dư nợ ban đầu lúc giải ngân)
   - `currency`: Cột `H` (Loại tiền: `VND`)
   - `interest_rate`: Cột `I` (Lãi suất, ví dụ `8.7`)
   - `accrued_interest`: Cột `J` (Lãi cộng dồn)
@@ -1027,7 +1028,7 @@ Feature: Bóc tách, Chuẩn hóa và Đối soát Đa Mẫu Sao kê Ngân hàng
   - `contract_number`: Cột `C` (Số LD)
   - `currency`: Cột `D` (Loại tiền: `VND`)
   - `loan_purpose`: Cột `E` (Mục đích khoản vay)
-  - `current_principal_balance`: Cột `F` (Dư nợ gốc hiện tại)
+  - `snapshot_principal_balance`: Cột `F` (Dư nợ gốc hiện tại tại thời điểm xuất file `statement_date`, không phải dư nợ ban đầu lúc giải ngân)
   - `disbursement_date`: Cột `H` (Ngày giải ngân, định dạng `DD/MM/YYYY`)
   - `maturity_date`: Cột `I` (Ngày đáo hạn, định dạng `DD/MM/YYYY`)
   - `debt_group`: Cột `J` (Nhóm nợ, ví dụ `"1"`)

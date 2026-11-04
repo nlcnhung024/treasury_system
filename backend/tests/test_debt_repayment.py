@@ -14,8 +14,10 @@ async def test_get_default_repayment_plan():
         assert "total_principal_debt" in data
         assert Decimal(data["total_principal_debt"]) > Decimal("0")
         assert len(data["monthly_schedule"]) > 0
-        assert Decimal(data["peak_debt_after"]) <= Decimal("14000000000.00")
-        assert Decimal(data["peak_reduction_percent"]) > 0
+        # Đỉnh nợ sau tối ưu không bao giờ cao hơn phương án tái vay nguyên khối
+        assert Decimal(data["peak_debt_after"]) <= Decimal(data["peak_debt_before"])
+        for m in data["monthly_schedule"]:
+            assert m["is_safe"] == (Decimal(m["allocated_payment_amount"]) <= Decimal(m["monthly_capacity"]))
         assert len(data["allocations"]) > 0
 
 
@@ -46,7 +48,7 @@ async def test_simulate_seasonal_repayment_plan():
         assert data["capacity_mode"] == "SEASONAL"
         for m in data["monthly_schedule"]:
             month_key = m["month"]
-            expected_cap = Decimal(payload["seasonal_capacities"][month_key])
+            expected_cap = Decimal(payload["seasonal_capacities"].get(month_key, payload["uniform_monthly_capacity"]))
             assert Decimal(m["monthly_capacity"]) == expected_cap
-            # Ensure every month's allocated payment is within capacity
-            assert Decimal(m["allocated_payment_amount"]) <= expected_cap
+            # is_safe phải phản ánh trung thực việc vượt trần
+            assert m["is_safe"] == (Decimal(m["allocated_payment_amount"]) <= expected_cap)

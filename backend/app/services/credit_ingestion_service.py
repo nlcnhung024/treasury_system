@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional
 from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem
+from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, LoanRepaymentHistory
 from app.models.audit_log import AuditLog
 from app.services.storage_service import save_statement_bytes
 from app.services.parser.credit_stream_parser import parse_credit_statement_file, ParsedCreditPackage
@@ -70,13 +70,19 @@ async def ingest_credit_statement(
     await db.flush()  # Sinh file_id
 
     # 5. Upsert các khoản vay vào `CreditFacility` & ghi nhận snapshot `CreditStatementItem`
+    contract_numbers = [item["contract_number"] for item in pkg.items]
+    existing_facs_stmt = select(CreditFacility).where(
+        CreditFacility.bank_code == pkg.bank_code,
+        CreditFacility.contract_number.in_(contract_numbers),
+    )
+    existing_facilities = {
+        fac.contract_number: fac
+        for fac in (await db.execute(existing_facs_stmt)).scalars().all()
+    }
+
     for item in pkg.items:
         contract_number = item["contract_number"]
-        fac_stmt = select(CreditFacility).where(
-            CreditFacility.bank_code == pkg.bank_code,
-            CreditFacility.contract_number == contract_number,
-        )
-        facility = (await db.execute(fac_stmt)).scalar_one_or_none()
+        facility = existing_facilities.get(contract_number)
 
         next_rep_date = item.get("next_principal_due_date") or item.get("next_interest_due_date")
         disb_date = item.get("disbursement_date")
@@ -85,10 +91,36 @@ async def ingest_credit_statement(
         rate = item.get("interest_rate", Decimal("0.0000"))
 
         if facility:
-            # Cập nhật số dư và nghĩa vụ mới nhất
-            if not facility.original_principal_balance or facility.original_principal_balance == Decimal("0.00"):
-                facility.original_principal_balance = prin_balance
-            facility.current_principal_balance = prin_balance
+            # Truy vấn các lần trả nợ đã đối soát trước đó của khế ước này (nếu có)
+            stmt_repay = select(LoanRepaymentHistory).where(LoanRepaymentHistory.loan_id == facility.loan_id)
+            past_repays = (await db.execute(stmt_repay)).scalars().all()
+
+            repaid_before = Decimal("0.00")
+            repaid_after = Decimal("0.00")
+            snap_dt = pkg.statement_date
+
+            if snap_dt:
+                for r in past_repays:
+                    r_date = r.repayment_date.date() if isinstance(r.repayment_date, datetime) else r.repayment_date
+                    if r_date <= snap_dt:
+                        repaid_before += r.principal_amount
+                        r.repayment_timing = "PRE_SNAPSHOT"
+                    else:
+                        repaid_after += r.principal_amount
+                        r.repayment_timing = "POST_SNAPSHOT"
+                    r.snapshot_date = snap_dt
+            else:
+                for r in past_repays:
+                    repaid_after += r.principal_amount
+
+            facility.snapshot_date = snap_dt
+            facility.snapshot_principal_balance = prin_balance
+            facility.repaid_before_snapshot = repaid_before
+            facility.repaid_after_snapshot = repaid_after
+            facility.total_repaid_principal = repaid_before + repaid_after
+            facility.original_principal_balance = prin_balance + repaid_before
+            facility.current_principal_balance = max(Decimal("0.00"), prin_balance - repaid_after)
+
             facility.accrued_interest = item["accrued_interest"]
             facility.next_principal_amount = item["next_principal_amount"]
             facility.next_interest_amount = item["next_interest_amount"]
@@ -105,7 +137,7 @@ async def ingest_credit_statement(
                 facility.term = item["term"]
             if item.get("loan_purpose"):
                 facility.loan_purpose = item["loan_purpose"]
-            facility.status = "ACTIVE"
+            facility.status = "SETTLED" if facility.current_principal_balance == Decimal("0.00") else "ACTIVE"
 
             if pkg.bank_code in ("CTG", "CTG_LEASING"):
                 facility.interest_payment_method = "MONTHLY"
@@ -153,6 +185,11 @@ async def ingest_credit_statement(
                 interest_payment_method="MONTHLY",
                 monthly_interest_due_day=default_due_day,
                 calculated_interest_due=calc_interest,
+                snapshot_date=pkg.statement_date,
+                snapshot_principal_balance=prin_balance,
+                repaid_before_snapshot=Decimal("0.00"),
+                repaid_after_snapshot=Decimal("0.00"),
+                total_repaid_principal=Decimal("0.00"),
                 original_principal_balance=prin_balance,
                 current_principal_balance=prin_balance,
                 accrued_interest=item.get("accrued_interest", Decimal("0.00")),

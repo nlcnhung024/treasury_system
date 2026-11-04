@@ -31,3 +31,13 @@ QA bắt buộc phải thiết lập các kịch bản kiểm định kỹ thu�
 ## 4. Tiêu chuẩn Quét An toàn Bảo mật (Security Auditing)
 - **Kiểm thử Khai thác Lỗ hổng Bảng tính (Formula Injection Test):** Tự động kiểm tra xem các ô dữ liệu chứa tiền tố `=`, `@`, `+`, `-` có được escape dấu nháy đơn `'` an toàn khi xuất file hay không.
 - **Kiểm thử Phân quyền Tài nguyên (Broken Object Level Authorization - BOLA/IDOR):** Kiểm thử tự động bằng cách hoán đổi ID người dùng / ID file để đảm bảo không người dùng nào truy cập được dữ liệu sao kê của người dùng khác.
+
+## 5. Tiêu chuẩn Viết Assertions Kiểm thử Tích hợp & Mô phỏng (Dynamic Assertion Invariant)
+Khi viết các test case kiểm thử tích hợp (Integration Tests), thuật toán tối ưu hóa hoặc kiểm thử mô phỏng dòng tiền:
+- **Tuyệt đối cấm Hardcoded Magic Numbers:**
+  - TUYỆT ĐỐI KHÔNG so sánh bằng (`==`) với một con số cố định được tính nhẩm từ trước trên toàn bảng CSDL dùng chung (ví dụ: cấm `assert total_debt == Decimal("79160540000.00")`), vì khi có test case khác hoặc dữ liệu người dùng nạp thêm vào, assertion này sẽ lập tức bị gãy.
+- **Bắt buộc sử dụng Invariant Properties hoặc Relative Deltas:**
+  - Kiểm tra tính bảo toàn tài chính: $\sum \text{Dư nợ sau trả} = \text{Dư nợ trước trả} - \text{Số tiền trả gốc}$.
+  - Kiểm tra tính hợp lệ cơ bản: `assert total_debt > Decimal("0.00")`, `assert total_loans_count > 0`.
+  - Nếu cần kiểm tra chính xác giá trị: Bắt buộc truy vấn trạng thái nền (Baseline Snapshot) ngay đầu hàm test và so sánh độ lệch biến động (Delta) do chính hành vi trong hàm test gây ra.
+

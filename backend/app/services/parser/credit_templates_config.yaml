@@ -16,6 +16,7 @@ templates:
         cell: "A7"
       cif_number:
         cell: "A8"
+        regex: "Số CIF:\\s*([0-9]+)"
       statement_date:
         cell: "K4"
       total_principal:
@@ -55,6 +56,14 @@ templates:
     metadata_extractors:
       statement_date:
         cell: "N3"
+        regex: "Dữ liệu đến ngày\\s*(\\d{2}/\\d{2}/\\d{4})"
+      borrower_name:
+        default: "Doanh nghiệp vay vốn MB"
+      summary_row:
+        match_col: "C"
+        match_val: "Tổng"
+        total_principal: "G"
+        total_interest: "P"
     grid_boundaries:
       header_row: 4
       data_start_row: 5

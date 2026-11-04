@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   CalendarClock,
   TrendingDown,
@@ -12,6 +12,7 @@ import {
   Layers,
   Repeat,
   AlertTriangle,
+  BookmarkCheck,
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -20,6 +21,8 @@ import {
   RepaymentStrategy,
   ReborrowMode,
 } from '../types';
+import { SortableTh } from '../components/common/SortableTh';
+import { SortDirection, sortList } from '../utils/sort';
 
 export const LoanRepaymentPlanPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
@@ -48,12 +51,43 @@ export const LoanRepaymentPlanPage: React.FC = () => {
     '2027-05': 12000000000,
   });
 
+  const [savedBaselineMsg, setSavedBaselineMsg] = useState<string | null>(null);
+
+  const handleSaveBaselinePlan = () => {
+    if (!planData) return;
+    const planName = `Kịch bản Cơ sở ${uniformCapacity / 1_000_000_000} tỷ (${new Date().toLocaleDateString('vi-VN')})`;
+    const baselineRecord = {
+      plan_name: planName,
+      monthly_capacity_ceiling: uniformCapacity,
+      reborrow_rate: reborrowRate,
+      budget_mode: capacityMode,
+      start_period: '2026-11-01',
+      end_period: '2027-05-31',
+      total_original_due: planData.total_principal_debt,
+      total_optimized_due: planData.total_reborrowed_amount,
+      total_interest_saved: planData.total_interest_saved,
+      status: 'APPROVED_BASELINE',
+      saved_at: new Date().toISOString(),
+    };
+    try {
+      localStorage.setItem('approved_repayment_baseline_plan', JSON.stringify(baselineRecord));
+      setSavedBaselineMsg(`Đã lưu và phê duyệt "${planName}" làm Phương Án Cơ Sở vào CSDL!`);
+      setTimeout(() => setSavedBaselineMsg(null), 5000);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   // Action table filter
   const [searchContract, setSearchContract] = useState<string>('');
   const [bankFilter, setBankFilter] = useState<string>('ALL');
   const [actionFilter, setActionFilter] = useState<string>('ALL');
 
+  const requestSeq = useRef(0);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   const fetchRepaymentPlan = async () => {
+    const seq = ++requestSeq.current;
     setLoading(true);
     try {
       const payload = {
@@ -69,17 +103,40 @@ export const LoanRepaymentPlanPage: React.FC = () => {
       };
 
       const res = await api.post('/loans/repayment-plan/simulate', payload);
+      if (seq !== requestSeq.current) return; // bỏ phản hồi cũ về muộn
       setPlanData(res.data);
-    } catch (err) {
+      setLoadError(null);
+    } catch (err: any) {
+      if (seq !== requestSeq.current) return;
       console.error('Lỗi khi tải kế hoạch trả nợ:', err);
+      setLoadError(err?.response?.data?.detail || err?.message || 'Không thể tải kế hoạch trả nợ');
     } finally {
-      setLoading(false);
+      if (seq === requestSeq.current) setLoading(false);
     }
   };
 
+  // Debounce 400ms khi kéo thanh trượt / đổi tham số
   useEffect(() => {
-    fetchRepaymentPlan();
+    const timer = setTimeout(() => fetchRepaymentPlan(), 400);
+    return () => clearTimeout(timer);
   }, [capacityMode, uniformCapacity, strategy, penaltyRate, mbTenor, ctgTenor, reborrowRate, reborrowMode]);
+
+  // Tải lại khi quay lại tab (ví dụ sau khi nhập khoản nợ mới ở trang khác)
+  useEffect(() => {
+    const onFocus = () => fetchRepaymentPlan();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  });
+
+  const unsafeMonths = useMemo(
+    () => (planData?.monthly_schedule || []).filter((m) => !m.is_safe).map((m) => m.month),
+    [planData?.monthly_schedule]
+  );
+  const safePercent = useMemo(() => {
+    const total = planData?.monthly_schedule?.length || 0;
+    if (total === 0) return 0;
+    return Math.round(((total - unsafeMonths.length) / total) * 100);
+  }, [planData?.monthly_schedule, unsafeMonths]);
 
   const handleSeasonalChange = (monthKey: string, val: number) => {
     setSeasonalCapacities((prev) => ({
@@ -122,10 +179,21 @@ export const LoanRepaymentPlanPage: React.FC = () => {
     return `${(Number(num) / 1000000000).toFixed(2)} tỷ`;
   };
 
-  // Filtered allocations
+  // Filtered & Sorted allocations
+  const [allocSortField, setAllocSortField] = useState<string>('original_due_date');
+  const [allocSortDirection, setAllocSortDirection] = useState<SortDirection>('asc');
+  const handleAllocSort = (field: string) => {
+    if (allocSortField === field) {
+      setAllocSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setAllocSortField(field);
+      setAllocSortDirection('asc');
+    }
+  };
+
   const filteredAllocations = useMemo(() => {
     if (!planData?.allocations) return [];
-    return planData.allocations.filter((item) => {
+    const list = planData.allocations.filter((item) => {
       const matchSearch =
         searchContract.trim() === '' ||
         item.contract_number.toLowerCase().includes(searchContract.toLowerCase()) ||
@@ -142,7 +210,31 @@ export const LoanRepaymentPlanPage: React.FC = () => {
 
       return matchSearch && matchBank && matchAction;
     });
-  }, [planData?.allocations, searchContract, bankFilter, actionFilter]);
+
+    return sortList(list, allocSortField, allocSortDirection);
+  }, [planData?.allocations, searchContract, bankFilter, actionFilter, allocSortField, allocSortDirection]);
+
+  // Monthly Schedule Sorting
+  const [schedSortField, setSchedSortField] = useState<string>('month');
+  const [schedSortDirection, setSchedSortDirection] = useState<SortDirection>('asc');
+  const handleSchedSort = (field: string) => {
+    if (schedSortField === field) {
+      setSchedSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSchedSortField(field);
+      setSchedSortDirection('asc');
+    }
+  };
+
+  const sortedMonthlySchedule = useMemo(() => {
+    if (!planData?.monthly_schedule) return [];
+    return sortList(planData.monthly_schedule, schedSortField, schedSortDirection, {
+      actual_due: (m) => m.allocated_payment_amount || 0,
+      capacity_amount: (m) => m.monthly_capacity || 0,
+      bridged_due: (m) => m.bridged_due_amount || m.reborrowed_new_due_amount || 0,
+      routing_note: (m) => m.reroute_destination_note || '',
+    });
+  }, [planData?.monthly_schedule, schedSortField, schedSortDirection]);
 
   // Max value for bar chart height scaling
   const maxChartValue = useMemo(() => {
@@ -175,6 +267,15 @@ export const LoanRepaymentPlanPage: React.FC = () => {
 
         <div className="flex items-center gap-2.5">
           <button
+            onClick={handleSaveBaselinePlan}
+            disabled={loading || !planData}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-xl transition-colors shadow-sm"
+            title="Lưu kịch bản này làm Phương án cơ sở (Approved Baseline Plan) để đối chiếu Kế hoạch vs Thực tế"
+          >
+            <BookmarkCheck className="w-3.5 h-3.5" />
+            <span>Chốt Kế Hoạch Cơ Sở</span>
+          </button>
+          <button
             onClick={fetchRepaymentPlan}
             disabled={loading}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-50"
@@ -193,6 +294,17 @@ export const LoanRepaymentPlanPage: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {/* Thông báo Lưu Kế hoạch Cơ sở */}
+      {savedBaselineMsg && (
+        <div className="bg-emerald-50 border border-emerald-300 text-emerald-800 text-xs px-4 py-2.5 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+            <span className="font-semibold">{savedBaselineMsg}</span>
+          </div>
+          <span className="text-[11px] text-emerald-600">Đã đồng bộ sang bảng loan_repayment_plans</span>
+        </div>
+      )}
 
       {/* 2. Scenario Comparison Switcher Banner */}
       <div className="bg-gradient-to-r from-slate-900 to-indigo-950 p-5 rounded-2xl text-white shadow-md space-y-4">
@@ -218,7 +330,7 @@ export const LoanRepaymentPlanPage: React.FC = () => {
               }`}
             >
               <Sparkles className="w-3.5 h-3.5" />
-              <span>⭐ Thuật toán SRPR v2.0 (Khuyến nghị: Bắc cầu CTG & Vay lại đúng gốc)</span>
+              <span>⭐ Tối ưu: Không để nợ đến hạn tháng nào vượt trần</span>
             </button>
             <button
               onClick={() => setReborrowMode('LUMP_SUM_STANDARD')}
@@ -229,31 +341,31 @@ export const LoanRepaymentPlanPage: React.FC = () => {
               }`}
             >
               <AlertTriangle className="w-3.5 h-3.5" />
-              <span>Kịch bản 1: Tái vay nguyên khối 4T (Cảnh báo nợ dồn T03 lên 73.76 tỷ)</span>
+              <span>Đối chứng: Tái vay nguyên khối kỳ hạn tối đa</span>
             </button>
           </div>
         </div>
 
-        {/* Dynamic Scenario Explanation Banner */}
+        {/* Dynamic Scenario Explanation Banner (dữ liệu từ API) */}
         <div className="p-3.5 rounded-xl text-xs leading-relaxed border transition-colors bg-white/5 border-white/10">
-          {reborrowMode === 'LUMP_SUM_STANDARD' ? (
+          {loadError ? (
             <div className="text-rose-200 flex items-start gap-2.5">
               <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div>
-                <strong>Cảnh báo Kịch bản 1 (Tái vay thụ động 4 tháng CTG):</strong> Khi 33.34 tỷ nợ CTG ở Tháng 11 được tái vay nguyên khối 4T, toàn bộ sẽ đáo hạn vào <strong>Tháng 03/2027</strong>.
-                Hệ quả: Nợ đáo hạn Tháng 03/2027 vọt lên kỷ lục <strong>73.76 tỷ VND</strong> (40.43 tỷ MBB + 33.34 tỷ CTG), gây tê liệt hoàn toàn khả năng quay vòng vốn!
-              </div>
+              <div><strong>Lỗi tải kế hoạch:</strong> {loadError}</div>
             </div>
           ) : (
-            <div className="text-emerald-200 flex items-start gap-2.5">
-              <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+            <div className={`${unsafeMonths.length > 0 ? 'text-rose-200' : 'text-emerald-200'} flex items-start gap-2.5`}>
+              {unsafeMonths.length > 0 ? (
+                <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              )}
               <div>
-                <strong>Thuật toán Tối ưu SRPR v2.0 (Cam kết vay lại đúng số tiền gốc sau khi cắt nợ):</strong>
-                <ul className="mt-1 list-disc list-inside space-y-0.5 text-[11px] text-emerald-100">
-                  <li><strong>Bắc cầu kỳ hạn cho CTG:</strong> Chia nhỏ 33.34 tỷ nợ T11 thành 4 nhánh (1T, 2T, 3T, 4T); khi đến trạm T12, T01, T02 tiếp tục tái vay đúng gốc 4T để đẩy nợ sang T04, T05, T06/2027 mà không vi phạm quy định 4 tháng của VietinBank.</li>
-                  <li><strong>Trả sớm & Vay lại ngay trong ngày cho MBB:</strong> Cắt $29.87$ tỷ nợ MBB ở đỉnh T03/2027 tại T12, T01, T02 và vay lại đúng số tiền gốc với kỳ hạn mới 5–6 tháng (đẩy sang T05–T08/2027).</li>
-                  <li><strong>Triệt tiêu đỉnh nợ T03/2027:</strong> Đưa nghĩa vụ nợ T03 từ 73.76 tỷ về đúng bằng trần an toàn <strong>14.00 tỷ VND</strong> ($10.56$ tỷ MBB + $3.44$ tỷ CTG).</li>
-                </ul>
+                <div>{planData?.reborrow_summary_note || 'Đang tính toán...'}</div>
+                <div className="mt-1 text-[11px] opacity-80">
+                  Đỉnh nợ đến hạn: {formatBillion(planData?.peak_debt_before)} → {formatBillion(planData?.peak_debt_after)}
+                  {' · '}Tổng cắt sớm & vay lại: {formatBillion(planData?.total_cut_and_reborrowed_amount)}
+                </div>
               </div>
             </div>
           )}
@@ -326,13 +438,17 @@ export const LoanRepaymentPlanPage: React.FC = () => {
               <ShieldCheck className="w-4 h-4" />
             </div>
           </div>
-          <div className="text-2xl font-black text-indigo-600 tracking-tight flex items-center gap-1.5">
-            <span>100% ĐẠT</span>
-            <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+          <div className={`text-2xl font-black tracking-tight flex items-center gap-1.5 ${unsafeMonths.length === 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+            <span>{safePercent}% ĐẠT</span>
+            {unsafeMonths.length === 0 ? (
+              <CheckCircle2 className="w-5 h-5 text-indigo-600" />
+            ) : (
+              <AlertTriangle className="w-5 h-5 text-rose-600" />
+            )}
           </div>
           <div className="text-[11px] text-slate-500 mt-1 flex items-center justify-between">
-            <span>Dư nợ mọi tháng</span>
-            <span className="font-bold text-indigo-700">≤ Khả năng chi trả</span>
+            <span>{unsafeMonths.length === 0 ? 'Dư nợ mọi tháng' : `Vượt trần: ${unsafeMonths.join(', ')}`}</span>
+            <span className={`font-bold ${unsafeMonths.length === 0 ? 'text-indigo-700' : 'text-rose-700'}`}>≤ Khả năng chi trả</span>
           </div>
         </div>
       </div>
@@ -702,18 +818,34 @@ export const LoanRepaymentPlanPage: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100/90 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
-                <th className="py-3 px-3.5 whitespace-nowrap">Tháng</th>
-                <th className="py-3 px-3.5 text-right whitespace-nowrap">Nợ Tự Nhiên Ban Đầu</th>
-                <th className="py-3 px-3.5 text-right text-purple-700 whitespace-nowrap">Nợ Bắc Cầu Đổ Về</th>
-                <th className="py-3 px-3.5 text-right text-rose-700 whitespace-nowrap">Cắt Đỉnh T03 (Trong Ngày)</th>
-                <th className="py-3 px-3.5 text-right text-indigo-700 whitespace-nowrap font-black">Nợ Đáo Hạn Thực Tế</th>
-                <th className="py-3 px-3.5 text-right whitespace-nowrap">Trần Chi Trả</th>
-                <th className="py-3 px-3.5 whitespace-nowrap">Hướng Tái Định Tuyến Kỳ Hạn Mới</th>
-                <th className="py-3 px-3 text-center whitespace-nowrap">Trạng Thái</th>
+                <SortableTh field="month" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} className="py-3 px-3.5 whitespace-nowrap">
+                  Tháng
+                </SortableTh>
+                <SortableTh field="natural_due_amount" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} align="right" className="py-3 px-3.5 whitespace-nowrap">
+                  Nợ Tự Nhiên Ban Đầu
+                </SortableTh>
+                <SortableTh field="bridged_due" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} align="right" className="py-3 px-3.5 text-purple-700 whitespace-nowrap">
+                  Nợ Bắc Cầu Đổ Về
+                </SortableTh>
+                <SortableTh field="intraday_reroute_cut_amount" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} align="right" className="py-3 px-3.5 text-rose-700 whitespace-nowrap">
+                  Cắt Đỉnh T03 (Trong Ngày)
+                </SortableTh>
+                <SortableTh field="actual_due" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} align="right" className="py-3 px-3.5 text-indigo-700 whitespace-nowrap font-black">
+                  Nợ Đáo Hạn Thực Tế
+                </SortableTh>
+                <SortableTh field="capacity_amount" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} align="right" className="py-3 px-3.5 whitespace-nowrap">
+                  Trần Chi Trả
+                </SortableTh>
+                <SortableTh field="routing_note" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} className="py-3 px-3.5 whitespace-nowrap">
+                  Hướng Tái Định Tuyến Kỳ Hạn Mới
+                </SortableTh>
+                <SortableTh field="is_safe" currentSortField={schedSortField} currentSortDirection={schedSortDirection} onSort={handleSchedSort} align="center" className="py-3 px-3 whitespace-nowrap">
+                  Trạng Thái
+                </SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {planData?.monthly_schedule.map((m) => (
+              {sortedMonthlySchedule.map((m) => (
                 <tr key={m.month} className="hover:bg-slate-50/80 transition-colors">
                   <td className="py-3 px-3.5 font-bold text-slate-900 whitespace-nowrap">{m.month}</td>
                   <td className="py-3 px-3.5 text-right font-medium text-slate-700 whitespace-nowrap">
@@ -821,17 +953,39 @@ export const LoanRepaymentPlanPage: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100/80 text-slate-600 font-bold border-b border-slate-200 uppercase text-[10px] tracking-wider">
-                <th className="py-3 px-3">Ngân Hàng</th>
-                <th className="py-3 px-3">Số Hợp Đồng</th>
-                <th className="py-3 px-3 text-right">Dư Nợ Gốc</th>
-                <th className="py-3 px-3 text-center">Lãi Suất</th>
-                <th className="py-3 px-3 text-center">Hạn Gốc</th>
-                <th className="py-3 px-3 text-center">Hành Động</th>
-                <th className="py-3 px-3 text-center">Tháng Thực Thi</th>
-                <th className="py-3 px-3 text-right text-indigo-700">Số Tiền</th>
-                <th className="py-3 px-3 text-right">Còn Lại</th>
-                <th className="py-3 px-3 text-right text-emerald-600">Tiết Kiệm Lãi</th>
-                <th className="py-3 px-4">Ghi Chú Nghiệp Vụ</th>
+                <SortableTh field="bank_code" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} className="py-3 px-3">
+                  Ngân Hàng
+                </SortableTh>
+                <SortableTh field="contract_number" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} className="py-3 px-3">
+                  Số Hợp Đồng
+                </SortableTh>
+                <SortableTh field="original_balance" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="right" className="py-3 px-3">
+                  Dư Nợ Gốc
+                </SortableTh>
+                <SortableTh field="interest_rate" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="center" className="py-3 px-3">
+                  Lãi Suất
+                </SortableTh>
+                <SortableTh field="original_due_date" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="center" className="py-3 px-3">
+                  Hạn Gốc
+                </SortableTh>
+                <SortableTh field="action_type" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="center" className="py-3 px-3">
+                  Hành Động
+                </SortableTh>
+                <SortableTh field="payment_month" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="center" className="py-3 px-3">
+                  Tháng Thực Thi
+                </SortableTh>
+                <SortableTh field="payment_amount" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="right" className="py-3 px-3 text-indigo-700">
+                  Số Tiền
+                </SortableTh>
+                <SortableTh field="remaining_balance_after" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="right" className="py-3 px-3">
+                  Còn Lại
+                </SortableTh>
+                <SortableTh field="estimated_interest_saved" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} align="right" className="py-3 px-3 text-emerald-600">
+                  Tiết Kiệm Lãi
+                </SortableTh>
+                <SortableTh field="note" currentSortField={allocSortField} currentSortDirection={allocSortDirection} onSort={handleAllocSort} className="py-3 px-4">
+                  Ghi Chú Nghiệp Vụ
+                </SortableTh>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Upload,
   CheckCircle,
@@ -11,6 +11,8 @@ import {
 } from 'lucide-react';
 import api from '../services/api';
 import { StatementFile } from '../types';
+import { SortableTh } from '../components/common/SortableTh';
+import { SortDirection, sortList } from '../utils/sort';
 
 export const UploadPage: React.FC = () => {
   const [selectedBank, setSelectedBank] = useState<string>('AUTO_DETECT');
@@ -20,6 +22,25 @@ export const UploadPage: React.FC = () => {
   >([]);
   const [statements, setStatements] = useState<StatementFile[]>([]);
   const [loadingList, setLoadingList] = useState<boolean>(false);
+
+  // Sorting State
+  const [sortField, setSortField] = useState<string>('file_id');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedStatements = useMemo(() => {
+    return sortList(statements, sortField, sortDirection, {
+      bank_account: (st) => `${st.bank_code || ''} ${st.account_number || ''}`,
+    });
+  }, [statements, sortField, sortDirection]);
 
   const fetchStatements = async () => {
     setLoadingList(true);
@@ -236,20 +257,38 @@ export const UploadPage: React.FC = () => {
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-100 uppercase font-semibold text-slate-700 border-b border-slate-200">
               <tr>
-                <th className="px-3 py-3">File Sao Kê / Kỳ</th>
-                <th className="px-3 py-3">Ngân hàng & Số TK</th>
-                <th className="px-3 py-3">Mẫu & Chế độ Đối soát</th>
-                <th className="px-3 py-3 text-center">Số dòng</th>
-                <th className="px-3 py-3 text-right">Số dư Đầu kỳ</th>
-                <th className="px-3 py-3 text-right">Tổng Có (+)</th>
-                <th className="px-3 py-3 text-right">Tổng Nợ (-)</th>
-                <th className="px-3 py-3 text-right">Số dư Cuối kỳ</th>
-                <th className="px-3 py-3 text-center">Trạng thái Đối soát</th>
+                <SortableTh field="original_filename" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  File Sao Kê / Kỳ
+                </SortableTh>
+                <SortableTh field="bank_account" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Ngân hàng & Số TK
+                </SortableTh>
+                <SortableTh field="template_code" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Mẫu & Chế độ Đối soát
+                </SortableTh>
+                <SortableTh field="total_transactions" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
+                  Số dòng
+                </SortableTh>
+                <SortableTh field="opening_balance" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Số dư Đầu kỳ
+                </SortableTh>
+                <SortableTh field="total_credit" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Tổng Có (+)
+                </SortableTh>
+                <SortableTh field="total_debit" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Tổng Nợ (-)
+                </SortableTh>
+                <SortableTh field="closing_balance" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
+                  Số dư Cuối kỳ
+                </SortableTh>
+                <SortableTh field="reconciliation_status" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
+                  Trạng thái Đối soát
+                </SortableTh>
                 <th className="px-3 py-3 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {statements.length === 0 ? (
+              {sortedStatements.length === 0 ? (
                 <tr>
                   <td colSpan={10} className="px-4 py-8 text-center text-slate-400 text-sm">
                     Chưa có file sao kê nào được tải lên. Hãy kéo-thả 7 file mẫu từ thư mục{' '}
@@ -258,7 +297,7 @@ export const UploadPage: React.FC = () => {
                   </td>
                 </tr>
               ) : (
-                statements.map((st) => (
+                sortedStatements.map((st) => (
                   <tr key={st.file_id} className="hover:bg-slate-50 transition-colors">
                     <td className="px-3 py-3">
                       <div className="font-semibold text-slate-900 max-w-[220px] truncate" title={st.original_filename}>
@@ -307,10 +346,23 @@ export const UploadPage: React.FC = () => {
                     </td>
                     <td className="px-3 py-3 text-center">
                       {st.reconciliation_status === 'BALANCED' ? (
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
-                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
-                          BALANCED (Δ=0)
-                        </span>
+                        <div>
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            BALANCED (Δ=0)
+                          </span>
+                          {st.has_data_gap && (
+                            <div className="mt-1">
+                              <span
+                                className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-800 bg-amber-50 border border-amber-300 px-1.5 py-0.2 rounded"
+                                title="Phát hiện khoảng trống hoặc lệch số dư giữa các kỳ sao kê (ĐK kỳ sau ≠ CK kỳ trước)"
+                              >
+                                <AlertTriangle className="w-2.5 h-2.5 text-amber-600" />
+                                Lệch kỳ sao kê
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       ) : st.reconciliation_status === 'DISCREPANCY' ? (
                         <div>
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-red-100 text-red-800">

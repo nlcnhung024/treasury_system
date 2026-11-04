@@ -1,0 +1,133 @@
+flowchart TD
+    %% =========================================================================
+    %% SƠ ĐỒ LUỒNG DỮ LIỆU TOÀN DIỆN (END-TO-END DATA FLOW DIAGRAM)
+    %% HỆ THỐNG XỬ LÝ & BÁO CÁO SAO KÊ NGÂN HÀNG TỰ ĐỘNG
+    %% =========================================================================
+
+    %% -------------------------------------------------------------------------
+    %% TẦNG 1: DỮ LIỆU ĐẦU VÀO TỪ NGƯỜI DÙNG & NGÂN HÀNG
+    %% -------------------------------------------------------------------------
+    subgraph Layer_Ingestion["1. TẦNG TIẾP NHẬN DỮ LIỆU NGUỒN (INGESTION LAYER)"]
+        F_CASA["File Sao kê TK Thanh toán<br/>(.xlsx, .xls từ 7+ Ngân hàng: VCB, MBB, CTG, TCB, VPB, TPB, SHB)"]
+        F_CREDIT["File Sao kê Khoản vay Tín dụng<br/>(.xls, .xlsx từ VietinBank, MBBank)"]
+        F_DOSSIER["Hồ sơ Chứng từ Giải ngân<br/>(Hợp đồng, Khế ước, Hóa đơn XML, UNC)"]
+        F_MANUAL["Nhập tay Khoản vay ngoài Sao kê<br/>(Công ty tài chính, Cho thuê tài chính)"]
+
+        API_GATE["API Gateway & Ingestion Service<br/>(FastAPI / Python)<br/>- Kiểm tra Magic Bytes & MIME type<br/>- Tính toán SHA-256 chống tải trùng"]
+
+        F_CASA -->|Multipart Form-data| API_GATE
+        F_CREDIT -->|Multipart Form-data| API_GATE
+        F_DOSSIER -->|Upload hồ sơ theo khoản vay| API_GATE
+        F_MANUAL -->|REST API POST /credit/facilities| API_GATE
+    end
+
+    %% -------------------------------------------------------------------------
+    %% TẦNG 2: LƯU TRỮ VẬT LÝ VÀ HÀNG ĐỢI XỬ LÝ
+    %% -------------------------------------------------------------------------
+    subgraph Layer_StorageQueue["2. TẦNG LƯU TRỮ NHỊ PHÂN & ĐIỀU PHỐI (STORAGE & QUEUE)"]
+        OBJ_STORAGE[("Hybrid Object Storage (MinIO / GCS)<br/>- /statements/{bank}/{YYYY}/{MM}/{uuid}.xlsx<br/>- /credit_statements/{bank}/{YYYY}/{uuid}.ext<br/>- /disbursement_dossiers/{bank}/{contract}/{uuid}_{name}")]
+        REDIS_STREAM[("Redis Stream / Celery Queue<br/>- Job bóc tách sao kê thanh toán<br/>- Job bóc tách sao kê tín dụng")]
+
+        API_GATE -->|Lưu file nguyên bản| OBJ_STORAGE
+        API_GATE -->|Đẩy tác vụ bất đồng bộ| REDIS_STREAM
+    end
+
+    %% -------------------------------------------------------------------------
+    %% TẦNG 3: ĐỘNG CƠ ETL & XỬ LÝ NGẦM
+    %% -------------------------------------------------------------------------
+    subgraph Layer_ETL["3. ĐỘNG CƠ XỬ LÝ & BÓC TÁCH DỮ LIỆU (ETL PARSER & RECONCILIATION)"]
+        WORKER_POOL["Background Worker Pool"]
+        REDIS_STREAM --> WORKER_POOL
+        WORKER_POOL -->|Đọc Stream từ Storage| OBJ_STORAGE
+
+        PARSER_CASA["Bank Statement Parser Engine<br/>- Template Matching: MBB, CTG, VPB...<br/>- Chuẩn hóa Date ISO 8601 & Decimal(18,2)<br/>- Tính Dedup Hash 6-Tuple SHA256"]
+        PARSER_CREDIT["Credit Statement Parser Engine<br/>- Bóc tách HĐ/Khế ước LD, Ngày vay/đáo hạn<br/>- Lãi suất (%/năm), Dư nợ gốc ban đầu & hiện tại<br/>- Tính lãi thực tế TT 14/2017 Actual/365"]
+        RECON_BALANCE["Module Đối soát Cân bằng Kế toán<br/>Opening + Credit - Debit = Closing (Delta = 0.00)<br/>Tổng dư nợ khế ước = Tổng nợ sao kê"]
+        RULE_ENGINE["Rule Engine (Khớp từ khóa Nâng cao)<br/>- Quét keyword_patterns<br/>- Áp dụng danh mục Thu/Chi (Category)"]
+        DEBT_REPAY_ENGINE["Debt Repayment Reconciliation Engine<br/>- Bóc tách Gốc vs Lãi (Principal + Interest = Debit)<br/>- Khấu trừ tự động current_principal_balance"]
+
+        WORKER_POOL --> PARSER_CASA
+        WORKER_POOL --> PARSER_CREDIT
+
+        PARSER_CASA --> RECON_BALANCE
+        RECON_BALANCE --> RULE_ENGINE
+
+        PARSER_CREDIT --> RECON_BALANCE
+    end
+
+    %% -------------------------------------------------------------------------
+    %% TẦNG 4: CƠ SỞ DỮ LIỆU POSTGRESQL (3NF & AUDIT)
+    %% -------------------------------------------------------------------------
+    subgraph Layer_Database["4. CƠ SỞ DỮ LIỆU POSTGRESQL (RELATIONAL 3NF)"]
+        direction TB
+
+        %% Nhóm bảng Thanh toán & Dòng tiền
+        subgraph Sub_CASA["Phân hệ Thanh toán & Dòng tiền"]
+            TBL_ACCOUNTS[("bank_accounts<br/>(Tài khoản các NH thương mại & MB Cá nhân)")]
+            TBL_FILES[("bank_statement_files<br/>(Metadata, Hash SHA256, Status)")]
+            TBL_TRANS[("bank_transactions<br/>(Chi tiết giao dịch, Dedup Hash, Decimal 18,2)")]
+            TBL_CASH[("cash_ledger<br/>(Sổ quỹ tiền mặt rút từ MB cá nhân)")]
+            TBL_CAT[("categories<br/>(Danh mục Thu/Chi)")]
+            TBL_RULES[("classification_rules<br/>(Quy tắc từ khóa & điều kiện tiền)")]
+
+            TBL_ACCOUNTS -->|1 : N| TBL_FILES
+            TBL_ACCOUNTS -->|1 : N| TBL_TRANS
+            TBL_FILES -->|1 : N| TBL_TRANS
+            TBL_CAT -->|1 : N| TBL_RULES
+            TBL_CAT -->|1 : N| TBL_TRANS
+            TBL_RULES -.->|Gán tự động| TBL_TRANS
+            TBL_TRANS -->|Rút tiền mặt MBBank (1 : 1)| TBL_CASH
+        end
+
+        %% Nhóm bảng Tín dụng & Nợ vay
+        subgraph Sub_Credit["Phân hệ Tín dụng & Quản lý Nợ vay"]
+            TBL_CR_FILES[("credit_statement_files<br/>(File sao kê tín dụng gốc)")]
+            TBL_FACILITIES[("credit_facilities<br/>(Danh mục khoản vay / khế ước LD)")]
+            TBL_CR_ITEMS[("credit_statement_items<br/>(Snapshot lịch sử theo kỳ sao kê)")]
+            TBL_DOCS[("disbursement_documents<br/>(Hồ sơ giải ngân: HĐ, Khế ước, Hóa đơn XML)")]
+
+            TBL_CR_FILES -->|1 : N| TBL_CR_ITEMS
+            TBL_FACILITIES -->|1 : N| TBL_CR_ITEMS
+            TBL_FACILITIES -->|1 : N| TBL_DOCS
+        end
+
+        %% Cầu nối liên thông giữa Giao dịch Chi và Nợ vay
+        subgraph Sub_Repayment["Phân hệ Đối soát & Giảm trừ Nợ vay"]
+            TBL_REPAY[("loan_repayment_history<br/>(Lịch sử trả nợ: Tách Gốc & Lãi)")]
+            
+            TBL_FACILITIES -->|1 : N| TBL_REPAY
+            TBL_TRANS -->|1 : 1| TBL_REPAY
+        end
+
+        %% Nhóm bảng Kiểm toán
+        subgraph Sub_Audit["Nhật ký Kiểm toán"]
+            TBL_AUDIT[("audit_logs<br/>(Ghi nhận toàn bộ thao tác & Correlation ID)")]
+        end
+    end
+
+    %% Liên kết từ Engine ETL vào Database
+    RULE_ENGINE -->|Bulk Insert transactions & cập nhật status| TBL_TRANS & TBL_FILES
+    PARSER_CREDIT -->|Upsert facilities & snapshot items| TBL_FACILITIES & TBL_CR_ITEMS & TBL_CR_FILES
+    API_GATE -->|Ghi nhận hồ sơ & Nhập thủ công| TBL_DOCS & TBL_FACILITIES
+    API_GATE & WORKER_POOL -->|Ghi log kiểm toán| TBL_AUDIT
+
+    TBL_TRANS & TBL_FACILITIES --> DEBT_REPAY_ENGINE
+    DEBT_REPAY_ENGINE -->|Ghi nhận lịch sử trả nợ| TBL_REPAY
+    TBL_REPAY -->|Giảm trừ số dư nợ hiện tại| TBL_FACILITIES
+
+    %% -------------------------------------------------------------------------
+    %% TẦNG 5: TẦNG BÁO CÁO & ĐIỀU HÀNH TÀI CHÍNH
+    %% -------------------------------------------------------------------------
+    subgraph Layer_Analytics["5. TẦNG BÁO CÁO QUẢN TRỊ & ĐIỀU HÀNH (CFO / CEO)"]
+        VIEW_CFO_LIQUIDITY["View: v_cfo_daily_liquidity<br/>(Tổng tồn quỹ ngân hàng + Tồn quỹ tiền mặt)"]
+        VIEW_CFO_DEBT["View: v_cfo_debt_obligations<br/>(Dư nợ tín dụng + Gốc & Lãi đến hạn kỳ tới)"]
+        
+        CALC_NET_LIQUIDITY{{"Chỉ số Thanh khoản Ròng (Net Liquidity)<br/>= Tồn Quỹ Hợp Nhất - Nghĩa Vụ Nợ Kỳ Tới"}}
+        REPORT_WATERFALL["Báo cáo Dòng tiền Thác nước (Waterfall CEO)<br/>(Dòng tiền Vào / Ra theo Danh mục Thu-Chi)"]
+
+        TBL_ACCOUNTS & TBL_CASH --> VIEW_CFO_LIQUIDITY
+        TBL_FACILITIES --> VIEW_CFO_DEBT
+
+        VIEW_CFO_LIQUIDITY & VIEW_CFO_DEBT ==> CALC_NET_LIQUIDITY
+        TBL_TRANS & TBL_CAT ==> REPORT_WATERFALL
+    end

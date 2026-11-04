@@ -394,7 +394,7 @@ async def create_manual_loan(
         calculated_interest_due=calc_interest,
         original_principal_balance=orig_principal,
         current_principal_balance=curr_principal,
-        accrued_interest=payload.accrued_interest or Decimal("0.00"),
+        accrued_interest=calc_interest if (payload.accrued_interest is None or payload.accrued_interest <= Decimal("0.00")) else payload.accrued_interest,
         next_repayment_date=payload.next_repayment_date,
         next_principal_amount=payload.next_principal_amount or Decimal("0.00"),
         next_interest_amount=payload.next_interest_amount or Decimal("0.00"),
@@ -592,6 +592,122 @@ async def simulate_repayment_plan(
     return await DebtRepaymentService.simulate_plan(db, payload)
 
 
+def _estimate_contract_interest(principal: Decimal, rate_pct: Decimal, start: Optional[date], end: Optional[date]) -> Decimal:
+    """Lãi ước tính = Dư nợ gốc × Lãi suất năm × Số ngày (giải ngân → đáo hạn) / 365."""
+    if not start or not end or principal <= 0 or rate_pct <= 0:
+        return Decimal("0.00")
+    days = Decimal((end - start).days)
+    if days <= 0:
+        return Decimal("0.00")
+    value = principal * (rate_pct / Decimal("100")) * days / Decimal("365")
+    return value.quantize(Decimal("0.01"))
+
+
+@router.get("/loans/contract-details", response_model=dict)
+async def list_contract_details(db: AsyncSession = Depends(get_db)):
+    """
+    Danh sách chi tiết khế ước kèm tổng gốc/lãi đã trả (từ các giao dịch đã đối soát
+    trong loan_repayment_history) và lãi ước tính.
+    """
+    paid_stmt = (
+        select(
+            LoanRepaymentHistory.loan_id,
+            func.coalesce(func.sum(LoanRepaymentHistory.principal_amount), 0),
+            func.coalesce(func.sum(LoanRepaymentHistory.interest_amount), 0),
+            func.count(LoanRepaymentHistory.repayment_id),
+        ).group_by(LoanRepaymentHistory.loan_id)
+    )
+    paid_map = {
+        row[0]: (Decimal(row[1]), Decimal(row[2]), int(row[3]))
+        for row in (await db.execute(paid_stmt)).all()
+    }
+
+    loans = (
+        await db.execute(
+            select(CreditFacility).order_by(CreditFacility.bank_code, CreditFacility.disbursement_date, CreditFacility.contract_number)
+        )
+    ).scalars().all()
+
+    items = []
+    for loan in loans:
+        original = Decimal(loan.original_principal_balance or 0)
+        paid_principal, paid_interest, count = paid_map.get(loan.loan_id, (Decimal("0"), Decimal("0"), 0))
+        items.append({
+            "loan_id": loan.loan_id,
+            "bank_code": loan.bank_code,
+            "bank_name": loan.bank_name,
+            "contract_number": loan.contract_number,
+            "original_principal_balance": str(original),
+            "total_principal_paid": str(paid_principal.quantize(Decimal("0.01"))),
+            "current_principal_balance": str(Decimal(loan.current_principal_balance or 0)),
+            "interest_rate": str(loan.interest_rate),
+            "estimated_interest": str(_estimate_contract_interest(original, Decimal(loan.interest_rate or 0), loan.disbursement_date, loan.maturity_date)),
+            "total_interest_paid": str(paid_interest.quantize(Decimal("0.01"))),
+            "disbursement_date": loan.disbursement_date.isoformat() if loan.disbursement_date else None,
+            "maturity_date": loan.maturity_date.isoformat() if loan.maturity_date else None,
+            "repayment_count": count,
+            "status": loan.status,
+        })
+    return {"data": items}
+
+
+@router.get("/loans/{loan_id}/cashflow", response_model=dict)
+async def get_loan_cashflow(loan_id: int, db: AsyncSession = Depends(get_db)):
+    """
+    Bảng dòng tiền trả gốc/lãi của một khế ước, sắp xếp theo thời điểm giao dịch.
+    is_overdue = True nếu có trả gốc sau ngày đáo hạn.
+    """
+    loan = await db.get(CreditFacility, loan_id)
+    if not loan:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy khế ước")
+
+    rows = (
+        await db.execute(
+            select(LoanRepaymentHistory)
+            .options(selectinload(LoanRepaymentHistory.transaction))
+            .where(LoanRepaymentHistory.loan_id == loan_id)
+            .order_by(LoanRepaymentHistory.repayment_date, LoanRepaymentHistory.repayment_id)
+        )
+    ).scalars().all()
+
+    # Dựng lại số dư theo trình tự thời gian (không dùng snapshot lúc đối soát,
+    # vì snapshot phụ thuộc thứ tự bấm đối soát chứ không phải thứ tự giao dịch).
+    running = Decimal(loan.original_principal_balance or 0)
+    items = []
+    for r in rows:
+        principal = Decimal(r.principal_amount or 0)
+        repay_day = r.repayment_date.date() if isinstance(r.repayment_date, datetime) else r.repayment_date
+        is_overdue = bool(loan.maturity_date and principal > 0 and repay_day > loan.maturity_date)
+        opening = running
+        running = (running - principal).quantize(Decimal("0.01"))
+        items.append({
+            "repayment_id": r.repayment_id,
+            "repayment_date": r.repayment_date.isoformat(),
+            "repayment_timing": r.repayment_timing,
+            "snapshot_date": r.snapshot_date.isoformat() if r.snapshot_date else None,
+            "description": r.transaction.description if r.transaction else None,
+            "opening_principal": str(opening.quantize(Decimal("0.01"))),
+            "total_amount": str(r.total_amount),
+            "principal_amount": str(principal),
+            "interest_amount": str(r.interest_amount),
+            "remaining_principal": str(running),
+            "is_overdue": is_overdue,
+            "is_over_repaid": running < 0,
+        })
+    return {
+        "loan_id": loan.loan_id,
+        "contract_number": loan.contract_number,
+        "bank_name": loan.bank_name,
+        "maturity_date": loan.maturity_date.isoformat() if loan.maturity_date else None,
+        "snapshot_date": loan.snapshot_date.isoformat() if loan.snapshot_date else None,
+        "snapshot_principal_balance": str(Decimal(loan.snapshot_principal_balance or 0)),
+        "original_principal_balance": str(Decimal(loan.original_principal_balance or 0)),
+        "computed_remaining_principal": str(running),
+        "stored_current_principal_balance": str(Decimal(loan.current_principal_balance or 0)),
+        "data": items,
+    }
+
+
 @router.get("/loans/{loan_id}", response_model=CreditFacilityItem)
 async def get_loan_detail(
     loan_id: int,
@@ -715,6 +831,8 @@ async def update_loan(
         disbursement_date=loan.disbursement_date,
         maturity_date=loan.maturity_date,
     )
+    # Lãi cộng dồn tự động tính bằng hệ thống theo Thông tư 14
+    loan.accrued_interest = loan.calculated_interest_due
 
     # Ghi nhận Audit Log
     audit = AuditLog(
@@ -1051,6 +1169,7 @@ async def rollback_debt_reconciliation(
 async def get_repayment_reconciliation_history(
     loan_id: Optional[int] = Query(None, description="Lọc theo ID khoản vay"),
     bank_code: Optional[str] = Query(None, description="Lọc theo mã ngân hàng"),
+    keyword: Optional[str] = Query(None, description="Tìm theo số khế ước, diễn giải sao kê, số ref, ghi chú"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -1062,6 +1181,7 @@ async def get_repayment_reconciliation_history(
         db=db,
         loan_id=loan_id,
         bank_code=bank_code,
+        keyword=keyword,
         limit=limit,
         offset=offset,
     )

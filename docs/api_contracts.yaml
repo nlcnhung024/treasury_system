@@ -1914,6 +1914,82 @@ paths:
                     type: number
                     format: decimal
 
+  /loans/contract-details:
+    get:
+      summary: Danh sách chi tiết khế ước (gốc/lãi đã trả từ đối soát, lãi ước tính)
+      description: "estimated_interest = original_principal_balance × interest_rate/100 × (maturity_date − disbursement_date) / 365"
+      tags:
+        - Debt Repayment Reconciliation
+      responses:
+        '200':
+          description: Danh sách khế ước
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        loan_id: { type: integer }
+                        bank_code: { type: string }
+                        bank_name: { type: string }
+                        contract_number: { type: string }
+                        original_principal_balance: { type: string, format: decimal }
+                        total_principal_paid: { type: string, format: decimal }
+                        current_principal_balance: { type: string, format: decimal }
+                        interest_rate: { type: string, format: decimal }
+                        estimated_interest: { type: string, format: decimal }
+                        total_interest_paid: { type: string, format: decimal }
+                        disbursement_date: { type: string, format: date, nullable: true }
+                        maturity_date: { type: string, format: date, nullable: true }
+                        repayment_count: { type: integer }
+                        status: { type: string }
+  /loans/{loan_id}/cashflow:
+    get:
+      summary: Bảng dòng tiền trả gốc/lãi của một khế ước
+      tags:
+        - Debt Repayment Reconciliation
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: "Dòng tiền dựng lại theo thứ tự thời gian: opening_principal(1) = original_principal_balance; remaining = opening − principal_amount. is_overdue = trả gốc sau maturity_date"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loan_id: { type: integer }
+                  contract_number: { type: string }
+                  bank_name: { type: string }
+                  maturity_date: { type: string, format: date, nullable: true }
+                  original_principal_balance: { type: string, format: decimal }
+                  computed_remaining_principal: { type: string, format: decimal }
+                  stored_current_principal_balance: { type: string, format: decimal }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        repayment_id: { type: integer }
+                        repayment_date: { type: string, format: date-time }
+                        description: { type: string, nullable: true, description: "bank_transactions.description" }
+                        opening_principal: { type: string, format: decimal }
+                        total_amount: { type: string, format: decimal }
+                        principal_amount: { type: string, format: decimal }
+                        interest_amount: { type: string, format: decimal }
+                        remaining_principal: { type: string, format: decimal }
+                        is_overdue: { type: boolean }
+                        is_over_repaid: { type: boolean, description: "remaining_principal < 0 (tổng gốc trả vượt dư nợ gốc)" }
+        '404':
+          description: Không tìm thấy khế ước
   /loans/repayment-reconciliations/history:
     get:
       summary: Lấy danh sách lịch sử đối soát trả nợ
@@ -1928,6 +2004,12 @@ paths:
         - name: bank_code
           in: query
           required: false
+          schema:
+            type: string
+        - name: keyword
+          in: query
+          required: false
+          description: "Tìm kiếm theo số khế ước, diễn giải sao kê, số ref hoặc ghi chú"
           schema:
             type: string
       responses:
@@ -3007,6 +3089,8 @@ components:
         accrued_interest:
           type: number
           format: decimal
+          nullable: true
+          description: "Lãi cộng dồn (Tự động tính toán lại theo Thông tư 14/2017/TT-NHNN khi cập nhật khoản vay)"
           example: 11250000.00
         next_principal_due_date:
           type: string
@@ -3149,6 +3233,8 @@ components:
         accrued_interest:
           type: number
           format: decimal
+          nullable: true
+          description: "Lãi cộng dồn (Tự động tính toán lại theo Thông tư 14/2017/TT-NHNN khi cập nhật khoản vay)"
           example: 11250000.00
         next_repayment_date:
           type: string
@@ -3274,7 +3360,9 @@ components:
         accrued_interest:
           type: number
           format: decimal
+          nullable: true
           example: 5208333.00
+          description: "Lãi cộng dồn (Hệ thống tự động tính toán theo Thông tư 14/2017/TT-NHNN nếu không truyền)"
         next_repayment_date:
           type: string
           format: date
@@ -3358,6 +3446,8 @@ components:
         accrued_interest:
           type: number
           format: decimal
+          nullable: true
+          description: "Lãi cộng dồn (Tự động tính toán lại theo Thông tư 14/2017/TT-NHNN khi cập nhật khoản vay)"
         next_repayment_date:
           type: string
           format: date
@@ -3776,4 +3866,194 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LoanAllocationActionItem'
+
+    UnreconciledDebtTransactionItem:
+      type: object
+      properties:
+        transaction_id:
+          type: integer
+        account_id:
+          type: integer
+        bank_code:
+          type: string
+        account_number:
+          type: string
+          nullable: true
+        account_holder:
+          type: string
+          nullable: true
+        transaction_date:
+          type: string
+          format: date-time
+        description:
+          type: string
+        debit_amount:
+          type: number
+          format: decimal
+        category_name:
+          type: string
+        suggested_contract_number:
+          type: string
+          nullable: true
+        suggested_loan_id:
+          type: integer
+          nullable: true
+        suggested_bank_code:
+          type: string
+          nullable: true
+        suggested_borrower_name:
+          type: string
+          nullable: true
+        suggested_principal_balance:
+          type: number
+          format: decimal
+          nullable: true
+        suggested_snapshot_date:
+          type: string
+          format: date
+          nullable: true
+        suggested_snapshot_balance:
+          type: number
+          format: decimal
+          nullable: true
+        timing_prediction:
+          type: string
+          enum: [PRE_SNAPSHOT, POST_SNAPSHOT]
+          nullable: true
+        match_confidence:
+          type: string
+          enum: [HIGH, MEDIUM, LOW, NONE]
+
+    RepaymentReconcileRequest:
+      type: object
+      required:
+        - transaction_id
+        - loan_id
+        - principal_amount
+        - interest_amount
+      properties:
+        transaction_id:
+          type: integer
+        loan_id:
+          type: integer
+        principal_amount:
+          type: number
+          format: decimal
+          minimum: 0
+          description: Số tiền trả nợ gốc (>= 0)
+        interest_amount:
+          type: number
+          format: decimal
+          description: Số tiền trả nợ lãi (cho phép giá trị âm khi ngân hàng hoàn lãi / thoái thu / giảm trừ lãi khi tất toán)
+        repayment_timing:
+          type: string
+          enum: [PRE_SNAPSHOT, POST_SNAPSHOT]
+          nullable: true
+          description: Phân loại thời điểm trả nợ so với ngày chốt sao kê (PRE_SNAPSHOT hoặc POST_SNAPSHOT)
+        notes:
+          type: string
+          nullable: true
+
+    RepaymentReconcileResponse:
+      type: object
+      properties:
+        repayment_id:
+          type: integer
+        loan_id:
+          type: integer
+        transaction_id:
+          type: integer
+        contract_number:
+          type: string
+        bank_code:
+          type: string
+        repayment_date:
+          type: string
+          format: date-time
+        repayment_timing:
+          type: string
+          enum: [PRE_SNAPSHOT, POST_SNAPSHOT]
+        snapshot_date:
+          type: string
+          format: date
+          nullable: true
+        principal_amount:
+          type: number
+          format: decimal
+        interest_amount:
+          type: number
+          format: decimal
+        total_amount:
+          type: number
+          format: decimal
+        previous_principal_balance:
+          type: number
+          format: decimal
+        remaining_principal_balance:
+          type: number
+          format: decimal
+        original_principal_balance:
+          type: number
+          format: decimal
+        total_repaid_principal:
+          type: number
+          format: decimal
+        loan_status:
+          type: string
+        message:
+          type: string
+
+    LoanRepaymentHistoryItem:
+      type: object
+      properties:
+        repayment_id:
+          type: integer
+        loan_id:
+          type: integer
+        transaction_id:
+          type: integer
+        contract_number:
+          type: string
+        bank_code:
+          type: string
+        repayment_date:
+          type: string
+          format: date-time
+        repayment_timing:
+          type: string
+          enum: [PRE_SNAPSHOT, POST_SNAPSHOT]
+        snapshot_date:
+          type: string
+          format: date
+          nullable: true
+        principal_amount:
+          type: number
+          format: decimal
+        interest_amount:
+          type: number
+          format: decimal
+        total_amount:
+          type: number
+          format: decimal
+        previous_principal_balance:
+          type: number
+          format: decimal
+        remaining_principal_balance:
+          type: number
+          format: decimal
+        notes:
+          type: string
+          nullable: true
+        reconciled_by:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        transaction_description:
+          type: string
+          nullable: true
+        reference_number:
+          type: string
+          nullable: true
+
 

@@ -80,4 +80,23 @@ Khi xử lý các tệp hóa đơn điện tử định dạng XML (theo Nghị 
   - Xử lý tương thích cả 2 định dạng số phổ biến: Định dạng Việt Nam (dấu chấm phân cách hàng nghìn, dấu phẩy thập phân: `1.489.259.199,00`) và Định dạng Quốc tế (dấu phẩy phân cách hàng nghìn, dấu chấm thập phân: `1,489,259,199.00`).
   - Toàn bộ kết quả tiền tệ bóc tách được BẮT BUỘC lưu trữ và tính toán dưới dạng `Decimal`, cấm ép sang `float`.
 
+## 11. Tiêu chuẩn Trường Dữ liệu Tự động Tính toán (Auto-Calculated & Read-Only Fields Standard)
+- **Tuyệt đối không yêu cầu người dùng gõ tay các trường phái sinh:** Các chỉ số có công thức toán học/luật định chuẩn (Lãi cộng dồn `accrued_interest`, Lãi dự trả TT14 `calculated_interest_due`, Tổng nghĩa vụ đến hạn `total_repayment_amount`) BẮT BUỘC phải được hệ thống tính toán tự động từ các tham số đầu vào gốc (Dư nợ gốc, Lãi suất, Kỳ hạn, Ngày tính lãi).
+- **Cấm đặt `step` cứng trên input số thực:** TUYỆT ĐỐI KHÔNG dùng thẻ `<input type="number">` kèm thuộc tính `step` chia hết (như `step="1000"`) cho các giá trị tiền tệ có phần thập phân phát sinh từ công thức chia lẻ (như chia 365 ngày), vì sẽ gây lỗi chặn submit của trình duyệt ("Vui lòng nhập giá trị hợp lệ").
+- **Giao diện Read-Only trực quan:** Trên Form/Modal, các trường này bắt buộc hiển thị dưới dạng Read-Only / Computed Display với badge "Hệ thống tự tính", icon minh họa (`Calculator`) và định dạng tiền tệ chuẩn VND.
+- **Tính toán phòng vệ phía Server:** Cả 2 tầng API `POST` (tạo mới) và `PUT` (cập nhật) phải luôn tự động tính toán lại và đồng bộ các trường phái sinh này kể cả khi Client không gửi hoặc gửi giá trị null/0.
 
+## 12. Tiêu chuẩn Đối soát Trả nợ Đa Thời điểm & Phòng vệ Snapshot Date (Pre/Post Snapshot Invariant)
+- **Truy vấn Phòng vệ Snapshot Date (Defensive Fallback):** Nếu bản ghi khế ước vay chưa có `snapshot_date` (do nạp từ phiên bản cũ), Backend và Frontend BẮT BUỘC thực hiện truy vấn fallback từ `statement_date` của file sao kê tín dụng gần nhất trong `credit_statement_files`.
+- **Giao diện Điều khiển Chủ động (Manual Override Toggle):** Trên thanh chỉnh sửa phân bổ inline và modal đối soát, BẮT BUỘC cung cấp checkbox cho phép kế toán chủ động xác nhận/đảo cờ "Trước ngày xuất file (Pre-Snapshot)".
+- **Miễn trừ Kiểm tra Vượt Dư nợ (Bypass Overpayment Block for Pre-Snapshot):** Khi `isPreSnapshot = true` (tự động phát hiện qua ngày giao dịch $\le$ ngày xuất file, hoặc qua cờ chủ động), Frontend BẮT BUỘC miễn trừ cảnh báo lỗi vượt dư nợ hiện tại và giữ nút xác nhận đối soát luôn ở trạng thái kích hoạt (enabled) để hoàn nguyên Dư nợ ban đầu.
+
+
+## 13. Tiêu chuẩn Xử lý Lãi Âm khi Tất toán Khoản vay (Negative Accrued Interest Handling Standard)
+- **Cho phép Lãi Âm (Negative Interest Value):** Khi ngân hàng thoái thu / giảm trừ / hoàn lãi khi tất toán khế ước vay, số tiền lãi có thể mang giá trị âm (`interest_amount < 0`).
+- **Ràng buộc Toàn vẹn:** Bắt buộc bảo toàn đẳng thức $\text{principal\_amount} + \text{interest\_amount} = \text{debit\_amount}$, trong đó $\text{principal\_amount} \ge 0$. Tuyệt đối không áp đặt kiểm tra $\text{interest\_amount} \ge 0$ trong Database Constraint, Pydantic Schema, hay logic xác thực API.
+- **Tầng Client (Browser):**
+  - Thẻ `<input type="number">` của ô Tiền Trả Lãi TUYỆT ĐỐI KHÔNG chứa thuộc tính `min={0}` hay `Math.max(0, ...)`.
+  - Khi người dùng điều chỉnh tiền gốc: `interest = total - principal` (cho phép ra số âm).
+  - Khi `interest < 0`, giao diện tự động hiển thị nhãn trạng thái nhận diện (badge màu xanh "Hoàn / Giảm trừ lãi").
+  - Cung cấp nút 1-chạm **[Tất toán gốc (Dư nợ)]** để gán trực tiếp `principal = current_principal_balance` và `interest = total - current_principal_balance`.

@@ -13,6 +13,8 @@ import {
   Layers,
   Percent,
   Check,
+  Sliders,
+  X,
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -20,12 +22,31 @@ import {
   LoanRepaymentHistoryRecord,
   CreditFacility,
 } from '../types';
+import { SortableTh } from '../components/common/SortableTh';
+import { SortDirection, sortList } from '../utils/sort';
+
+const BANK_LABELS: Record<string, string> = {
+  CTG: 'VietinBank (CTG)',
+  MBB: 'MBBank (MBB)',
+  TPB: 'TPBank (TPB)',
+  VPB: 'VPBank (VPB)',
+  MBV: 'MBV (Việt Nam Hiện Đại)',
+  SHB: 'SHB',
+  BIDV: 'BIDV',
+  VCB: 'Vietcombank (VCB)',
+  EVF: 'Tài chính EVF',
+  TCB: 'Techcombank (TCB)',
+  ACB: 'ACB',
+  MSB: 'MSB',
+  HDB: 'HDBank (HDB)',
+};
 
 export const LoanRepaymentReconcilePage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'unreconciled' | 'history'>('unreconciled');
   const [unreconciledList, setUnreconciledList] = useState<UnreconciledDebtTransaction[]>([]);
   const [historyList, setHistoryList] = useState<LoanRepaymentHistoryRecord[]>([]);
   const [loans, setLoans] = useState<CreditFacility[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [submitting, setSubmitting] = useState<boolean>(false);
 
@@ -46,23 +67,83 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
   // Rollback confirmation
   const [rollbackItem, setRollbackItem] = useState<LoanRepaymentHistoryRecord | null>(null);
 
+  // Sorting State for Unreconciled
+  const [unrecSortField, setUnrecSortField] = useState<string>('transaction_date');
+  const [unrecSortDirection, setUnrecSortDirection] = useState<SortDirection>('desc');
+  const handleUnrecSort = (field: string) => {
+    if (unrecSortField === field) {
+      setUnrecSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setUnrecSortField(field);
+      setUnrecSortDirection('asc');
+    }
+  };
+  const sortedUnreconciledList = useMemo(() => {
+    let list = unreconciledList;
+    if (searchTerm.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      list = list.filter((tx) =>
+        (tx.suggested_contract_number && tx.suggested_contract_number.toLowerCase().includes(q)) ||
+        (tx.description && tx.description.toLowerCase().includes(q)) ||
+        (tx.bank_code && tx.bank_code.toLowerCase().includes(q)) ||
+        (tx.account_number && tx.account_number.toLowerCase().includes(q)) ||
+        (tx.reference_number && tx.reference_number.toLowerCase().includes(q)) ||
+        (tx.counter_party && tx.counter_party.toLowerCase().includes(q))
+      );
+    }
+    return sortList(list, unrecSortField, unrecSortDirection, {
+      account: (tx) => `${tx.bank_code || ''} ${tx.account_number || ''}`,
+    });
+  }, [unreconciledList, unrecSortField, unrecSortDirection, searchTerm]);
+
+  // Sorting State for History
+  const [histSortField, setHistSortField] = useState<string>('repayment_date');
+  const [histSortDirection, setHistSortDirection] = useState<SortDirection>('desc');
+  const handleHistSort = (field: string) => {
+    if (histSortField === field) {
+      setHistSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setHistSortField(field);
+      setHistSortDirection('asc');
+    }
+  };
+  const sortedHistoryList = useMemo(() => {
+    let list = historyList;
+    if (searchTerm.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      list = list.filter((h) =>
+        (h.contract_number && h.contract_number.toLowerCase().includes(q)) ||
+        (h.transaction_description && h.transaction_description.toLowerCase().includes(q)) ||
+        (h.bank_code && h.bank_code.toLowerCase().includes(q)) ||
+        (h.notes && h.notes.toLowerCase().includes(q)) ||
+        (h.reference_number && h.reference_number.toLowerCase().includes(q)) ||
+        (h.reconciled_by && h.reconciled_by.toLowerCase().includes(q))
+      );
+    }
+    return sortList(list, histSortField, histSortDirection, {
+      contract: (hist) => `${hist.contract_number || ''} ${hist.bank_code || ''}`,
+    });
+  }, [historyList, histSortField, histSortDirection, searchTerm]);
+
   // 1. Fetch initial data
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [unrecRes, histRes, loansRes] = await Promise.all([
+      const [unrecRes, histRes, loansRes, accRes] = await Promise.all([
         api.get('/loans/repayment-reconciliations/unreconciled', {
           params: { bank_code: bankFilter || undefined, keyword: searchTerm || undefined, limit: 150 },
         }),
         api.get('/loans/repayment-reconciliations/history', {
-          params: { bank_code: bankFilter || undefined, limit: 150 },
+          params: { bank_code: bankFilter || undefined, keyword: searchTerm || undefined, limit: 150 },
         }),
         api.get('/loans', { params: { limit: 500, status_filter: '' } }),
+        api.get('/accounts').catch(() => ({ data: [] })),
       ]);
 
       setUnreconciledList(unrecRes.data?.items || []);
       setHistoryList(histRes.data?.items || []);
       setLoans(loansRes.data?.data || loansRes.data?.items || []);
+      setBankAccounts(accRes.data || []);
     } catch (err: any) {
       console.error('Lỗi tải dữ liệu đối soát trả nợ:', err);
     } finally {
@@ -79,6 +160,59 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
     fetchData();
   };
 
+  // Danh sách ngân hàng khả dụng được tự động tổng hợp từ tài khoản ngân hàng, khế ước và giao dịch
+  const bankOptions = useMemo(() => {
+    const map = new Map<string, string>();
+
+    // 1. Thêm từ tài khoản ngân hàng thực tế
+    bankAccounts.forEach((acc) => {
+      if (acc.bank_code) {
+        const code = acc.bank_code.trim().toUpperCase();
+        const label = BANK_LABELS[code] || acc.bank_name || code;
+        map.set(code, label);
+      }
+    });
+
+    // 2. Thêm từ danh mục khế ước / khoản vay
+    loans.forEach((l) => {
+      if (l.bank_code) {
+        const code = l.bank_code.trim().toUpperCase();
+        if (!map.has(code)) {
+          map.set(code, BANK_LABELS[code] || l.bank_name || code);
+        }
+      }
+    });
+
+    // 3. Thêm từ các giao dịch chờ đối soát
+    unreconciledList.forEach((tx) => {
+      if (tx.bank_code) {
+        const code = tx.bank_code.trim().toUpperCase();
+        if (!map.has(code)) {
+          map.set(code, BANK_LABELS[code] || code);
+        }
+      }
+    });
+
+    // 4. Thêm từ lịch sử đối soát
+    historyList.forEach((h) => {
+      if (h.bank_code) {
+        const code = h.bank_code.trim().toUpperCase();
+        if (!map.has(code)) {
+          map.set(code, BANK_LABELS[code] || code);
+        }
+      }
+    });
+
+    // 5. Đảm bảo các ngân hàng chuẩn của dự án luôn có mặt
+    ['CTG', 'MBB', 'TPB', 'VPB', 'MBV', 'SHB', 'BIDV', 'EVF', 'VCB'].forEach((code) => {
+      if (!map.has(code)) {
+        map.set(code, BANK_LABELS[code] || code);
+      }
+    });
+
+    return Array.from(map.entries()).sort((a, b) => a[1].localeCompare(b[1], 'vi'));
+  }, [bankAccounts, loans, unreconciledList, historyList]);
+
   // KPIs
   const totalUnreconciledCount = unreconciledList.length;
   const totalUnreconciledAmount = useMemo(
@@ -94,32 +228,197 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
     [historyList]
   );
 
-  // Open modal for transaction
-  const handleOpenReconcileModal = (tx: UnreconciledDebtTransaction) => {
+  // Inline Reconcile States
+  const [inlineReconcilingTxId, setInlineReconcilingTxId] = useState<number | null>(null);
+  const [batchReconciling, setBatchReconciling] = useState<boolean>(false);
+  const [batchProgress, setBatchProgress] = useState<{ current: number; total: number }>({ current: 0, total: 0 });
+
+  // Helper tìm khoản vay khớp với transaction
+  const findMatchedLoan = (tx: UnreconciledDebtTransaction): CreditFacility | null => {
+    if (tx.suggested_loan_id) {
+      const found = loans.find((l) => l.loan_id === tx.suggested_loan_id);
+      if (found) return found;
+    }
+    if (tx.suggested_contract_number) {
+      const s = tx.suggested_contract_number.trim().toUpperCase();
+      const found = loans.find((l) => l.contract_number.trim().toUpperCase() === s);
+      if (found) return found;
+    }
+    return null;
+  };
+
+  // Tính toán phân bổ Gốc / Lãi an toàn không vượt trần dư nợ
+  const calculateSafeSplit = (tx: UnreconciledDebtTransaction, loan: CreditFacility) => {
+    const debit = Number(tx.debit_amount) || 0;
+    const curBal = Number(loan.current_principal_balance) || 0;
+    const isThuLai =
+      (tx.description || '').toUpperCase().includes('THU LAI') ||
+      (tx.category_name || '').toUpperCase().includes('LÃI');
+
+    if (isThuLai) {
+      return { principal: 0, interest: debit };
+    }
+
+    const txDateStr = (tx.transaction_date || '').slice(0, 10);
+    const snapDateStr = (loan.snapshot_date || tx.suggested_snapshot_date || '').slice(0, 10);
+    const isPreSnap = Boolean(
+      (snapDateStr && txDateStr <= snapDateStr) || tx.timing_prediction === 'PRE_SNAPSHOT'
+    );
+
+    // Giao dịch trước ngày xuất file: cho phép nhận gốc đầy đủ để hoàn nguyên Dư nợ ban đầu
+    if (isPreSnap) {
+      if (tx.suggested_principal_amount !== undefined && tx.suggested_interest_amount !== undefined) {
+        const sugP = Number(tx.suggested_principal_amount);
+        const p = Math.min(sugP, debit);
+        return { principal: p, interest: debit - p };
+      }
+      return { principal: debit, interest: 0 };
+    }
+
+    // Giao dịch sau ngày xuất file: kẹp trần theo dư nợ hiện tại
+    if (curBal <= 0) {
+      return { principal: 0, interest: debit };
+    }
+    if (tx.suggested_principal_amount !== undefined && tx.suggested_interest_amount !== undefined) {
+      const sugP = Number(tx.suggested_principal_amount);
+      const sugI = Number(tx.suggested_interest_amount);
+      if (Math.abs(sugP + sugI - debit) < 0.01) {
+        const p = Math.min(sugP, curBal);
+        return { principal: p, interest: debit - p };
+      }
+      const p = Math.min(sugP, curBal);
+      return { principal: p, interest: debit - p };
+    }
+
+    // Nếu giao dịch là tất toán và dư nợ gần bằng debit (chênh lệch hoàn lãi âm)
+    const isTatToan = (tx.description || '').toUpperCase().includes('TAT TOAN');
+    if (isTatToan && curBal > 0 && Math.abs(curBal - debit) < 10000000) {
+      return { principal: curBal, interest: debit - curBal };
+    }
+
+    const p = Math.min(debit, curBal);
+    return { principal: p, interest: debit - p };
+  };
+
+  // Danh sách các giao dịch đã nhận diện được khế ước
+  const matchedTransactions = useMemo(() => {
+    return unreconciledList.filter((tx) => findMatchedLoan(tx) !== null);
+  }, [unreconciledList, loans]);
+
+  // Đối soát 1-chạm trực tiếp trên bảng không cần mở cửa sổ phụ
+  const handleDirectReconcile = async (tx: UnreconciledDebtTransaction) => {
+    const targetLoan = findMatchedLoan(tx);
+    if (!targetLoan) {
+      handleToggleInlineEditor(tx);
+      return;
+    }
+
+    const { principal, interest } = calculateSafeSplit(tx, targetLoan);
+    const txDateStr = (tx.transaction_date || '').slice(0, 10);
+    const snapDateStr = (targetLoan.snapshot_date || tx.suggested_snapshot_date || '').slice(0, 10);
+    const isPreSnap = Boolean((snapDateStr && txDateStr <= snapDateStr) || tx.timing_prediction === 'PRE_SNAPSHOT');
+
+    setInlineReconcilingTxId(tx.transaction_id);
+    setModalError('');
+    try {
+      const res = await api.post('/loans/repayment-reconciliations/reconcile', {
+        transaction_id: tx.transaction_id,
+        loan_id: targetLoan.loan_id,
+        principal_amount: principal,
+        interest_amount: interest,
+        repayment_timing: isPreSnap ? 'PRE_SNAPSHOT' : 'POST_SNAPSHOT',
+        notes: 'Đối soát trực tiếp trên bảng',
+      });
+
+      setSuccessToast(
+        res.data?.message ||
+        `Đã đối soát thành công ${targetLoan.contract_number}: Gốc ${principal.toLocaleString('vi-VN')} đ, Lãi ${interest.toLocaleString('vi-VN')} đ!`
+      );
+      if (selectedTx?.transaction_id === tx.transaction_id) {
+        setSelectedTx(null);
+      }
+      setUnreconciledList((prev) => prev.filter((item) => item.transaction_id !== tx.transaction_id));
+      fetchData();
+      setTimeout(() => setSuccessToast(''), 5000);
+    } catch (err: any) {
+      const msg = err.response?.data?.detail || err.message || 'Lỗi đối soát giao dịch.';
+      handleToggleInlineEditor(tx);
+      setModalError(msg);
+    } finally {
+      setInlineReconcilingTxId(null);
+    }
+  };
+
+  // Đối soát tự động tất cả các dòng đã khớp khế ước
+  const handleBatchReconcileAllMatched = async () => {
+    if (matchedTransactions.length === 0) return;
+    if (
+      !window.confirm(
+        `Xác nhận đối soát tự động trực tiếp trên bảng cho toàn bộ ${matchedTransactions.length} giao dịch đã khớp khế ước?`
+      )
+    ) {
+      return;
+    }
+
+    setBatchReconciling(true);
+    setBatchProgress({ current: 0, total: matchedTransactions.length });
+    let successCount = 0;
+
+    for (let i = 0; i < matchedTransactions.length; i++) {
+      const tx = matchedTransactions[i];
+      const targetLoan = findMatchedLoan(tx);
+      if (!targetLoan) continue;
+      const { principal, interest } = calculateSafeSplit(tx, targetLoan);
+      const txDateStr = (tx.transaction_date || '').slice(0, 10);
+      const snapDateStr = (targetLoan.snapshot_date || tx.suggested_snapshot_date || '').slice(0, 10);
+      const isPreSnap = Boolean((snapDateStr && txDateStr <= snapDateStr) || tx.timing_prediction === 'PRE_SNAPSHOT');
+
+      try {
+        await api.post('/loans/repayment-reconciliations/reconcile', {
+          transaction_id: tx.transaction_id,
+          loan_id: targetLoan.loan_id,
+          principal_amount: principal,
+          interest_amount: interest,
+          repayment_timing: isPreSnap ? 'PRE_SNAPSHOT' : 'POST_SNAPSHOT',
+          notes: 'Đối soát tự động hàng loạt trên bảng',
+        });
+        successCount++;
+      } catch (err) {
+        console.error('Lỗi khi đối soát batch:', err);
+      }
+      setBatchProgress({ current: i + 1, total: matchedTransactions.length });
+    }
+
+    setBatchReconciling(false);
+    setSuccessToast(`Đã đối soát tự động thành công ${successCount}/${matchedTransactions.length} giao dịch!`);
+    fetchData();
+    setTimeout(() => setSuccessToast(''), 6000);
+  };
+
+  // State cho phép người dùng tùy chọn/đảo cờ Pre-Snapshot bằng tay nếu cần
+  const [manualPreSnapshot, setManualPreSnapshot] = useState<boolean | null>(null);
+
+  // Bật/tắt thanh chỉnh sửa inline ngay trên bảng
+  const handleToggleInlineEditor = (tx: UnreconciledDebtTransaction) => {
+    if (selectedTx?.transaction_id === tx.transaction_id) {
+      setSelectedTx(null);
+      return;
+    }
     setSelectedTx(tx);
+    setManualPreSnapshot(null);
     setModalError('');
     setNotes('');
     setModalLoanSearch('');
 
-    // Pre-select loan if auto-suggested or match by contract number
-    let matchedId: number | '' = '';
-    if (tx.suggested_loan_id) {
-      matchedId = tx.suggested_loan_id;
-    } else if (tx.suggested_contract_number) {
-      const found = loans.find(
-        (l) => l.contract_number.toUpperCase() === tx.suggested_contract_number?.toUpperCase()
-      );
-      if (found) matchedId = found.loan_id;
-    }
-    setSelectedLoanId(matchedId);
+    const targetLoan = findMatchedLoan(tx);
+    setSelectedLoanId(targetLoan ? targetLoan.loan_id : '');
 
-    // Pre-fill amounts
     const debit = Number(tx.debit_amount) || 0;
-    if (tx.suggested_principal_amount !== undefined && tx.suggested_interest_amount !== undefined) {
-      setPrincipalAmount(Number(tx.suggested_principal_amount));
-      setInterestAmount(Number(tx.suggested_interest_amount));
+    if (targetLoan) {
+      const { principal, interest } = calculateSafeSplit(tx, targetLoan);
+      setPrincipalAmount(principal);
+      setInterestAmount(interest);
     } else {
-      // Default: 100% Principal as requested
       setPrincipalAmount(debit);
       setInterestAmount(0);
     }
@@ -143,13 +442,23 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
     setModalError('');
   };
 
+  // Quick button: Tất toán nợ gốc hiện tại (kể cả hoàn lãi âm)
+  const handleSetPayoffPrincipal = () => {
+    if (!selectedTx || !currentLoan) return;
+    const total = Number(selectedTx.debit_amount) || 0;
+    const curBal = Number(currentLoan.current_principal_balance) || 0;
+    setPrincipalAmount(curBal);
+    setInterestAmount(total - curBal);
+    setModalError('');
+  };
+
   // Input changes with auto-balance
   const handlePrincipalChange = (valStr: string) => {
     if (!selectedTx) return;
     const val = Number(valStr) || 0;
     const total = Number(selectedTx.debit_amount) || 0;
     setPrincipalAmount(val);
-    setInterestAmount(Math.max(0, total - val));
+    setInterestAmount(total - val); // Cho phép lãi âm khi gốc > total (ví dụ tất toán hoàn lãi)
     setModalError('');
   };
 
@@ -158,7 +467,7 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
     const val = Number(valStr) || 0;
     const total = Number(selectedTx.debit_amount) || 0;
     setInterestAmount(val);
-    setPrincipalAmount(Math.max(0, total - val));
+    setPrincipalAmount(Math.max(0, total - val)); // Gốc không được âm
     setModalError('');
   };
 
@@ -188,11 +497,25 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
     return Math.abs(principalAmount + interestAmount - total) < 0.01;
   }, [selectedTx, principalAmount, interestAmount]);
 
+  const isPreSnapshot = useMemo(() => {
+    if (manualPreSnapshot !== null) return manualPreSnapshot;
+    if (!selectedTx) return false;
+    const snapDate = currentLoan?.snapshot_date || selectedTx.suggested_snapshot_date;
+    if (snapDate) {
+      const txDateStr = (selectedTx.transaction_date || '').slice(0, 10);
+      const snapDateStr = snapDate.slice(0, 10);
+      return txDateStr <= snapDateStr;
+    }
+    return selectedTx.timing_prediction === 'PRE_SNAPSHOT';
+  }, [manualPreSnapshot, selectedTx, currentLoan]);
+
   const isOverpayment = useMemo(() => {
     if (!currentLoan) return false;
+    // Không chặn overpayment với giao dịch trả nợ trước ngày xuất file
+    if (isPreSnapshot) return false;
     const curBal = Number(currentLoan.current_principal_balance) || 0;
     return principalAmount > curBal;
-  }, [currentLoan, principalAmount]);
+  }, [currentLoan, principalAmount, isPreSnapshot]);
 
   // Submit Reconcile
   const handleConfirmReconcile = async () => {
@@ -205,7 +528,7 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
       return;
     }
     if (isOverpayment) {
-      setModalError('Số tiền trả gốc không được vượt quá dư nợ gốc hiện tại của khoản vay.');
+      setModalError('Số tiền trả gốc không được vượt quá dư nợ gốc hiện tại của khoản vay (đối với giao dịch sau ngày xuất file).');
       return;
     }
 
@@ -217,6 +540,7 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
         loan_id: Number(selectedLoanId),
         principal_amount: principalAmount,
         interest_amount: interestAmount,
+        repayment_timing: isPreSnapshot ? 'PRE_SNAPSHOT' : 'POST_SNAPSHOT',
         notes: notes || undefined,
       });
 
@@ -382,19 +706,17 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
           <div className="flex items-center space-x-2 bg-slate-100 p-1 rounded-xl">
             <button
               onClick={() => setActiveTab('unreconciled')}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === 'unreconciled'
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'unreconciled'
                   ? 'bg-white text-indigo-700 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
-              }`}
+                }`}
             >
               <span>Chờ đối soát</span>
               <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                  activeTab === 'unreconciled'
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${activeTab === 'unreconciled'
                     ? 'bg-amber-100 text-amber-800'
                     : 'bg-slate-200 text-slate-700'
-                }`}
+                  }`}
               >
                 {unreconciledList.length}
               </span>
@@ -402,19 +724,17 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
 
             <button
               onClick={() => setActiveTab('history')}
-              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                activeTab === 'history'
+              className={`flex items-center space-x-2 px-4 py-2 rounded-lg text-xs font-bold transition-all ${activeTab === 'history'
                   ? 'bg-white text-indigo-700 shadow-sm'
                   : 'text-slate-600 hover:text-slate-900'
-              }`}
+                }`}
             >
               <span>Nhật ký lịch sử trả nợ</span>
               <span
-                className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                  activeTab === 'history'
+                className={`px-2 py-0.5 rounded-full text-[11px] font-bold ${activeTab === 'history'
                     ? 'bg-purple-100 text-purple-800'
                     : 'bg-slate-200 text-slate-700'
-                }`}
+                  }`}
               >
                 {historyList.length}
               </span>
@@ -427,13 +747,14 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
             <select
               value={bankFilter}
               onChange={(e) => setBankFilter(e.target.value)}
-              className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               <option value="">Tất cả ngân hàng</option>
-              <option value="CTG">VietinBank (CTG)</option>
-              <option value="MBB">MBBank (MBB)</option>
-              <option value="BIDV">BIDV</option>
-              <option value="VPB">VPBank</option>
+              {bankOptions.map(([code, label]) => (
+                <option key={code} value={code}>
+                  {label}
+                </option>
+              ))}
             </select>
 
             {/* Keyword Search */}
@@ -462,16 +783,38 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
       {activeTab === 'unreconciled' ? (
         /* ================= TAB 1: DANH SÁCH CHỜ ĐỐI SOÁT ================= */
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+          <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center space-x-2">
               <Sparkles className="w-4 h-4 text-amber-500" />
               <span className="text-sm font-bold text-slate-800">
                 Giao Dịch Chi Trả Nợ Chờ Đối Soát
               </span>
+              <span className="text-xs text-slate-400">
+                ({unreconciledList.length} giao dịch chi)
+              </span>
             </div>
-            <span className="text-xs text-slate-500">
-              Hiển thị {unreconciledList.length} giao dịch chi
-            </span>
+
+            {matchedTransactions.length > 0 && (
+              <button
+                type="button"
+                onClick={handleBatchReconcileAllMatched}
+                disabled={batchReconciling}
+                className="inline-flex items-center space-x-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition-all disabled:opacity-50"
+                title="Tự động đối soát tất cả các giao dịch đã nhận diện được khế ước trực tiếp trên bảng"
+              >
+                {batchReconciling ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Đang đối soát hàng loạt ({batchProgress.current}/{batchProgress.total})...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Đối soát tự động tất cả ({matchedTransactions.length} GD đã khớp)</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -494,100 +837,452 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                   <tr>
-                    <th className="py-3 px-4">Thời Gian Giao Dịch</th>
-                    <th className="py-3 px-4">Tài Khoản / Ngân Hàng</th>
-                    <th className="py-3 px-4 text-right">Số Tiền Chi Ra</th>
-                    <th className="py-3 px-4">Nội Dung Sao Kê Ngân Hàng</th>
-                    <th className="py-3 px-4">Gợi Ý Khế Ước Tự Động</th>
+                    <SortableTh field="transaction_date" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
+                      Thời Gian Giao Dịch
+                    </SortableTh>
+                    <SortableTh field="account" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
+                      Tài Khoản / Ngân Hàng
+                    </SortableTh>
+                    <SortableTh field="debit_amount" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} align="right" className="py-3 px-4">
+                      Số Tiền Chi Ra
+                    </SortableTh>
+                    <SortableTh field="suggested_principal_amount" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} align="right" className="py-3 px-4">
+                      Trả Gốc
+                    </SortableTh>
+                    <SortableTh field="suggested_interest_amount" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} align="right" className="py-3 px-4">
+                      Trả Lãi
+                    </SortableTh>
+                    <SortableTh field="description" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
+                      Nội Dung Sao Kê Ngân Hàng
+                    </SortableTh>
+                    <SortableTh field="suggested_contract_number" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
+                      Gợi Ý Khế Ước Tự Động
+                    </SortableTh>
                     <th className="py-3 px-4 text-center">Thao Tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {unreconciledList.map((tx) => (
-                    <tr key={tx.transaction_id} className="hover:bg-slate-50/80 transition-colors">
-                      {/* Thời gian */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="font-bold text-slate-900">
-                          {new Date(tx.transaction_date).toLocaleDateString('vi-VN')}
-                        </div>
-                        <div className="text-[11px] text-slate-400">
-                          {new Date(tx.transaction_date).toLocaleTimeString('vi-VN', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </div>
-                      </td>
+                  {sortedUnreconciledList.map((tx) => {
+                    const matchedLoan = findMatchedLoan(tx);
+                    const isInlineOpen = selectedTx?.transaction_id === tx.transaction_id;
+                    const isReconcilingThis = inlineReconcilingTxId === tx.transaction_id;
 
-                      {/* Tài khoản & Ngân hàng */}
-                      <td className="py-3.5 px-4">
-                        <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 mr-1.5">
-                          {tx.bank_code}
-                        </span>
-                        <span className="font-mono text-slate-800 text-[11px]">
-                          {tx.account_number || 'N/A'}
-                        </span>
-                        {tx.account_holder && (
-                          <div className="text-[11px] text-slate-400 truncate max-w-[140px]">
-                            {tx.account_holder}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Số tiền chi */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <div className="font-mono font-bold text-sm text-red-600">
-                          -{Number(tx.debit_amount).toLocaleString('vi-VN')} đ
-                        </div>
-                        <span className="text-[10px] text-slate-400 font-normal">
-                          {tx.category_name || 'Trả nợ'}
-                        </span>
-                      </td>
-
-                      {/* Diễn giải */}
-                      <td className="py-3.5 px-4 max-w-xs">
-                        <div className="text-slate-800 line-clamp-2 leading-relaxed" title={tx.description}>
-                          {tx.description}
-                        </div>
-                        {tx.reference_number && (
-                          <span className="text-[10px] text-slate-400 font-mono">
-                            Ref: {tx.reference_number}
-                          </span>
-                        )}
-                      </td>
-
-                      {/* Gợi ý Khế ước tự động */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        {tx.suggested_contract_number ? (
-                          <div className="space-y-1">
-                            <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                              <Landmark className="w-3.5 h-3.5" />
-                              <span>{tx.suggested_contract_number}</span>
+                    return (
+                      <React.Fragment key={tx.transaction_id}>
+                        <tr className={`hover:bg-slate-50/80 transition-colors ${isInlineOpen ? 'bg-indigo-50/50' : ''}`}>
+                          {/* Thời gian */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            <div className="font-bold text-slate-900">
+                              {new Date(tx.transaction_date).toLocaleDateString('vi-VN')}
                             </div>
-                            {tx.suggested_principal_balance !== undefined && (
-                              <div className="text-[11px] text-slate-500">
-                                Dư nợ: <span className="font-semibold text-slate-700">{Number(tx.suggested_principal_balance).toLocaleString('vi-VN')} đ</span>
+                            <div className="text-[11px] text-slate-400">
+                              {new Date(tx.transaction_date).toLocaleTimeString('vi-VN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                          </td>
+
+                          {/* Tài khoản & Ngân hàng */}
+                          <td className="py-3.5 px-4">
+                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 mr-1.5">
+                              {tx.bank_code}
+                            </span>
+                            <span className="font-mono text-slate-800 text-[11px]">
+                              {tx.account_number || 'N/A'}
+                            </span>
+                            {tx.account_holder && (
+                              <div className="text-[11px] text-slate-400 truncate max-w-[140px]">
+                                {tx.account_holder}
                               </div>
                             )}
-                          </div>
-                        ) : (
-                          <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded text-[11px] text-slate-400 bg-slate-100">
-                            Chưa tìm thấy khế ước
-                          </span>
-                        )}
-                      </td>
+                          </td>
 
-                      {/* Nút thao tác */}
-                      <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                        <button
-                          onClick={() => handleOpenReconcileModal(tx)}
-                          className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-sm hover:shadow transition-all"
-                        >
-                          <CheckCheck className="w-3.5 h-3.5" />
-                          <span>Đối soát ngay</span>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                          {/* Số tiền chi */}
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            <div className="font-mono font-bold text-sm text-red-600">
+                              -{Number(tx.debit_amount).toLocaleString('vi-VN')} đ
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-normal">
+                              {tx.category_name || 'Trả nợ'}
+                            </span>
+                          </td>
+
+                          {/* Gợi ý Trả gốc từ nội dung giao dịch */}
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            {tx.suggested_principal_amount !== undefined && tx.suggested_principal_amount !== null ? (
+                              <div className={`font-mono text-xs ${Number(tx.suggested_principal_amount) > 0 ? 'font-bold text-slate-900' : 'text-slate-400 font-medium'}`}>
+                                {Number(tx.suggested_principal_amount).toLocaleString('vi-VN')} đ
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 text-xs">—</span>
+                            )}
+                          </td>
+
+                          {/* Gợi ý Trả lãi từ nội dung giao dịch */}
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                            {tx.suggested_interest_amount !== undefined && tx.suggested_interest_amount !== null ? (
+                              Number(tx.suggested_interest_amount) < 0 ? (
+                                <div
+                                  className="font-mono font-bold text-xs text-emerald-600"
+                                  title="Ngân hàng hoàn lãi / giảm trừ lãi khi tất toán"
+                                >
+                                  {Number(tx.suggested_interest_amount).toLocaleString('vi-VN')} đ
+                                </div>
+                              ) : Number(tx.suggested_interest_amount) > 0 ? (
+                                <div className="font-mono font-bold text-xs text-indigo-600">
+                                  {Number(tx.suggested_interest_amount).toLocaleString('vi-VN')} đ
+                                </div>
+                              ) : (
+                                <div className="font-mono text-xs text-slate-400 font-medium">0 đ</div>
+                              )
+                            ) : (
+                              <span className="text-slate-300 text-xs">—</span>
+                            )}
+                          </td>
+
+                          {/* Diễn giải */}
+                          <td className="py-3.5 px-4 max-w-xs">
+                            <div className="text-slate-800 line-clamp-2 leading-relaxed" title={tx.description}>
+                              {tx.description}
+                            </div>
+                            {tx.reference_number && (
+                              <span className="text-[10px] text-slate-400 font-mono">
+                                Ref: {tx.reference_number}
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Gợi ý Khế ước tự động - Chỉ gợi ý những khế ước có trong danh mục đã nạp, không có thì để trống */}
+                          <td className="py-3.5 px-4 whitespace-nowrap">
+                            {tx.suggested_contract_number && (tx.suggested_loan_id || findMatchedLoan(tx)) ? (
+                              <div className="space-y-1">
+                                <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                  <Landmark className="w-3.5 h-3.5" />
+                                  <span>{tx.suggested_contract_number}</span>
+                                </div>
+                                {tx.timing_prediction === 'PRE_SNAPSHOT' && (
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 ml-1.5" title="Giao dịch xảy ra trước ngày xuất file sao kê tín dụng (Hoàn nguyên gốc)">
+                                    Trước ngày xuất file
+                                  </span>
+                                )}
+                                {tx.timing_prediction === 'POST_SNAPSHOT' && (
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 ml-1.5" title="Giao dịch xảy ra sau ngày xuất file sao kê tín dụng (Giảm trừ hiện tại)">
+                                    Sau ngày xuất file
+                                  </span>
+                                )}
+                                {tx.suggested_principal_balance !== undefined && tx.suggested_principal_balance !== null && (
+                                  <div className="text-[11px] text-slate-500">
+                                    Dư nợ: <span className="font-semibold text-slate-700">{Number(tx.suggested_principal_balance).toLocaleString('vi-VN')} đ</span>
+                                  </div>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-slate-300 text-xs">—</span>
+                            )}
+                          </td>
+
+                          {/* Nút thao tác: Đối soát trực tiếp không mở cửa sổ phụ */}
+                          <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                            <div className="inline-flex items-center space-x-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleDirectReconcile(tx)}
+                                disabled={isReconcilingThis || batchReconciling}
+                                className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg font-semibold text-xs shadow-sm hover:shadow transition-all ${matchedLoan
+                                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                                  } disabled:opacity-50`}
+                                title={
+                                  matchedLoan
+                                    ? 'Đối soát ngay lập tức trên bảng với khế ước đã khớp (Không mở cửa sổ phụ)'
+                                    : 'Bấm để chọn khế ước và đối soát trực tiếp trên bảng'
+                                }
+                              >
+                                {isReconcilingThis ? (
+                                  <>
+                                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                    <span>Đang xử lý...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <CheckCheck className="w-3.5 h-3.5" />
+                                    <span>Đối soát ngay</span>
+                                  </>
+                                )}
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => handleToggleInlineEditor(tx)}
+                                className={`p-1.5 rounded-lg border transition-colors ${isInlineOpen
+                                    ? 'bg-indigo-100 text-indigo-700 border-indigo-300'
+                                    : 'hover:bg-slate-100 text-slate-500 border-slate-200'
+                                  }`}
+                                title="Tùy chỉnh phân bổ Gốc / Lãi hoặc đổi khế ước trực tiếp trên bảng"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+
+                        {/* ================= KHUNG CHỈNH SỬA TRỰC TIẾP TRÊN BẢNG (INLINE) ================= */}
+                        {isInlineOpen && (
+                          <tr className="bg-slate-50/95 border-y-2 border-indigo-300 animate-in fade-in duration-200">
+                            <td colSpan={8} className="p-4 sm:p-5">
+                              <div className="bg-white rounded-2xl border border-indigo-200 p-4 shadow-sm space-y-4">
+                                {/* Header inline */}
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                                  <div className="flex items-center space-x-2">
+                                    <Sliders className="w-4 h-4 text-indigo-600" />
+                                    <span className="font-bold text-slate-800 text-sm">
+                                      Tùy chỉnh phân bổ Gốc / Lãi trực tiếp trên bảng
+                                    </span>
+                                    <span className="text-xs text-slate-500 font-mono">
+                                      (Tổng tiền GD: {Number(tx.debit_amount).toLocaleString('vi-VN')} đ)
+                                    </span>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedTx(null)}
+                                    className="text-slate-400 hover:text-slate-600 p-1 rounded-lg hover:bg-slate-100"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </div>
+
+                                {/* Báo lỗi nếu có */}
+                                {modalError && (
+                                  <div className="flex items-start space-x-2 bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs">
+                                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                                    <span>{modalError}</span>
+                                  </div>
+                                )}
+
+                                {/* Chọn khế ước */}
+                                <div className="space-y-1.5">
+                                  <div className="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center justify-between">
+                                    <span>Chọn Khế Ước / Khoản Vay Đối Ứng</span>
+                                    {currentLoan && (
+                                      <span className="text-[11px] font-normal text-indigo-600">
+                                        Dư nợ gốc hiện tại: <strong>{Number(currentLoan.current_principal_balance).toLocaleString('vi-VN')} đ</strong>
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <div className="relative flex-1">
+                                      <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                                      <input
+                                        type="text"
+                                        value={modalLoanSearch}
+                                        onChange={(e) => setModalLoanSearch(e.target.value)}
+                                        placeholder="Tìm nhanh khế ước theo số HĐ, ngân hàng..."
+                                        className="w-full text-xs pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
+                                      />
+                                    </div>
+                                    <select
+                                      value={selectedLoanId}
+                                      onChange={(e) => setSelectedLoanId(e.target.value ? Number(e.target.value) : '')}
+                                      className="text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 min-w-[320px]"
+                                    >
+                                      <option value="">-- Chọn một khế ước trong danh mục --</option>
+                                      {currentLoan && !filteredModalLoans.some((l) => l.loan_id === currentLoan.loan_id) && (
+                                        <option key={currentLoan.loan_id} value={currentLoan.loan_id}>
+                                          [{currentLoan.bank_code}] {currentLoan.contract_number} (Dư nợ: {Number(currentLoan.current_principal_balance).toLocaleString('vi-VN')} đ)
+                                        </option>
+                                      )}
+                                      {filteredModalLoans.map((l) => (
+                                        <option key={l.loan_id} value={l.loan_id}>
+                                          [{l.bank_code}] {l.contract_number} • Dư nợ: {Number(l.current_principal_balance).toLocaleString('vi-VN')} đ ({l.status})
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                </div>
+
+                                {/* Khung chia Gốc & Lãi */}
+                                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-slate-700">Phân Bổ Gốc / Lãi</span>
+                                    <div className="flex items-center space-x-2">
+                                      {currentLoan && Number(currentLoan.current_principal_balance) > 0 && (
+                                        <button
+                                          type="button"
+                                          onClick={handleSetPayoffPrincipal}
+                                          className="px-2.5 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors"
+                                          title="Điền đúng số dư gốc hiện tại để tất toán khoản vay (phần chênh lệch chuyển vào lãi)"
+                                        >
+                                          Tất toán gốc ({Number(currentLoan.current_principal_balance).toLocaleString('vi-VN')} đ)
+                                        </button>
+                                      )}
+                                      <button
+                                        type="button"
+                                        onClick={handleSet100PercentPrincipal}
+                                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-xs transition-colors"
+                                      >
+                                        100% Trả Gốc
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={handleSet100PercentInterest}
+                                        className="px-2.5 py-1 text-xs font-bold rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-xs transition-colors"
+                                      >
+                                        100% Trả Lãi
+                                      </button>
+                                    </div>
+                                  </div>
+
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                      <label className="text-[11px] font-semibold text-slate-600 mb-1 block">
+                                        Tiền Trả Gốc (VNĐ)
+                                      </label>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        value={principalAmount}
+                                        onChange={(e) => handlePrincipalChange(e.target.value)}
+                                        className="w-full text-xs font-mono font-bold bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-blue-700 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                      />
+                                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                        {principalAmount.toLocaleString('vi-VN')} đ
+                                      </div>
+                                    </div>
+
+                                    <div>
+                                      <label className="text-[11px] font-semibold text-slate-600 mb-1 flex items-center justify-between">
+                                        <span>Tiền Trả Lãi (VNĐ)</span>
+                                        {interestAmount < 0 && (
+                                          <span className="text-[10px] font-bold text-emerald-600">
+                                            Hoàn / Giảm trừ lãi
+                                          </span>
+                                        )}
+                                      </label>
+                                      <input
+                                        type="number"
+                                        value={interestAmount}
+                                        onChange={(e) => handleInterestChange(e.target.value)}
+                                        className={`w-full text-xs font-mono font-bold bg-white border rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 ${interestAmount < 0
+                                            ? 'text-emerald-700 border-emerald-300 focus:ring-emerald-500'
+                                            : 'text-amber-700 border-slate-300 focus:ring-amber-500'
+                                          }`}
+                                      />
+                                      <div className="text-[10px] font-mono mt-0.5">
+                                        {interestAmount < 0 ? (
+                                          <span className="text-emerald-600 font-semibold">
+                                            {interestAmount.toLocaleString('vi-VN')} đ (Hoàn lãi / thoái thu)
+                                          </span>
+                                        ) : (
+                                          <span className="text-slate-400">{interestAmount.toLocaleString('vi-VN')} đ</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Thông báo phân loại thời điểm Pre/Post Snapshot */}
+                                  {isPreSnapshot ? (
+                                    <div className="text-xs text-blue-800 bg-blue-50/90 p-2.5 rounded-lg border border-blue-200 flex items-start space-x-2">
+                                      <span className="text-base leading-none">ℹ️</span>
+                                      <div className="flex-1">
+                                        <div className="flex items-center justify-between">
+                                          <p className="font-bold">
+                                            Giao dịch trả nợ trước ngày xuất file{' '}
+                                            {(currentLoan?.snapshot_date || selectedTx?.suggested_snapshot_date) &&
+                                              `(${new Date(currentLoan?.snapshot_date || selectedTx?.suggested_snapshot_date || '').toLocaleDateString('vi-VN')})`}
+                                          </p>
+                                          <label className="flex items-center space-x-1.5 cursor-pointer text-[11px] font-semibold text-blue-900 select-none">
+                                            <input
+                                              type="checkbox"
+                                              checked={isPreSnapshot}
+                                              onChange={(e) => setManualPreSnapshot(e.target.checked)}
+                                              className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                                            />
+                                            <span>Trước ngày xuất file</span>
+                                          </label>
+                                        </div>
+                                        <p className="text-[11px] text-blue-700 mt-0.5">
+                                          Khoản nợ gốc này ngân hàng đã trừ trước thời điểm chốt sao kê. Hệ thống sẽ <strong>hoàn nguyên vào Dư nợ ban đầu</strong> và <strong>không trừ tiếp</strong> vào Dư nợ hiện tại trên file.
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="text-xs text-amber-800 bg-amber-50/90 p-2 rounded-lg border border-amber-200 flex items-center justify-between">
+                                      <span className="text-[11px]">
+                                        ⏱️ Giao dịch sau ngày xuất file{' '}
+                                        {(currentLoan?.snapshot_date || selectedTx?.suggested_snapshot_date) &&
+                                          `(${new Date(currentLoan?.snapshot_date || selectedTx?.suggested_snapshot_date || '').toLocaleDateString('vi-VN')})`}
+                                        . Khoản trả gốc sẽ giảm trừ trực tiếp vào Dư nợ hiện tại.
+                                      </span>
+                                      <label className="flex items-center space-x-1.5 cursor-pointer text-[11px] font-semibold text-amber-900 select-none ml-2 shrink-0">
+                                        <input
+                                          type="checkbox"
+                                          checked={isPreSnapshot}
+                                          onChange={(e) => setManualPreSnapshot(e.target.checked)}
+                                          className="rounded text-amber-600 focus:ring-amber-500 w-3.5 h-3.5"
+                                        />
+                                        <span>Đánh dấu Pre-Snapshot</span>
+                                      </label>
+                                    </div>
+                                  )}
+
+                                  {/* Cảnh báo nếu vượt dư nợ */}
+                                  {isOverpayment && (
+                                    <div className="text-xs text-rose-600 font-semibold bg-rose-50 p-2 rounded-lg border border-rose-200">
+                                      ⚠️ Số tiền trả gốc ({principalAmount.toLocaleString('vi-VN')} đ) vượt quá dư nợ gốc hiện tại ({Number(currentLoan?.current_principal_balance).toLocaleString('vi-VN')} đ).
+                                    </div>
+                                  )}
+
+                                  {/* Ghi chú */}
+                                  <div>
+                                    <label className="text-[11px] font-semibold text-slate-600 mb-1 block">
+                                      Ghi chú nội bộ
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={notes}
+                                      onChange={(e) => setNotes(e.target.value)}
+                                      placeholder="Ghi chú đối soát..."
+                                      className="w-full text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    />
+                                  </div>
+                                </div>
+
+                                {/* Nút xác nhận inline */}
+                                <div className="flex items-center justify-end space-x-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedTx(null)}
+                                    className="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors"
+                                  >
+                                    Đóng
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={handleConfirmReconcile}
+                                    disabled={submitting || !selectedLoanId || !isSplitValid || isOverpayment}
+                                    className="inline-flex items-center space-x-1.5 px-4 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white shadow-sm transition-all"
+                                  >
+                                    {submitting ? (
+                                      <>
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                        <span>Đang xử lý...</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Check className="w-3.5 h-3.5" />
+                                        <span>Xác nhận đối soát</span>
+                                      </>
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -622,18 +1317,32 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
                   <tr>
-                    <th className="py-3 px-4">Thời Điểm Trả Nợ (Sao kê)</th>
-                    <th className="py-3 px-4">Khế Ước / Ngân Hàng</th>
-                    <th className="py-3 px-4 text-right">Số Tiền Trả Gốc</th>
-                    <th className="py-3 px-4 text-right">Số Tiền Trả Lãi</th>
-                    <th className="py-3 px-4 text-right">Dư Nợ Còn Lại</th>
-                    <th className="py-3 px-4">Nội Dung Diễn Giải</th>
-                    <th className="py-3 px-4">Người Thực Hiện</th>
+                    <SortableTh field="repayment_date" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
+                      Thời Điểm Trả Nợ (Sao kê)
+                    </SortableTh>
+                    <SortableTh field="contract" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
+                      Khế Ước / Ngân Hàng
+                    </SortableTh>
+                    <SortableTh field="principal_repaid" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} align="right" className="py-3 px-4">
+                      Số Tiền Trả Gốc
+                    </SortableTh>
+                    <SortableTh field="interest_repaid" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} align="right" className="py-3 px-4">
+                      Số Tiền Trả Lãi
+                    </SortableTh>
+                    <SortableTh field="remaining_principal_balance" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} align="right" className="py-3 px-4">
+                      Dư Nợ Còn Lại
+                    </SortableTh>
+                    <SortableTh field="notes" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
+                      Nội Dung Diễn Giải
+                    </SortableTh>
+                    <SortableTh field="created_by" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
+                      Người Thực Hiện
+                    </SortableTh>
                     <th className="py-3 px-4 text-center">Hoàn Tác</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
-                  {historyList.map((hist) => (
+                  {sortedHistoryList.map((hist) => (
                     <tr key={hist.repayment_id} className="hover:bg-slate-50/80 transition-colors">
                       {/* Thời điểm trả nợ đúng bằng thời điểm giao dịch */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
@@ -659,6 +1368,16 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
                         <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 mt-0.5">
                           {hist.bank_code}
                         </span>
+                        {hist.repayment_timing === 'PRE_SNAPSHOT' && (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 ml-1 mt-0.5">
+                            Trước ngày xuất file
+                          </span>
+                        )}
+                        {hist.repayment_timing === 'POST_SNAPSHOT' && (
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 ml-1 mt-0.5">
+                            Sau ngày xuất file
+                          </span>
+                        )}
                       </td>
 
                       {/* Tiền gốc */}
@@ -717,339 +1436,6 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
         </div>
       )}
 
-      {/* ================= MODAL ĐỐI SOÁT & KHUNG CHIA GỐC - LÃI ================= */}
-      {selectedTx && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]">
-            {/* Modal Header */}
-            <div className="px-6 py-4 bg-gradient-to-r from-slate-900 to-indigo-950 text-white flex items-center justify-between">
-              <div className="flex items-center space-x-3">
-                <div className="p-2 rounded-xl bg-indigo-600 text-white">
-                  <CheckCheck className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-white">
-                    Đối Soát Khoản Chi & Giảm Trừ Nợ Gốc
-                  </h3>
-                  <p className="text-xs text-indigo-200">
-                    Phân bổ số tiền Gốc & Lãi • Ràng buộc tổng tiền tuyệt đối
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={() => setSelectedTx(null)}
-                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors text-lg"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="p-6 overflow-y-auto space-y-5">
-              {/* Error Alert */}
-              {modalError && (
-                <div className="flex items-start space-x-3 bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-xl text-xs">
-                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-                  <span>{modalError}</span>
-                </div>
-              )}
-
-              {/* 1. THÔNG TIN GIAO DỊCH SAO KÊ */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2">
-                <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">
-                  Giao dịch sao kê ngân hàng
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <span className="px-2 py-0.5 rounded text-xs font-bold bg-indigo-100 text-indigo-800">
-                      {selectedTx.bank_code}
-                    </span>
-                    <span className="font-mono text-xs text-slate-600">
-                      TK: {selectedTx.account_number}
-                    </span>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-mono text-lg font-black text-red-600">
-                      {Number(selectedTx.debit_amount).toLocaleString('vi-VN')} đ
-                    </div>
-                  </div>
-                </div>
-                <div className="text-xs text-slate-700 bg-white p-2.5 rounded-xl border border-slate-200 leading-relaxed">
-                  <span className="font-semibold text-slate-900">Diễn giải: </span>
-                  {selectedTx.description}
-                </div>
-                <div className="text-[11px] text-slate-500 flex items-center space-x-1">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                  <span>
-                    Ngày giao dịch:{' '}
-                    <strong>{new Date(selectedTx.transaction_date).toLocaleString('vi-VN')}</strong>{' '}
-                    (Sẽ được ghi nhận làm thời điểm trả nợ)
-                  </span>
-                </div>
-              </div>
-
-              {/* 2. CHỌN KHẾ ƯỚC KHOẢN VAY ĐỐI ỨNG */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <label className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Khoản vay / Khế ước nhận nợ đối ứng *
-                  </label>
-                  {selectedTx.suggested_contract_number && (
-                    <span className="text-[11px] text-indigo-600 font-semibold flex items-center space-x-1 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                      <Sparkles className="w-3 h-3 text-indigo-500" />
-                      <span>Đã gợi ý qua số khế ước ({selectedTx.suggested_contract_number})</span>
-                    </span>
-                  )}
-                </div>
-
-                {/* Ô tìm kiếm nhanh khế ước */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    value={modalLoanSearch}
-                    onChange={(e) => setModalLoanSearch(e.target.value)}
-                    placeholder="Tìm nhanh khế ước (nhập số khế ước, ngân hàng, tên đơn vị)..."
-                    className="w-full text-xs pl-8 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-1 focus:ring-indigo-500 text-slate-800"
-                  />
-                </div>
-
-                <select
-                  value={selectedLoanId}
-                  onChange={(e) => setSelectedLoanId(e.target.value ? Number(e.target.value) : '')}
-                  className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3.5 py-2.5 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">
-                    -- Chọn một khế ước trong danh mục ({filteredModalLoans.length}/{loans.length} khoản vay) --
-                  </option>
-                  {/* Luôn đảm bảo khoản vay đang chọn được hiển thị */}
-                  {currentLoan && !filteredModalLoans.some((l) => l.loan_id === currentLoan.loan_id) && (
-                    <option key={currentLoan.loan_id} value={currentLoan.loan_id}>
-                      [{currentLoan.bank_code}] Khế ước: {currentLoan.contract_number} • Dư nợ:{' '}
-                      {Number(currentLoan.current_principal_balance).toLocaleString('vi-VN')} đ ({currentLoan.status})
-                    </option>
-                  )}
-                  {filteredModalLoans.map((l) => (
-                    <option key={l.loan_id} value={l.loan_id}>
-                      [{l.bank_code}] Khế ước: {l.contract_number} • Dư nợ:{' '}
-                      {Number(l.current_principal_balance).toLocaleString('vi-VN')} đ (
-                      {l.status === 'ACTIVE' ? 'Đang vay' : l.status}) • {l.borrower_name || l.bank_name}
-                    </option>
-                  ))}
-                </select>
-
-                {/* Thẻ tóm tắt khoản vay đang chọn */}
-                {currentLoan && (
-                  <div className="p-3 bg-indigo-50/60 rounded-xl border border-indigo-100 text-xs space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Đơn vị vay / Bên vay:</span>
-                      <span className="font-semibold text-slate-800">{currentLoan.borrower_name}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Dư nợ gốc hiện tại:</span>
-                      <span className="font-mono font-bold text-sm text-indigo-700">
-                        {Number(currentLoan.current_principal_balance).toLocaleString('vi-VN')} đ
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-600">Lãi suất & Ngày đáo hạn:</span>
-                      <span className="text-slate-700">
-                        {(Number(currentLoan.interest_rate) * 100).toFixed(2)}%/năm • Đến{' '}
-                        {currentLoan.maturity_date || 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 3. KHUNG CHIA GỐC & LÃI (SPLIT BOX) */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-                    Khung chia Số tiền Trả Gốc & Trả Lãi
-                  </div>
-
-                  {/* Nút bấm nhanh 100% Gốc và 100% Lãi */}
-                  <div className="flex items-center space-x-2">
-                    <button
-                      type="button"
-                      onClick={handleSet100PercentPrincipal}
-                      className="px-2.5 py-1 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition-all"
-                    >
-                      100% Trả Gốc
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleSet100PercentInterest}
-                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-amber-500 hover:bg-amber-600 text-white shadow-sm transition-all"
-                    >
-                      100% Trả Lãi
-                    </button>
-                  </div>
-                </div>
-
-                {/* Thanh tiến trình trực quan phân bổ */}
-                <div className="space-y-1">
-                  <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden flex">
-                    <div
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          Math.max(
-                            0,
-                            (principalAmount / (Number(selectedTx.debit_amount) || 1)) * 100
-                          )
-                        )}%`,
-                      }}
-                      className="bg-blue-600 h-full transition-all duration-300"
-                    />
-                    <div
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          Math.max(
-                            0,
-                            (interestAmount / (Number(selectedTx.debit_amount) || 1)) * 100
-                          )
-                        )}%`,
-                      }}
-                      className="bg-amber-500 h-full transition-all duration-300"
-                    />
-                  </div>
-                  <div className="flex justify-between text-[11px] text-slate-500 px-0.5">
-                    <span className="text-blue-600 font-semibold">
-                      Gốc:{' '}
-                      {(
-                        (principalAmount / (Number(selectedTx.debit_amount) || 1)) *
-                        100
-                      ).toFixed(1)}
-                      %
-                    </span>
-                    <span className="text-amber-600 font-semibold">
-                      Lãi:{' '}
-                      {(
-                        (interestAmount / (Number(selectedTx.debit_amount) || 1)) *
-                        100
-                      ).toFixed(1)}
-                      %
-                    </span>
-                  </div>
-                </div>
-
-                {/* 2 Ô nhập liệu song song */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Số tiền trả gốc */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                      <span>Tiền Trả Nợ Gốc (VNĐ)</span>
-                      <span className="text-[10px] text-blue-600 font-bold">Trừ dư nợ</span>
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={principalAmount}
-                      onChange={(e) => handlePrincipalChange(e.target.value)}
-                      className="w-full text-sm font-mono font-bold bg-white border border-slate-300 rounded-xl px-3 py-2 text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <div className="text-[11px] text-slate-400 font-mono">
-                      {principalAmount.toLocaleString('vi-VN')} đ
-                    </div>
-                  </div>
-
-                  {/* Số tiền trả lãi */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-slate-700 flex items-center justify-between">
-                      <span>Tiền Trả Lãi (VNĐ)</span>
-                      <span className="text-[10px] text-amber-600 font-bold">Chi phí lãi</span>
-                    </label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={interestAmount}
-                      onChange={(e) => handleInterestChange(e.target.value)}
-                      className="w-full text-sm font-mono font-bold bg-white border border-slate-300 rounded-xl px-3 py-2 text-amber-700 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    />
-                    <div className="text-[11px] text-slate-400 font-mono">
-                      {interestAmount.toLocaleString('vi-VN')} đ
-                    </div>
-                  </div>
-                </div>
-
-                {/* Kiểm tra và Cảnh báo Dự báo Dư Nợ */}
-                {currentLoan && (
-                  <div className="p-3 rounded-xl bg-white border border-slate-200 text-xs space-y-1">
-                    <div className="flex items-center justify-between text-slate-600">
-                      <span>Dư nợ gốc sau khi giảm trừ:</span>
-                      <span
-                        className={`font-mono font-bold ${
-                          isOverpayment ? 'text-rose-600' : 'text-slate-900'
-                        }`}
-                      >
-                        {Math.max(
-                          0,
-                          Number(currentLoan.current_principal_balance) - principalAmount
-                        ).toLocaleString('vi-VN')}{' '}
-                        đ
-                      </span>
-                    </div>
-
-                    {/* Huy hiệu tất toán khi về 0 */}
-                    {Number(currentLoan.current_principal_balance) - principalAmount === 0 && (
-                      <div className="mt-1 flex items-center space-x-1.5 text-emerald-700 bg-emerald-50 p-2 rounded-lg font-semibold">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-                        <span>Khoản vay sẽ được chuyển sang trạng thái TẤT TOÁN (SETTLED)!</span>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Ghi chú */}
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-slate-600">Ghi chú đối soát</label>
-                  <input
-                    type="text"
-                    value={notes}
-                    onChange={(e) => setNotes(e.target.value)}
-                    placeholder="Nhập lý do hoặc thông tin đối soát bổ sung..."
-                    className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                  />
-                </div>
-              </div>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end space-x-3">
-              <button
-                type="button"
-                onClick={() => setSelectedTx(null)}
-                disabled={submitting}
-                className="px-4 py-2 text-xs font-semibold rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors"
-              >
-                Hủy bỏ
-              </button>
-
-              <button
-                type="button"
-                onClick={handleConfirmReconcile}
-                disabled={submitting || !selectedLoanId || !isSplitValid || isOverpayment}
-                className="inline-flex items-center space-x-2 px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white shadow-md shadow-indigo-600/30 transition-all"
-              >
-                {submitting ? (
-                  <>
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Đang xử lý...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-4 h-4" />
-                    <span>Xác nhận đối soát & Giảm nợ</span>
-                  </>
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* ================= MODAL XÁC NHẬN HỦY ĐỐI SOÁT (ROLLBACK) ================= */}
       {rollbackItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
@@ -1104,3 +1490,5 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
     </div>
   );
 };
+
+export default LoanRepaymentReconcilePage;

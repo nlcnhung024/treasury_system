@@ -1,0 +1,488 @@
+{
+  "version": "3.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "currentViewName": null,
+  "defaultView": {
+    "detailLevel": "All",
+    "relationshipMode": "All",
+    "tablePositions": [
+      {
+        "name": "corporate_entities",
+        "schemaName": "public",
+        "x": 366.2841796875,
+        "y": 12
+      },
+      {
+        "name": "bank_accounts",
+        "schemaName": "public",
+        "x": 904.486328125,
+        "y": 53
+      },
+      {
+        "name": "bank_statement_files",
+        "schemaName": "public",
+        "x": 1575.9150390625,
+        "y": 12
+      },
+      {
+        "name": "categories",
+        "schemaName": "public",
+        "x": 904.486328125,
+        "y": 580
+      },
+      {
+        "name": "classification_rules",
+        "schemaName": "public",
+        "x": 1575.9150390625,
+        "y": 1019
+      },
+      {
+        "name": "bank_transactions",
+        "schemaName": "public",
+        "x": 2304.3173828125,
+        "y": 73
+      },
+      {
+        "name": "statement_anchor_points",
+        "schemaName": "public",
+        "x": 2874.859375,
+        "y": 12
+      },
+      {
+        "name": "cash_ledger",
+        "schemaName": "public",
+        "x": 904.486328125,
+        "y": 978
+      },
+      {
+        "name": "audit_logs",
+        "schemaName": "public",
+        "x": 12,
+        "y": 12
+      },
+      {
+        "name": "credit_statement_files",
+        "schemaName": "public",
+        "x": 904.486328125,
+        "y": 1408
+      },
+      {
+        "name": "credit_facilities",
+        "schemaName": "public",
+        "x": 904.486328125,
+        "y": 2222
+      },
+      {
+        "name": "credit_statement_items",
+        "schemaName": "public",
+        "x": 1575.9150390625,
+        "y": 1631
+      },
+      {
+        "name": "disbursement_documents",
+        "schemaName": "public",
+        "x": 1575.9150390625,
+        "y": 2445
+      },
+      {
+        "name": "loan_repayment_history",
+        "schemaName": "public",
+        "x": 1575.9150390625,
+        "y": 3259
+      },
+      {
+        "name": "loan_repayment_plans",
+        "schemaName": "public",
+        "x": 904.486328125,
+        "y": 3356
+      },
+      {
+        "name": "loan_repayment_plan_items",
+        "schemaName": "public",
+        "x": 1575.9150390625,
+        "y": 3785
+      }
+    ],
+    "tableGroupCollapseStates": [],
+    "stickyNoteLayouts": [],
+    "referencePaths": [
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "bank_accounts",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "bank_statement_files",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "categories",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "classification_rules",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "bank_transactions",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "cash_ledger",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "credit_statement_files",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "credit_facilities",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "loan_repayment_plans",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "account_id"
+        ],
+        "firstTableName": "bank_statement_files",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "account_id"
+        ],
+        "secondTableName": "bank_accounts",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "file_id"
+        ],
+        "firstTableName": "bank_transactions",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "file_id"
+        ],
+        "secondTableName": "bank_statement_files",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "account_id"
+        ],
+        "firstTableName": "bank_transactions",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "account_id"
+        ],
+        "secondTableName": "bank_accounts",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "category_id"
+        ],
+        "firstTableName": "bank_transactions",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "category_id"
+        ],
+        "secondTableName": "categories",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "applied_rule_id"
+        ],
+        "firstTableName": "bank_transactions",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "rule_id"
+        ],
+        "secondTableName": "classification_rules",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "category_id"
+        ],
+        "firstTableName": "classification_rules",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "category_id"
+        ],
+        "secondTableName": "categories",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "linked_transaction_id"
+        ],
+        "firstTableName": "cash_ledger",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "transaction_id"
+        ],
+        "secondTableName": "bank_transactions",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "account_id"
+        ],
+        "firstTableName": "statement_anchor_points",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "account_id"
+        ],
+        "secondTableName": "bank_accounts",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "transaction_id"
+        ],
+        "firstTableName": "statement_anchor_points",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "transaction_id"
+        ],
+        "secondTableName": "bank_transactions",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "file_id"
+        ],
+        "firstTableName": "credit_statement_items",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "file_id"
+        ],
+        "secondTableName": "credit_statement_files",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "loan_id"
+        ],
+        "firstTableName": "credit_statement_items",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "loan_id"
+        ],
+        "secondTableName": "credit_facilities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "loan_id"
+        ],
+        "firstTableName": "disbursement_documents",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "loan_id"
+        ],
+        "secondTableName": "credit_facilities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "loan_id"
+        ],
+        "firstTableName": "loan_repayment_history",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "loan_id"
+        ],
+        "secondTableName": "credit_facilities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "transaction_id"
+        ],
+        "firstTableName": "loan_repayment_history",
+        "firstSchemaName": "public",
+        "firstRelation": "1",
+        "secondFieldNames": [
+          "transaction_id"
+        ],
+        "secondTableName": "bank_transactions",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "plan_id"
+        ],
+        "firstTableName": "loan_repayment_plan_items",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "plan_id"
+        ],
+        "secondTableName": "loan_repayment_plans",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "loan_id"
+        ],
+        "firstTableName": "loan_repayment_plan_items",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "loan_id"
+        ],
+        "secondTableName": "credit_facilities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      }
+    ]
+  },
+  "views": {}
+}

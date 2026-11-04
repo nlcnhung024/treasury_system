@@ -1,0 +1,541 @@
+// =============================================================================
+// HỆ THỐNG XỬ LÝ & BÁO CÁO SAO KÊ NGÂN HÀNG TỰ ĐỘNG (BANK STATEMENT PROCESSOR)
+// DATABASE MARKUP LANGUAGE (DBML) SPECIFICATION
+// Compatible with dbdocs.io & dbdiagram.io (PostgreSQL 15+)
+// Source: database/schema.sql
+// =============================================================================
+
+Project BankStatementProcessor {
+  database_type: 'PostgreSQL'
+  Note: '''
+    # Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động
+    Chuẩn thiết kế: 3NF+, High-precision Decimal(18,2), Composite & Partial Indexes,
+    Multi-Entity Isolation, Debt Repayment Planning & E-Invoice XML Reconciliation.
+  '''
+}
+
+// =============================================================================
+// 1. PHÂN HỆ PHÁP NHÂN & CÔ LẬP TỔ CHỨC (MULTI-ENTITY ISOLATION)
+// =============================================================================
+
+Table corporate_entities {
+  entity_id bigserial [pk, increment, note: 'Khóa chính pháp nhân']
+  entity_code varchar(50) [not null, unique, note: 'Mã định danh: HQ_CORP, SUB_LOGISTICS...']
+  company_name varchar(255) [not null, note: 'Tên đầy đủ pháp nhân doanh nghiệp']
+  tax_code varchar(50) [not null, unique, note: 'Mã số thuế doanh nghiệp']
+  is_holding_parent boolean [not null, default: false, note: 'TRUE nếu là Công ty Mẹ']
+  description text [note: 'Mô tả pháp nhân']
+  is_active boolean [not null, default: true, note: 'Trạng thái hoạt động']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    tax_code [name: 'idx_corporate_entities_tax_code']
+    entity_code [name: 'idx_corporate_entities_code']
+  }
+}
+
+// =============================================================================
+// 2. PHÂN HỆ TÀI KHOẢN THANH TOÁN (CASA) & DÒNG TIỀN
+// =============================================================================
+
+Table bank_accounts {
+  account_id bigserial [pk, increment, note: 'Khóa chính định danh tài khoản ngân hàng']
+  entity_id bigint [note: 'Pháp nhân sở hữu tài khoản']
+  bank_code varchar(20) [not null, note: 'Mã ngân hàng: MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB...']
+  bank_name varchar(100) [not null, note: 'Tên đầy đủ ngân hàng']
+  account_number varchar(50) [not null, unique, note: 'Số tài khoản thanh toán']
+  account_holder varchar(150) [not null, note: 'Tên chủ tài khoản / Pháp nhân']
+  tax_code varchar(50) [note: 'Mã số thuế / Mã định danh Pháp nhân']
+  account_type varchar(20) [not null, default: 'CORPORATE', note: 'CORPORATE (Khối 1) hoặc SPECIAL_CASH (Khối 2)']
+  currency varchar(5) [not null, default: 'VND', note: 'Đơn vị tiền tệ']
+  opening_balance decimal(18,2) [not null, default: 0.00, note: 'Số dư khởi tạo ban đầu']
+  current_balance decimal(18,2) [not null, default: 0.00, note: 'Số dư cập nhật mới nhất']
+  is_active boolean [not null, default: true, note: 'Trạng thái hoạt động']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    bank_code [name: 'idx_bank_accounts_code']
+    account_type [name: 'idx_bank_accounts_type']
+    tax_code [name: 'idx_bank_accounts_tax_code']
+    account_holder [name: 'idx_bank_accounts_holder']
+    entity_id [name: 'idx_bank_accounts_entity']
+  }
+}
+
+Table bank_statement_files {
+  file_id bigserial [pk, increment, note: 'Khóa chính file sao kê thanh toán']
+  file_uuid uuid [not null, unique, note: 'UUID định danh duy nhất của file']
+  entity_id bigint [note: 'Pháp nhân nạp file']
+  account_id bigint [note: 'Tài khoản ngân hàng liên kết']
+  statement_type varchar(30) [not null, default: 'CASA', note: 'CASA hoặc SPECIAL_CASH']
+  template_code varchar(50) [note: 'Mã template: MBB_CORP_XLSX, CTG_EFAST_XLS, VPB_CORP_XLSX...']
+  reconciliation_mode varchar(50) [note: 'Chế độ đối soát: MODE_1 đến MODE_5']
+  original_filename varchar(255) [not null, note: 'Tên file gốc người dùng tải lên']
+  storage_path varchar(500) [not null, note: 'Đường dẫn Object Storage: /statements/{bank}/{YYYY}/{MM}/{uuid}.xlsx']
+  file_size_bytes bigint [not null, note: 'Dung lượng file tính bằng bytes']
+  file_sha256 char(64) [not null, unique, note: 'Mã băm SHA-256 toàn vẹn chống tải trùng']
+  mime_type varchar(100) [not null, note: 'MIME type của file']
+  statement_period_start date [note: 'Kỳ sao kê từ ngày']
+  statement_period_end date [note: 'Kỳ sao kê đến ngày']
+  header_opening_balance decimal(18,2) [note: 'Số dư đầu kỳ ghi trên file']
+  header_closing_balance decimal(18,2) [note: 'Số dư cuối kỳ ghi trên file']
+  calculated_closing_balance decimal(18,2) [note: 'Số dư cuối kỳ hệ thống tính toán đối soát']
+  total_credit_amount decimal(18,2) [default: 0.00, note: 'Tổng phát sinh Có (Thu)']
+  total_debit_amount decimal(18,2) [default: 0.00, note: 'Tổng phát sinh Nợ (Chi)']
+  total_transactions_count int [default: 0, note: 'Tổng số dòng giao dịch bóc tách được']
+  processing_status varchar(30) [not null, default: 'UPLOADED', note: 'UPLOADED -> QUEUED -> PARSING -> RECONCILING -> COMPLETED -> FAILED']
+  reconciliation_status varchar(30) [not null, default: 'PENDING', note: 'PENDING -> BALANCED -> DISCREPANCY']
+  discrepancy_amount decimal(18,2) [default: 0.00, note: 'Chênh lệch số dư (|header - calculated|)']
+  has_data_gap boolean [not null, default: false, note: 'Cờ cảnh báo lệch số dư giữa kỳ trước và kỳ sau']
+  gap_discrepancy_amount decimal(18,2) [default: 0.00, note: 'Số tiền lệch kỳ']
+  error_message text [note: 'Chi tiết lỗi nếu parsing thất bại']
+  uploaded_by varchar(100) [not null, default: 'SYSTEM', note: 'Người dùng nạp file']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    account_id [name: 'idx_files_account_id']
+    entity_id [name: 'idx_files_entity_id']
+    processing_status [name: 'idx_files_status']
+    reconciliation_status [name: 'idx_files_reconciliation']
+    created_at [name: 'idx_files_created_at']
+  }
+}
+
+Table categories {
+  category_id bigserial [pk, increment, note: 'Khóa chính danh mục']
+  entity_id bigint [note: 'NULL nếu là danh mục dùng chung toàn hệ thống']
+  category_type varchar(10) [not null, note: 'INCOME (Thu) hoặc EXPENSE (Chi)']
+  category_name varchar(150) [not null, note: 'Tên danh mục (Chi NCC, Chi Lương, Thu KH...)']
+  color_code varchar(10) [default: '#3B82F6', note: 'Mã màu HEX hiển thị biểu đồ Waterfall/Tag']
+  description varchar(255) [note: 'Mô tả chi tiết']
+  display_order int [default: 0, note: 'Thứ tự ưu tiên hiển thị']
+  is_active boolean [not null, default: true, note: 'Trạng thái sử dụng']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (category_type, category_name) [unique, name: 'uq_category_type_name']
+    category_type [name: 'idx_categories_type']
+    entity_id [name: 'idx_categories_entity']
+  }
+}
+
+Table classification_rules {
+  rule_id bigserial [pk, increment, note: 'Khóa chính quy tắc phân loại']
+  category_id bigint [not null, note: 'Danh mục Thu/Chi áp dụng']
+  entity_id bigint [note: 'Áp dụng cho pháp nhân cụ thể (NULL = toàn hệ thống)']
+  rule_name varchar(150) [not null, note: 'Tên quy tắc phân loại']
+  priority int [not null, default: 10, note: 'Độ ưu tiên (nhỏ hơn chạy trước)']
+  is_active boolean [not null, default: true, note: 'Kích hoạt luật']
+  keyword_patterns text [not null, note: 'Từ khóa phân tách bằng dấu phẩy']
+  match_type varchar(20) [not null, default: 'CONTAINS', note: 'CONTAINS, EXACT, REGEX']
+  target_bank_code varchar(20) [note: 'Áp dụng riêng cho 1 ngân hàng']
+  target_account_number varchar(50) [note: 'Áp dụng riêng cho 1 số TK']
+  min_amount decimal(18,2) [note: 'Số tiền tối thiểu']
+  max_amount decimal(18,2) [note: 'Số tiền tối đa']
+  applies_to_flow varchar(10) [note: 'ALL, CREDIT, DEBIT']
+  created_by varchar(100) [default: 'USER']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    priority [name: 'idx_rules_priority']
+    category_id [name: 'idx_rules_category']
+    is_active [name: 'idx_rules_active']
+    entity_id [name: 'idx_rules_entity']
+  }
+}
+
+Table bank_transactions {
+  transaction_id bigserial [pk, increment, note: 'Khóa chính giao dịch']
+  file_id bigint [not null, note: 'File sao kê gốc']
+  account_id bigint [not null, note: 'Tài khoản ngân hàng']
+  entity_id bigint [note: 'Pháp nhân sở hữu giao dịch']
+  category_id bigint [note: 'Danh mục Thu/Chi đã phân loại']
+  transaction_date timestamp [not null, note: 'Thời điểm giao dịch ISO 8601']
+  value_date date [note: 'Ngày giá trị / hạch toán']
+  reference_number varchar(100) [note: 'Số bút toán / Mã tham chiếu ngân hàng']
+  counter_party varchar(255) [note: 'Đối tác thụ hưởng hoặc bên chuyển']
+  description text [not null, note: 'Nội dung diễn giải nguyên bản']
+  debit_amount decimal(18,2) [not null, default: 0.00, note: 'Tiền chi ra (Nợ)']
+  credit_amount decimal(18,2) [not null, default: 0.00, note: 'Tiền thu vào (Có)']
+  running_balance decimal(18,2) [not null, note: 'Số dư lũy kế sau giao dịch']
+  dedup_hash char(64) [not null, note: 'Mã băm chống trùng lặp 6 thành phần']
+  is_duplicate boolean [not null, default: false, note: 'Cờ giao dịch trùng lặp']
+  is_manual_override boolean [not null, default: false, note: 'Cờ khóa phân loại thủ công']
+  applied_rule_id bigint [note: 'Quy tắc tự động đã áp dụng']
+  internal_note text [note: 'Ghi chú nội bộ do kế toán nhập']
+  is_anchor_point boolean [not null, default: false, note: 'Cờ mốc neo số dư được kế toán xác lập']
+  anchor_adjusted_at timestamp [note: 'Thời điểm thực hiện hiệu chỉnh điểm neo']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (account_id, dedup_hash) [unique, name: 'uq_transaction_dedup']
+    file_id [name: 'idx_trans_file_id']
+    (account_id, transaction_date) [name: 'idx_trans_account_date']
+    transaction_date [name: 'idx_trans_date']
+    category_id [name: 'idx_trans_category']
+    counter_party [name: 'idx_trans_counter_party']
+    is_manual_override [name: 'idx_trans_manual_override']
+  }
+}
+
+Table statement_anchor_points {
+  anchor_id bigserial [pk, increment, note: 'Khóa chính điểm neo số dư']
+  account_id bigint [not null, note: 'Tài khoản áp dụng mốc neo']
+  transaction_id bigint [not null, note: 'Giao dịch được chọn làm điểm neo']
+  anchor_balance decimal(18,2) [not null, note: 'Số dư mốc chuẩn do người dùng nhập']
+  previous_balance decimal(18,2) [not null, note: 'Số dư cũ trước khi hiệu chỉnh']
+  propagation_direction varchar(20) [not null, default: 'BIDIRECTIONAL', note: 'FORWARD, BACKWARD, BIDIRECTIONAL']
+  records_updated_count int [default: 0, note: 'Số giao dịch được tính lại']
+  reason text [note: 'Lý do hiệu chỉnh']
+  set_by varchar(100) [not null, default: 'USER']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    account_id [name: 'idx_anchor_account']
+    transaction_id [name: 'idx_anchor_trans']
+  }
+}
+
+Table cash_ledger {
+  cash_entry_id bigserial [pk, increment, note: 'Khóa chính bút toán tiền mặt']
+  entity_id bigint [note: 'Pháp nhân sở hữu quỹ tiền mặt']
+  linked_transaction_id bigint [note: 'Giao dịch rút tiền từ TK MBBank cá nhân']
+  entry_date date [not null, note: 'Ngày lập phiếu']
+  entry_type varchar(10) [not null, note: 'INFLOW hoặc OUTFLOW']
+  amount decimal(18,2) [not null, note: 'Số tiền thu/chi']
+  running_cash_balance decimal(18,2) [not null, note: 'Tồn quỹ tiền mặt lũy kế']
+  receiver_payer varchar(150) [note: 'Người nhận / Người nộp']
+  reason text [not null, note: 'Lý do thu chi']
+  internal_note text [note: 'Ghi chú nội bộ']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    entry_date [name: 'idx_cash_date']
+    entity_id [name: 'idx_cash_entity']
+  }
+}
+
+Table audit_logs {
+  log_id bigserial [pk, increment, note: 'Khóa chính nhật ký kiểm toán']
+  correlation_id uuid [not null, note: 'ID truy vết liên chuỗi']
+  actor varchar(100) [not null, note: 'Người thực hiện hoặc Worker']
+  action varchar(50) [not null, note: 'Hành động kiểm toán']
+  target_entity varchar(50) [not null, note: 'Thực thể bị tác động']
+  target_id varchar(50) [not null, note: 'ID thực thể']
+  details jsonb [note: 'Chi tiết thay đổi Before/After']
+  ip_address varchar(45) [note: 'Địa chỉ IP']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    correlation_id [name: 'idx_audit_correlation']
+    (target_entity, target_id) [name: 'idx_audit_target']
+    created_at [name: 'idx_audit_created']
+  }
+}
+
+// =============================================================================
+// 3. PHÂN HỆ TÍN DỤNG, DANH MỤC VAY & HỒ SƠ GIẢI NGÂN
+// =============================================================================
+
+Table credit_statement_files {
+  file_id bigserial [pk, increment, note: 'Khóa chính file sao kê tín dụng']
+  file_uuid uuid [not null, unique, note: 'UUID định danh file']
+  entity_id bigint [note: 'Pháp nhân vay vốn']
+  bank_code varchar(20) [not null, note: 'CTG, MBB...']
+  template_code varchar(50) [not null, note: 'CTG_LOAN_XLS, MBB_LOAN_LD_XLSX']
+  original_filename varchar(255) [not null, note: 'Tên file gốc']
+  storage_path varchar(500) [not null, note: 'Đường dẫn Object Storage']
+  file_size_bytes bigint [not null]
+  file_sha256 char(64) [not null, unique, note: 'Mã băm SHA-256 toàn vẹn']
+  mime_type varchar(100) [not null]
+  statement_date date [note: 'Ngày chốt dữ liệu trên file']
+  total_principal_amount decimal(18,2) [default: 0.00, note: 'Tổng dư nợ ghi trên file']
+  total_interest_amount decimal(18,2) [default: 0.00, note: 'Tổng lãi ghi trên file']
+  total_payable_amount decimal(18,2) [default: 0.00, note: 'Tổng tiền phải trả']
+  calculated_principal_amount decimal(18,2) [default: 0.00, note: 'Tổng dư nợ tính toán']
+  total_contracts_count int [default: 0, note: 'Số khoản vay bóc tách được']
+  processing_status varchar(30) [not null, default: 'UPLOADED']
+  reconciliation_status varchar(30) [not null, default: 'PENDING']
+  discrepancy_amount decimal(18,2) [default: 0.00]
+  error_message text
+  uploaded_by varchar(100) [not null, default: 'SYSTEM']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    bank_code [name: 'idx_credit_files_bank']
+    entity_id [name: 'idx_credit_files_entity']
+    processing_status [name: 'idx_credit_files_status']
+    reconciliation_status [name: 'idx_credit_files_reconcile']
+    created_at [name: 'idx_credit_files_created']
+  }
+}
+
+Table credit_facilities {
+  loan_id bigserial [pk, increment, note: 'Khóa chính khoản vay']
+  entity_id bigint [note: 'Pháp nhân vay vốn']
+  bank_code varchar(20) [not null, note: 'Mã ngân hàng cấp tín dụng']
+  bank_name varchar(100) [not null, note: 'Tên đầy đủ ngân hàng']
+  contract_number varchar(50) [not null, note: 'Số hợp đồng / khế ước LD']
+  borrower_name varchar(150) [not null, note: 'Tên đơn vị vay']
+  cif_number varchar(50) [note: 'Mã CIF khách hàng']
+  loan_purpose text [note: 'Mục đích vay vốn']
+  currency varchar(5) [not null, default: 'VND']
+  disbursement_date date [note: 'Ngày giải ngân']
+  maturity_date date [note: 'Ngày đáo hạn']
+  term varchar(20) [note: 'Kỳ hạn khoản vay (4M, 6M...)']
+  interest_rate decimal(6,4) [not null, default: 0.0000, note: 'Lãi suất (%/năm)']
+  debt_group varchar(10) [not null, default: '1', note: 'Nhóm nợ: 1 đến 5']
+  loan_type varchar(30) [not null, default: 'SHORT_TERM']
+  institution_type varchar(30) [not null, default: 'BANK']
+  is_manual boolean [not null, default: false]
+  note text
+  interest_payment_method varchar(20) [not null, default: 'MONTHLY', note: 'MONTHLY hoặc END_OF_TERM']
+  monthly_interest_due_day int [note: 'Ngày trả lãi trong tháng (1-31, CTG = 5)']
+  calculated_interest_due decimal(18,2) [not null, default: 0.00, note: 'Số lãi cần trả theo TT14']
+  original_principal_balance decimal(18,2) [not null, default: 0.00, note: '1. Dư nợ gốc ban đầu (bất biến)']
+  total_repaid_principal decimal(18,2) [not null, default: 0.00, note: '2. Đã trả gốc lũy kế']
+  current_principal_balance decimal(18,2) [not null, default: 0.00, note: '3. Dư nợ gốc hiện tại (Gốc ban đầu - Đã trả gốc)']
+  accrued_interest decimal(18,2) [default: 0.00, note: 'Lãi cộng dồn']
+  next_repayment_date date [note: 'Ngày đến hạn gần nhất']
+  next_principal_amount decimal(18,2) [default: 0.00, note: 'Gốc đến hạn kỳ tới']
+  next_interest_amount decimal(18,2) [default: 0.00, note: 'Lãi đến hạn kỳ tới']
+  total_repayment_amount decimal(18,2) [default: 0.00, note: 'Tổng tiền phải trả kỳ tới']
+  status varchar(20) [not null, default: 'ACTIVE', note: 'ACTIVE, SETTLED, OVERDUE']
+  is_active boolean [not null, default: true]
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (bank_code, contract_number) [unique, name: 'uq_credit_facility_bank_contract']
+    bank_code [name: 'idx_credit_facilities_bank']
+    entity_id [name: 'idx_credit_facilities_entity']
+    institution_type [name: 'idx_credit_facilities_institution_type']
+    is_manual [name: 'idx_credit_facilities_is_manual']
+    maturity_date [name: 'idx_credit_facilities_maturity']
+    next_repayment_date [name: 'idx_credit_facilities_next_repayment']
+    status [name: 'idx_credit_facilities_status']
+  }
+}
+
+Table credit_statement_items {
+  item_id bigserial [pk, increment, note: 'Khóa chính chi tiết snapshot khoản vay']
+  file_id bigint [not null, note: 'File sao kê tín dụng nguồn']
+  loan_id bigint [note: 'Khoản vay liên kết']
+  contract_number varchar(50) [not null]
+  disbursement_date date
+  maturity_date date
+  term varchar(20)
+  interest_rate decimal(6,4) [not null, default: 0.0000]
+  debt_group varchar(10) [default: '1']
+  loan_purpose text
+  interest_payment_method varchar(20) [default: 'MONTHLY']
+  monthly_interest_due_day int
+  calculated_interest_due decimal(18,2) [default: 0.00]
+  principal_balance decimal(18,2) [not null, default: 0.00]
+  principal_balance_vnd decimal(18,2) [not null, default: 0.00]
+  accrued_interest decimal(18,2) [default: 0.00]
+  next_principal_due_date date
+  next_principal_amount decimal(18,2) [default: 0.00]
+  next_interest_due_date date
+  next_interest_amount decimal(18,2) [default: 0.00]
+  total_due_amount decimal(18,2) [default: 0.00]
+  currency varchar(5) [not null, default: 'VND']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    file_id [name: 'idx_credit_items_file']
+    loan_id [name: 'idx_credit_items_loan']
+    contract_number [name: 'idx_credit_items_contract']
+  }
+}
+
+Table disbursement_documents {
+  document_id bigserial [pk, increment, note: 'Khóa chính tài liệu giải ngân']
+  document_uuid uuid [not null, unique, note: 'UUID định danh tài liệu']
+  loan_id bigint [not null, note: 'Khoản vay sở hữu hồ sơ này']
+  file_name varchar(255) [not null, note: 'Tên file chứng từ']
+  storage_path varchar(500) [not null, note: 'Đường dẫn Object Storage: disbursement_dossiers/{bank}/{contract}/{uuid}_{name}']
+  file_size_bytes bigint [not null]
+  file_sha256 char(64) [not null, note: 'SHA-256 toàn vẹn tài liệu']
+  mime_type varchar(100) [not null]
+  document_type varchar(50) [not null, default: 'DISBURSEMENT_RECORD', note: 'CONTRACT, DISBURSEMENT_RECORD, DEBT_NOTE, INVOICE, COLLATERAL, APPROVAL, OTHER']
+  description text [note: 'Mô tả / ghi chú chứng từ']
+  invoice_number varchar(50) [note: 'Số hóa đơn điện tử (<SHDon>)']
+  invoice_series varchar(20) [note: 'Ký hiệu hóa đơn điện tử (<KHHDon>)']
+  invoice_issue_date date [note: 'Ngày lập hóa đơn (<NLap>)']
+  seller_tax_code varchar(50) [note: 'MST bên bán']
+  seller_name varchar(255) [note: 'Tên bên bán']
+  buyer_tax_code varchar(50) [note: 'MST bên mua']
+  buyer_name varchar(255) [note: 'Tên bên mua']
+  invoice_total_amount decimal(18,2) [note: 'Tổng tiền hóa đơn XML (<TgTTTBSo>)']
+  xml_raw_data jsonb [note: 'Toàn bộ chi tiết mặt hàng, thuế suất XML']
+  verification_status varchar(30) [not null, default: 'UNVERIFIED', note: 'UNVERIFIED, VERIFIED_MATCH, DEFICIENT_AMOUNT, INVALID_SCHEMA']
+  uploaded_by varchar(100) [not null, default: 'SYSTEM']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    loan_id [name: 'idx_disburse_docs_loan_id']
+    document_uuid [name: 'idx_disburse_docs_uuid']
+    invoice_number [name: 'idx_disburse_docs_invoice']
+    verification_status [name: 'idx_disburse_docs_status']
+  }
+}
+
+Table loan_repayment_history {
+  repayment_id bigserial [pk, increment, note: 'Khóa chính lịch sử trả nợ']
+  loan_id bigint [not null, note: 'Khoản vay được giảm trừ']
+  transaction_id bigint [not null, unique, note: 'Giao dịch thanh toán trích nợ trên sao kê']
+  contract_number varchar(50) [not null, note: 'Số hợp đồng / khế ước LD']
+  bank_code varchar(20) [not null, note: 'Mã ngân hàng']
+  repayment_date timestamp [not null, note: 'Thời điểm trả nợ (= transaction_date)']
+  principal_amount decimal(18,2) [not null, default: 0.00, note: 'Tiền trả gốc']
+  interest_amount decimal(18,2) [not null, default: 0.00, note: 'Tiền trả lãi']
+  total_amount decimal(18,2) [not null, note: 'Tổng tiền = principal_amount + interest_amount']
+  previous_principal_balance decimal(18,2) [not null, note: 'Dư nợ gốc trước khi giảm trừ']
+  remaining_principal_balance decimal(18,2) [not null, note: 'Dư nợ gốc sau khi giảm trừ']
+  notes text [note: 'Ghi chú đối soát']
+  reconciled_by varchar(100) [not null, default: 'SYSTEM']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    loan_id [name: 'idx_repay_hist_loan']
+    transaction_id [name: 'idx_repay_hist_trans']
+    contract_number [name: 'idx_repay_hist_contract']
+    repayment_date [name: 'idx_repay_hist_date']
+  }
+}
+
+// =============================================================================
+// 4. PHÂN HỆ KẾ HOẠCH TRẢ NỢ & ĐIỀU PHỐI DÒNG TIỀN (LOAN REPAYMENT PLANS)
+// =============================================================================
+
+Table loan_repayment_plans {
+  plan_id bigserial [pk, increment, note: 'Khóa chính kịch bản trả nợ']
+  entity_id bigint [note: 'Pháp nhân lập kế hoạch']
+  plan_name varchar(150) [not null, note: 'Tên phương án (14 tỷ/tháng, Mùa vụ...)']
+  monthly_capacity_ceiling decimal(18,2) [not null, default: 14000000000.00, note: 'Trần khả năng chi trả hàng tháng']
+  reborrow_rate decimal(6,4) [not null, default: 1.0000, note: 'Tỷ lệ vay lại vốn quay vòng']
+  budget_mode varchar(20) [not null, default: 'FIXED_CAPACITY', note: 'FIXED_CAPACITY hoặc SEASONAL_CUSTOM']
+  start_period date [not null, note: 'Tháng bắt đầu']
+  end_period date [not null, note: 'Tháng kết thúc']
+  total_original_due decimal(18,2) [not null, default: 0.00, note: 'Nợ gốc ban đầu']
+  total_optimized_due decimal(18,2) [not null, default: 0.00, note: 'Nợ gốc sau làm phẳng']
+  total_interest_saved decimal(18,2) [not null, default: 0.00, note: 'Tiền lãi tiết kiệm được']
+  status varchar(20) [not null, default: 'DRAFT', note: 'DRAFT, SIMULATED, APPROVED_BASELINE, ARCHIVED']
+  created_by varchar(100) [not null, default: 'SYSTEM']
+  approved_by varchar(100) [note: 'CFO phê duyệt']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    entity_id [name: 'idx_plans_entity']
+    status [name: 'idx_plans_status']
+  }
+}
+
+Table loan_repayment_plan_items {
+  item_id bigserial [pk, increment, note: 'Khóa chính hành động điều phối']
+  plan_id bigint [not null, note: 'Kịch bản kế hoạch liên kết']
+  loan_id bigint [not null, note: 'Khoản vay được điều phối']
+  contract_number varchar(50) [not null]
+  bank_code varchar(20) [not null]
+  action_month varchar(7) [not null, note: 'Tháng hành động YYYY-MM']
+  action_type varchar(30) [not null, note: 'NATURAL_DUE, PREPAY_CUT, BRIDGE_ROLLOVER, REBORROW_DISBURSE']
+  scheduled_amount decimal(18,2) [not null, note: 'Số tiền chi trả kế hoạch']
+  reborrow_amount decimal(18,2) [not null, default: 0.00, note: 'Số tiền vay lại']
+  reborrow_term varchar(20) [note: 'Kỳ hạn vay lại: 1M, 2M, 3M, 4M, 6M']
+  interest_saved decimal(18,2) [default: 0.00, note: 'Lãi tiết kiệm từ hành động này']
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    plan_id [name: 'idx_plan_items_plan']
+    loan_id [name: 'idx_plan_items_loan']
+    action_month [name: 'idx_plan_items_month']
+  }
+}
+
+// =============================================================================
+// 5. ĐẶC TẢ QUAN HỆ & RÀNG BUỘC TOÀN VẸN (FOREIGN KEYS & RELATIONSHIPS)
+// =============================================================================
+
+// Quan hệ Pháp nhân (Multi-Entity)
+Ref: bank_accounts.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: bank_statement_files.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: categories.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: classification_rules.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: bank_transactions.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: cash_ledger.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: credit_statement_files.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: credit_facilities.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: loan_repayment_plans.entity_id > corporate_entities.entity_id [delete: set null]
+
+// Quan hệ phân hệ Thanh toán & Dòng tiền
+Ref: bank_statement_files.account_id > bank_accounts.account_id [delete: set null]
+Ref: bank_transactions.file_id > bank_statement_files.file_id [delete: cascade]
+Ref: bank_transactions.account_id > bank_accounts.account_id [delete: restrict]
+Ref: bank_transactions.category_id > categories.category_id [delete: set null]
+Ref: bank_transactions.applied_rule_id > classification_rules.rule_id [delete: set null]
+Ref: classification_rules.category_id > categories.category_id [delete: cascade]
+Ref: cash_ledger.linked_transaction_id - bank_transactions.transaction_id [delete: set null]
+Ref: statement_anchor_points.account_id > bank_accounts.account_id [delete: cascade]
+Ref: statement_anchor_points.transaction_id > bank_transactions.transaction_id [delete: cascade]
+
+// Quan hệ phân hệ Tín dụng & Khoản vay
+Ref: credit_statement_items.file_id > credit_statement_files.file_id [delete: cascade]
+Ref: credit_statement_items.loan_id > credit_facilities.loan_id [delete: set null]
+Ref: disbursement_documents.loan_id > credit_facilities.loan_id [delete: cascade]
+
+// Cầu nối liên thông giữa Giao dịch chi ngân hàng và Giảm trừ nợ vay
+Ref: loan_repayment_history.loan_id > credit_facilities.loan_id [delete: restrict]
+Ref: loan_repayment_history.transaction_id - bank_transactions.transaction_id [delete: restrict]
+
+// Quan hệ phân hệ Kế hoạch trả nợ
+Ref: loan_repayment_plan_items.plan_id > loan_repayment_plans.plan_id [delete: cascade]
+Ref: loan_repayment_plan_items.loan_id > credit_facilities.loan_id [delete: cascade]
+
+// =============================================================================
+// 6. NHÓM BẢNG THEO PHÂN HỆ NGHIỆP VỤ (TABLE GROUPS)
+// =============================================================================
+
+TableGroup entity_organization {
+  corporate_entities
+}
+
+TableGroup payment_cashflow {
+  bank_accounts
+  bank_statement_files
+  bank_transactions
+  statement_anchor_points
+  cash_ledger
+}
+
+TableGroup classification_rules_mgmt {
+  categories
+  classification_rules
+}
+
+TableGroup credit_loan_management {
+  credit_statement_files
+  credit_facilities
+  credit_statement_items
+  disbursement_documents
+  loan_repayment_history
+}
+
+TableGroup debt_repayment_planning {
+  loan_repayment_plans
+  loan_repayment_plan_items
+}
+
+TableGroup audit_governance {
+  audit_logs
+}

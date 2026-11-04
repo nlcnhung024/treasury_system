@@ -63,10 +63,34 @@ export interface DisbursementDocument {
   document_type: string; // 'CONTRACT', 'DEBT_NOTE', 'DISBURSEMENT_RECORD', 'INVOICE', 'COLLATERAL', 'APPROVAL', 'OTHER'
   description?: string | null;
   invoice_number?: string | null;
+  invoice_series?: string | null;
+  invoice_issue_date?: string | null;
+  seller_tax_code?: string | null;
+  seller_name?: string | null;
+  buyer_tax_code?: string | null;
+  buyer_name?: string | null;
   invoice_total_amount?: number | null;
+  verification_status?: 'UNVERIFIED' | 'VERIFIED_MATCH' | 'DEFICIENT_AMOUNT' | 'INVALID_SCHEMA';
   uploaded_by: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface SavedLoanRepaymentPlan {
+  plan_id: number;
+  entity_id?: number | null;
+  plan_name: string;
+  monthly_capacity_ceiling: number;
+  reborrow_rate: number;
+  budget_mode: 'FIXED_CAPACITY' | 'SEASONAL_CUSTOM';
+  start_period: string;
+  end_period: string;
+  total_original_due: number;
+  total_optimized_due: number;
+  total_interest_saved: number;
+  status: 'DRAFT' | 'SIMULATED' | 'APPROVED_BASELINE' | 'ARCHIVED';
+  approved_by?: string | null;
+  created_at: string;
 }
 
 export interface LoanInvoiceReconciliation {
@@ -102,8 +126,12 @@ export interface CreditFacility {
   interest_payment_method: InterestPaymentMethod;
   monthly_interest_due_day?: number | null;
   calculated_interest_due: number;
+  snapshot_date?: string | null;
+  snapshot_principal_balance?: number;
   original_principal_balance?: number;
   total_repaid_principal?: number;
+  repaid_before_snapshot?: number;
+  repaid_after_snapshot?: number;
   current_principal_balance: number;
   accrued_interest: number;
   next_repayment_date?: string | null;
@@ -291,6 +319,9 @@ export interface UnreconciledDebtTransaction {
   suggested_bank_code?: string;
   suggested_borrower_name?: string;
   suggested_principal_balance?: number;
+  suggested_snapshot_date?: string | null;
+  suggested_snapshot_balance?: number;
+  timing_prediction?: 'PRE_SNAPSHOT' | 'POST_SNAPSHOT' | null;
   suggested_interest_rate?: number;
   suggested_principal_amount?: number;
   suggested_interest_amount?: number;
@@ -312,11 +343,15 @@ export interface RepaymentReconcileResult {
   contract_number: string;
   bank_code: string;
   repayment_date: string;
+  repayment_timing?: 'PRE_SNAPSHOT' | 'POST_SNAPSHOT' | string;
+  snapshot_date?: string | null;
   principal_amount: number;
   interest_amount: number;
   total_amount: number;
   previous_principal_balance: number;
   remaining_principal_balance: number;
+  original_principal_balance?: number;
+  total_repaid_principal?: number;
   loan_status: string;
   message: string;
 }
@@ -328,6 +363,8 @@ export interface LoanRepaymentHistoryRecord {
   contract_number: string;
   bank_code: string;
   repayment_date: string;
+  repayment_timing?: 'PRE_SNAPSHOT' | 'POST_SNAPSHOT' | string;
+  snapshot_date?: string | null;
   principal_amount: number;
   interest_amount: number;
   total_amount: number;

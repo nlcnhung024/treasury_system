@@ -1,13 +1,35 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Plus, Play, CheckCircle2, Trash2, Edit2, Tag, Sliders } from 'lucide-react';
 import api from '../services/api';
 import { ClassificationRule, Category } from '../types';
+import { SortableTh } from '../components/common/SortableTh';
+import { SortDirection, sortList } from '../utils/sort';
 
 export const RuleManagementPage: React.FC = () => {
   const [rules, setRules] = useState<ClassificationRule[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+
+  // Sorting State
+  const [sortField, setSortField] = useState<string>('priority');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  const handleSort = (field: string) => {
+    if (sortField === field) {
+      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+  };
+
+  const sortedRules = useMemo(() => {
+    return sortList(rules, sortField, sortDirection, {
+      conditions: (r) => `${r.target_bank_code || ''} ${r.target_account_number || ''} ${r.min_amount || ''}`,
+      flow_type: (r) => r.applies_to_flow || '',
+    });
+  }, [rules, sortField, sortDirection]);
 
   // State quản lý Form Danh mục (Categories)
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
@@ -525,24 +547,36 @@ export const RuleManagementPage: React.FC = () => {
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-50 uppercase font-semibold text-slate-700 border-b border-slate-200">
               <tr>
-                <th className="px-3 py-3">Ưu tiên</th>
-                <th className="px-3 py-3">Tên Quy Tắc</th>
-                <th className="px-3 py-3">Danh Mục Đích</th>
-                <th className="px-3 py-3">Từ Khóa Nhận Diện</th>
-                <th className="px-3 py-3">Điều kiện NH / TK / Số tiền</th>
-                <th className="px-3 py-3 text-center">Luồng</th>
+                <SortableTh field="priority" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Ưu tiên
+                </SortableTh>
+                <SortableTh field="rule_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Tên Quy Tắc
+                </SortableTh>
+                <SortableTh field="category_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Danh Mục Đích
+                </SortableTh>
+                <SortableTh field="keyword_patterns" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Từ Khóa Nhận Diện
+                </SortableTh>
+                <SortableTh field="conditions" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
+                  Điều kiện NH / TK / Số tiền
+                </SortableTh>
+                <SortableTh field="flow_type" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
+                  Luồng
+                </SortableTh>
                 <th className="px-3 py-3 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
-              {rules.length === 0 ? (
+              {sortedRules.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
                     Chưa có quy tắc phân loại nào. Hãy tạo Danh mục ở Bước 1, sau đó thêm Quy tắc tại Bước 2.
                   </td>
                 </tr>
               ) : (
-                rules.map((r) => (
+                sortedRules.map((r) => (
                   <tr key={r.rule_id} className="hover:bg-slate-50">
                     <td className="px-3 py-3 font-mono font-bold text-blue-600">#{r.priority}</td>
                     <td className="px-3 py-3 font-semibold text-slate-900">{r.rule_name}</td>
