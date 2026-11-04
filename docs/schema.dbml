@@ -414,57 +414,7 @@ Table loan_repayment_history {
 }
 
 // =============================================================================
-// 4. PHÂN HỆ KẾ HOẠCH TRẢ NỢ & ĐIỀU PHỐI DÒNG TIỀN (LOAN REPAYMENT PLANS)
-// =============================================================================
-
-Table loan_repayment_plans {
-  plan_id bigserial [pk, increment, note: 'Khóa chính kịch bản trả nợ']
-  entity_id bigint [note: 'Pháp nhân lập kế hoạch']
-  plan_name varchar(150) [not null, note: 'Tên phương án (14 tỷ/tháng, Mùa vụ...)']
-  monthly_capacity_ceiling decimal(18,2) [not null, default: 14000000000.00, note: 'Trần khả năng chi trả hàng tháng']
-  reborrow_rate decimal(6,4) [not null, default: 1.0000, note: 'Tỷ lệ vay lại vốn quay vòng']
-  budget_mode varchar(20) [not null, default: 'FIXED_CAPACITY', note: 'FIXED_CAPACITY hoặc SEASONAL_CUSTOM']
-  start_period date [not null, note: 'Tháng bắt đầu']
-  end_period date [not null, note: 'Tháng kết thúc']
-  total_original_due decimal(18,2) [not null, default: 0.00, note: 'Nợ gốc ban đầu']
-  total_optimized_due decimal(18,2) [not null, default: 0.00, note: 'Nợ gốc sau làm phẳng']
-  total_interest_saved decimal(18,2) [not null, default: 0.00, note: 'Tiền lãi tiết kiệm được']
-  status varchar(20) [not null, default: 'DRAFT', note: 'DRAFT, SIMULATED, APPROVED_BASELINE, ARCHIVED']
-  created_by varchar(100) [not null, default: 'SYSTEM']
-  approved_by varchar(100) [note: 'CFO phê duyệt']
-  created_at timestamp [default: `CURRENT_TIMESTAMP`]
-  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
-
-  indexes {
-    entity_id [name: 'idx_plans_entity']
-    status [name: 'idx_plans_status']
-  }
-}
-
-Table loan_repayment_plan_items {
-  item_id bigserial [pk, increment, note: 'Khóa chính hành động điều phối']
-  plan_id bigint [not null, note: 'Kịch bản kế hoạch liên kết']
-  loan_id bigint [not null, note: 'Khoản vay được điều phối']
-  contract_number varchar(50) [not null]
-  bank_code varchar(20) [not null]
-  action_month varchar(7) [not null, note: 'Tháng hành động YYYY-MM']
-  action_type varchar(30) [not null, note: 'NATURAL_DUE, PREPAY_CUT, BRIDGE_ROLLOVER, REBORROW_DISBURSE']
-  scheduled_amount decimal(18,2) [not null, note: 'Số tiền chi trả kế hoạch']
-  reborrow_amount decimal(18,2) [not null, default: 0.00, note: 'Số tiền vay lại']
-  reborrow_term varchar(20) [note: 'Kỳ hạn vay lại: 1M, 2M, 3M, 4M, 6M']
-  interest_saved decimal(18,2) [default: 0.00, note: 'Lãi tiết kiệm từ hành động này']
-  notes text
-  created_at timestamp [default: `CURRENT_TIMESTAMP`]
-
-  indexes {
-    plan_id [name: 'idx_plan_items_plan']
-    loan_id [name: 'idx_plan_items_loan']
-    action_month [name: 'idx_plan_items_month']
-  }
-}
-
-// =============================================================================
-// 5. ĐẶC TẢ QUAN HỆ & RÀNG BUỘC TOÀN VẸN (FOREIGN KEYS & RELATIONSHIPS)
+// 4. ĐẶC TẢ QUAN HỆ & RÀNG BUỘC TOÀN VẸN (FOREIGN KEYS & RELATIONSHIPS)
 // =============================================================================
 
 // Quan hệ Pháp nhân (Multi-Entity)
@@ -476,7 +426,6 @@ Ref: bank_transactions.entity_id > corporate_entities.entity_id [delete: set nul
 Ref: cash_ledger.entity_id > corporate_entities.entity_id [delete: set null]
 Ref: credit_statement_files.entity_id > corporate_entities.entity_id [delete: set null]
 Ref: credit_facilities.entity_id > corporate_entities.entity_id [delete: set null]
-Ref: loan_repayment_plans.entity_id > corporate_entities.entity_id [delete: set null]
 
 // Quan hệ phân hệ Thanh toán & Dòng tiền
 Ref: bank_statement_files.account_id > bank_accounts.account_id [delete: set null]
@@ -498,12 +447,8 @@ Ref: disbursement_documents.loan_id > credit_facilities.loan_id [delete: cascade
 Ref: loan_repayment_history.loan_id > credit_facilities.loan_id [delete: restrict]
 Ref: loan_repayment_history.transaction_id - bank_transactions.transaction_id [delete: restrict]
 
-// Quan hệ phân hệ Kế hoạch trả nợ
-Ref: loan_repayment_plan_items.plan_id > loan_repayment_plans.plan_id [delete: cascade]
-Ref: loan_repayment_plan_items.loan_id > credit_facilities.loan_id [delete: cascade]
-
 // =============================================================================
-// 6. NHÓM BẢNG THEO PHÂN HỆ NGHIỆP VỤ (TABLE GROUPS)
+// 5. NHÓM BẢNG THEO PHÂN HỆ NGHIỆP VỤ (TABLE GROUPS)
 // =============================================================================
 
 TableGroup entity_organization {
@@ -529,11 +474,6 @@ TableGroup credit_loan_management {
   credit_statement_items
   disbursement_documents
   loan_repayment_history
-}
-
-TableGroup debt_repayment_planning {
-  loan_repayment_plans
-  loan_repayment_plan_items
 }
 
 TableGroup audit_governance {

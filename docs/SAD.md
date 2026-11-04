@@ -25,6 +25,7 @@
 | **1.8.0** | 2026-11-02 | `@SystemArchitect` | Bổ sung Phân hệ Đối soát Chi trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9): Cấu trúc bảng `loan_repayment_history`, cơ chế đối chiếu khế ước tự động bằng Regex, giao dịch nguyên tử cập nhật số dư nợ gốc kèm khóa dòng `FOR UPDATE`, và lưu vết lịch sử theo đúng `transaction_date`. |
 | **1.9.0** | 2026-11-03 | `@SystemArchitect` | Tái thiết kế toàn diện kiến trúc Database (3NF+, PostgreSQL 15+): Bổ sung `corporate_entities` (Multi-Entity Isolation), `statement_anchor_points` (US-04.9), chuẩn hóa HĐĐT XML (`disbursement_documents` US-07.10), phân hệ Kế hoạch trả nợ (`loan_repayment_plans`, `loan_repayment_plan_items` US-07.8), và View Thanh khoản Ròng `v_cfo_net_liquidity_position`. |
 | **1.10.0** | 2026-11-03 | `@SystemArchitect` | Tái cấu trúc Kiến trúc Phân hệ Đối soát Trả nợ Ngân hàng (US-07.9 & US-07.11): Xác lập cột Dư nợ trên file tín dụng là Dư nợ tại thời điểm xuất file (Snapshot Balance at `statement_date`), phân nhánh luồng Pre-Snapshot (hoàn nguyên gốc ban đầu, chống trừ 2 lần) vs Post-Snapshot (giảm trừ hiện tại), cập nhật bảng `loan_repayment_history` với `repayment_timing` và `snapshot_date`. |
+| **1.11.0** | 2026-11-04 | `@SystemArchitect` | Tinh gọn kiến trúc CSDL: Loại bỏ phân hệ Kế hoạch trả nợ (`loan_repayment_plans`, `loan_repayment_plan_items` US-07.8) khỏi ERD và CSDL PostgreSQL; tối ưu hóa cụm bảng tín dụng tập trung cho Quản lý khế ước, Hồ sơ giải ngân và Đối soát giảm trừ dư nợ. |
 
 ---
 
@@ -430,7 +431,6 @@ flowchart LR
 erDiagram
     CORPORATE_ENTITIES ||--o{ BANK_ACCOUNTS : "owns"
     CORPORATE_ENTITIES ||--o{ CREDIT_FACILITIES : "borrows"
-    CORPORATE_ENTITIES ||--o{ LOAN_REPAYMENT_PLANS : "plans"
     BANK_ACCOUNTS ||--o{ BANK_STATEMENT_FILES : "contains"
     BANK_ACCOUNTS ||--o{ BANK_TRANSACTIONS : "holds"
     BANK_STATEMENT_FILES ||--o{ BANK_TRANSACTIONS : "persists"
@@ -444,8 +444,6 @@ erDiagram
     CREDIT_FACILITIES ||--o{ DISBURSEMENT_DOCUMENTS : "dossier_files"
     CREDIT_FACILITIES ||--o{ LOAN_REPAYMENT_HISTORY : "repaid_by"
     BANK_TRANSACTIONS ||--o| LOAN_REPAYMENT_HISTORY : "settles"
-    LOAN_REPAYMENT_PLANS ||--o{ LOAN_REPAYMENT_PLAN_ITEMS : "schedules"
-    CREDIT_FACILITIES ||--o{ LOAN_REPAYMENT_PLAN_ITEMS : "allocated_to"
 
     CORPORATE_ENTITIES {
         bigint entity_id PK
@@ -641,35 +639,6 @@ erDiagram
         decimal previous_principal_balance
         decimal remaining_principal_balance
         timestamp repayment_date
-    }
-
-    LOAN_REPAYMENT_PLANS {
-        bigint plan_id PK
-        bigint entity_id FK
-        varchar plan_name
-        decimal monthly_capacity_ceiling
-        decimal reborrow_rate
-        varchar budget_mode
-        date start_period
-        date end_period
-        decimal total_original_due
-        decimal total_optimized_due
-        decimal total_interest_saved
-        varchar status
-    }
-
-    LOAN_REPAYMENT_PLAN_ITEMS {
-        bigint item_id PK
-        bigint plan_id FK
-        bigint loan_id FK
-        varchar contract_number
-        varchar bank_code
-        varchar action_month
-        varchar action_type
-        decimal scheduled_amount
-        decimal reborrow_amount
-        varchar reborrow_term
-        decimal interest_saved
     }
 ```
 

@@ -30,8 +30,6 @@ from app.schemas.credit import (
     DisbursementDocumentItem,
     DisbursementDocumentUploadResponse,
     CreditOrganizationItem,
-    RepaymentPlanSimulateRequest,
-    DebtRepaymentPlanResponse,
     UnreconciledDebtTransactionItem,
     RepaymentReconcileRequest,
     RepaymentReconcileResponse,
@@ -42,7 +40,6 @@ from app.schemas.credit import (
 from app.schemas.common import PaginationMeta
 from app.services.credit_ingestion_service import ingest_credit_statement
 from app.services.storage_service import save_statement_bytes, read_statement_bytes
-from app.services.debt_repayment_service import DebtRepaymentService
 from app.services.loan_interest_service import calculate_loan_interest
 from app.services.debt_reconciliation_service import DebtReconciliationService
 from app.services.invoice_parser_service import parse_xml_invoice_bytes, calculate_loan_invoice_reconciliation
@@ -557,39 +554,6 @@ async def get_loan_organizations(
                 )
             )
     return result
-
-
-@router.get("/loans/repayment-plan", response_model=DebtRepaymentPlanResponse)
-async def get_default_repayment_plan(
-    monthly_capacity: Optional[Decimal] = Query(None, description="Khả năng chi trả hàng tháng"),
-    strategy: str = Query("SPLIT_LARGE_LOANS", description="Chiến lược phân bổ: SPLIT_LARGE_LOANS, AVALANCHE, SNOWBALL, BALANCED"),
-    prepayment_penalty_rate: Decimal = Query(Decimal("0.00"), description="Tỷ lệ phí phạt trả trước hạn (mặc định 0%)"),
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Lấy kế hoạch phân bổ trả nợ tín dụng đến hạn và đề xuất trả trước hạn.
-    """
-    req = RepaymentPlanSimulateRequest(
-        capacity_mode="UNIFORM",
-        uniform_monthly_capacity=monthly_capacity or Decimal("14000000000.00"),
-        strategy=strategy,
-        prepayment_penalty_rate=prepayment_penalty_rate,
-        mb_tenor_months=6,
-        ctg_tenor_months=4,
-    )
-    return await DebtRepaymentService.simulate_plan(db, req)
-
-
-@router.post("/loans/repayment-plan/simulate", response_model=DebtRepaymentPlanResponse)
-async def simulate_repayment_plan(
-    payload: RepaymentPlanSimulateRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """
-    Mô phỏng kế hoạch phân bổ trả nợ tín dụng theo kịch bản tùy chỉnh linh hoạt
-    (hỗ trợ khả năng chi trả thay đổi theo mùa vụ từng tháng, điều chỉnh kỳ hạn đảo nợ MB 6T, CTG 4T).
-    """
-    return await DebtRepaymentService.simulate_plan(db, payload)
 
 
 def _estimate_contract_interest(principal: Decimal, rate_pct: Decimal, start: Optional[date], end: Optional[date]) -> Decimal:

@@ -28,6 +28,7 @@
 | **1.11.0** | 2026-11-02 | `@BusinessAnalyst` | Bổ sung `US-07.10` (Bóc tách Hóa đơn Điện tử XML & Đối soát Hóa đơn Giải ngân) và `US-07.11` (Chuẩn hóa 3 Cột Dư Nợ Gốc Ban Đầu, Đã Trả Gốc, Dư Nợ Gốc Hiện Tại và Ghi nhớ Tự động Danh mục Tổ chức / Loại Hồ sơ Mới). |
 | **1.12.0** | 2026-11-03 | `@BusinessAnalyst` | Tái cấu trúc Quy tắc Parse Sao kê Tín dụng & Động cơ Đối soát Trả nợ Ngân hàng (US-07.9 & US-07.11): Xác lập cột Dư nợ trên file là Dư nợ tại thời điểm xuất file (Snapshot Balance at `statement_date`), file không có dư nợ ban đầu; phân định giao dịch Pre-Snapshot (hoàn nguyên gốc ban đầu, chống trừ 2 lần) và Post-Snapshot (giảm trừ hiện tại). |
 | **1.13.0** | 2026-11-04 | `@BusinessAnalyst` | Bổ sung `US-07.12`: Màn hình Chi tiết Khế ước & Bộ Lọc Đa Chiều Từng Cột (Per-Column Filters) phục vụ tra cứu chuyên sâu danh mục nợ, bóc tách dòng tiền hoàn nguyên nợ gốc/lãi, hỗ trợ 1-chạm sao chép số khế ước và lọc theo ngân hàng, trạng thái tất toán, số tiền, lãi suất, ngày giải ngân/đáo hạn. |
+| **1.14.0** | 2026-11-04 | `@BusinessAnalyst` | Bãi bỏ và xóa bỏ hoàn toàn `US-07.8` (Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn) theo yêu cầu tái cơ cấu phân hệ tín dụng; chỉ giữ nguyên Sao Kê Tín Dụng, Đối Soát Trả Nợ (US-07.9) và Chi Tiết Khế Ước (US-07.12). |
 
 ---
 
@@ -562,29 +563,8 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
     Then Hệ thống tự động bổ sung danh mục mới vào thanh Tab, ghi nhớ vào bộ lưu trữ và kích hoạt tab này để người dùng tải tệp lên ngay lập tức
   ```
 
-#### US-07.8: Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn (SRPR Debt Smoothing & Re-borrowing Engine v2.0)
-* **User Story:** Là một *Giám đốc Tài chính (Ông Trần Ngọc Tuấn - CFO)* và *Chuyên viên Tài chính (Chị Cẩm Nhung)*, tôi muốn *hệ thống ứng dụng thuật toán Dịch chuyển Kỳ hạn Bậc thang & Trả sớm Tái định tuyến trong ngày (SRPR), đảm bảo sau khi cắt nợ (trả trước hạn/trả đúng hạn) vẫn vay lại đúng số tiền gốc đó với kỳ hạn phù hợp*, để *sau khi thực thi, dư nợ đến hạn của mỗi tháng luôn nằm dưới trần khả năng chi trả của công ty, khắc phục triệt để tình trạng đỉnh nợ lệch pha (chữ U), hóa giải cạm bẫy tái vay 4 tháng của VietinBank và bảo toàn vốn lưu động phục vụ kinh doanh*.
-* **Độ ưu tiên:** Must Have (`P0`)
-* **Quy tắc Nghiệp vụ (Business Rules):**
-  1. **Nguyên tắc Vay lại Đúng Gốc sau khi Cắt nợ (100% Re-borrowing Match):**
-     - Mọi khoản nợ bị cắt/trả (dù là trả trước hạn để tái định tuyến hay tất toán đúng hạn) đều phải được giải ngân vay lại đúng bằng số tiền gốc đã cắt ($R_{\text{reborrow}} = P_{\text{cut}}$) với khế ước mới kèm ngày đáo hạn tương ứng.
-  2. **Tối ưu theo trần (Capacity-Constrained Smoothing) – áp dụng chung mọi ngân hàng, tính động từ danh mục khoản vay trong CSDL (không cố định số liệu):**
-     - Kỳ kế hoạch: 7 tháng bắt đầu từ tháng hiện tại; khoản vay quá hạn hoặc chưa có ngày trả được tính vào tháng đầu tiên.
-     - Khi tất toán đúng hạn, phần vay lại ($r \times P$) được chia vào các tháng đáo hạn mới trong giới hạn kỳ hạn tối đa của ngân hàng (MBB: `mb_tenor_months`, CTG: `ctg_tenor_months`, ngân hàng khác: giá trị nhỏ hơn), ưu tiên kỳ hạn dài và chỉ lấp vào phần trần còn trống của tháng đích.
-  3. **Trả trước hạn & vay lại trong ngày để cắt đỉnh:** Nếu tháng $m$ vượt trần, hệ thống trả trước hạn một phần nợ của tháng $m$ tại các tháng trước còn dư trần, vay lại ngay với ngày đáo hạn sau tháng $m$. Thứ tự chọn khế ước theo `strategy` (AVALANCHE: lãi cao trước; SNOWBALL: khoản nhỏ trước; SPLIT_LARGE_LOANS/BALANCED: khoản lớn trước). Phí phạt = số tiền trả trước × `prepayment_penalty_rate`; lãi tiết kiệm chỉ tính trên phần không vay lại.
-  4. **Cảnh báo trung thực:** Nếu không có phương án đưa tháng nào đó về dưới trần (ví dụ nợ đến hạn tháng đầu đã vượt trần), tháng đó được đánh dấu `OVER_CAPACITY` (`is_safe = False`) và hiển thị cảnh báo; tuyệt đối không tự hạ số liệu để báo đạt.
-  5. **Bảo đảm trần an toàn (Safety Invariant):** Tại mọi tháng $t$, dư nợ thanh toán thực tế sau phân bổ luôn thỏa mãn $D_t^{\text{allocated}} \le C_t$.
-* **Tiêu chí chấp nhận (AC - Gherkin):**
-  ```gherkin
-  Scenario: [REQ-CREDIT-008] Mô phỏng Kế hoạch trả nợ theo trần chi trả
-    Given Danh mục khoản vay đang hoạt động trong CSDL
-    When Người dùng chọn kịch bản "SRPR_OPTIMAL" với ngưỡng chi trả C VND/tháng
-    Then Mọi số liệu (nợ đến hạn, đỉnh nợ, vay lại) được tính lại từ dữ liệu hiện tại, kể cả khoản vay vừa nhập
-    And Với mọi tháng t: allocated_payment_amount <= C_t khi tồn tại phương án khả thi
-    And Toàn bộ số tiền gốc đã cắt được vay lại theo reborrow_rate
-    And peak_debt_after <= peak_debt_before (phương án tái vay nguyên khối)
-    And Tháng không thể đưa về dưới trần được đánh dấu is_safe = False kèm cảnh báo
-  ```
+#### US-07.8: [ĐÃ XÓA / DEPRECATED] Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn
+> *Ghi chú nghiệp vụ:* Phân hệ Kế hoạch trả nợ & Mô phỏng làm phẳng dòng tiền (US-07.8 / URL `/loan-repayment-plan`) đã được bãi bỏ và xóa bỏ hoàn toàn khỏi kiến trúc hệ thống và giao diện người dùng theo quyết định ngày 04/11/2026. Phân hệ tín dụng tập trung toàn bộ vào: Quản lý Danh mục khế ước & Hạn mức (EPIC-07), Đối soát giao dịch chi trả nợ & giảm trừ nợ gốc thực tế (US-07.9) và Màn hình Chi tiết khế ước (US-07.12).
 
 ### US-07.9: Đối soát Giao dịch Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (Debt Repayment Reconciliation & Balance Reduction Engine)
 * **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)* và *Giám đốc Tài chính (CFO - Ông Trần Ngọc Tuấn)*, tôi muốn *hệ thống tự động lọc các giao dịch chi từ sao kê ngân hàng đã phân loại là "Trả nợ", cung cấp giao diện trực quan đối chiếu với khoản vay qua số khế ước kèm khung chia Gốc - Lãi thông minh (nút chọn 100% gốc), tự động giảm trừ nợ gốc tương ứng và ghi nhận nhật ký lịch sử trả nợ theo đúng thời điểm giao dịch thực tế*, để *dư nợ các khoản vay luôn được cập nhật chính xác, không cần tính toán thủ công và đảm bảo tính toàn vẹn kiểm toán*.

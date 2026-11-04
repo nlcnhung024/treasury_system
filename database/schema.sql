@@ -267,7 +267,7 @@ CREATE TABLE audit_logs (
     correlation_id UUID NOT NULL DEFAULT uuid_generate_v4(),
     actor VARCHAR(100) NOT NULL,                            -- User hoặc Background Worker
     action VARCHAR(50) NOT NULL,                            -- 'UPLOAD_FILE', 'PARSE_COMPLETED', 'MANUAL_TAG', 'RECALCULATE_ANCHOR'...
-    target_entity VARCHAR(50) NOT NULL,                     -- 'STATEMENT_FILE', 'TRANSACTION', 'RULE', 'LOAN', 'REPAYMENT_PLAN'
+    target_entity VARCHAR(50) NOT NULL,                     -- 'STATEMENT_FILE', 'TRANSACTION', 'RULE', 'LOAN', 'REPAYMENT_RECORD'
     target_id VARCHAR(50) NOT NULL,
     details JSONB,                                          -- Lưu chi tiết thay đổi (Before/After)
     ip_address VARCHAR(45),
@@ -483,57 +483,7 @@ CREATE INDEX idx_repay_hist_contract ON loan_repayment_history(contract_number);
 CREATE INDEX idx_repay_hist_date ON loan_repayment_history(repayment_date DESC);
 
 -- =============================================================================
--- 15. BẢNG KỊCH BẢN KẾ HOẠCH TRẢ NỢ & ĐIỀU PHỐI DÒNG TIỀN (LOAN REPAYMENT PLANS)
--- Lưu trữ các phương án điều phối thanh khoản tuần hoàn (US-07.8 / Thuật toán SRPR v2.0)
--- =============================================================================
-CREATE TABLE loan_repayment_plans (
-    plan_id BIGSERIAL PRIMARY KEY,
-    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
-    plan_name VARCHAR(150) NOT NULL,                        -- Tên phương án (Phương án cơ sở 14 tỷ/tháng, Kịch bản mùa vụ...)
-    monthly_capacity_ceiling DECIMAL(18, 2) NOT NULL DEFAULT 14000000000.00, -- Trần khả năng chi trả hàng tháng
-    reborrow_rate DECIMAL(6, 4) NOT NULL DEFAULT 1.0000,    -- Tỷ lệ vay lại vốn quay vòng (mặc định 100%)
-    budget_mode VARCHAR(20) NOT NULL DEFAULT 'FIXED_CAPACITY', -- 'FIXED_CAPACITY' hoặc 'SEASONAL_CUSTOM'
-    start_period DATE NOT NULL,                             -- Tháng bắt đầu mô phỏng (ví dụ: 2026-11-01)
-    end_period DATE NOT NULL,                               -- Tháng kết thúc mô phỏng (ví dụ: 2027-05-31)
-    total_original_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00,-- Tổng nghĩa vụ nợ gốc trước điều phối
-    total_optimized_due DECIMAL(18, 2) NOT NULL DEFAULT 0.00,-- Tổng nợ gốc sau khi làm phẳng dòng tiền
-    total_interest_saved DECIMAL(18, 2) NOT NULL DEFAULT 0.00,-- Dự kiến tiền lãi tiết kiệm được
-    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',            -- 'DRAFT', 'SIMULATED', 'APPROVED_BASELINE', 'ARCHIVED'
-    created_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
-    approved_by VARCHAR(100),                               -- CFO Trần Ngọc Tuấn phê duyệt
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_plans_entity ON loan_repayment_plans(entity_id);
-CREATE INDEX idx_plans_status ON loan_repayment_plans(status);
-
--- =============================================================================
--- 16. BẢNG CHI TIẾT ĐIỀU PHỐI KHẾ ƯỚC THEO THÁNG (LOAN REPAYMENT PLAN ITEMS)
--- Chi tiết từng hành động trả trước hạn, cắt đỉnh, bắc cầu và vay lại
--- =============================================================================
-CREATE TABLE loan_repayment_plan_items (
-    item_id BIGSERIAL PRIMARY KEY,
-    plan_id BIGINT NOT NULL REFERENCES loan_repayment_plans(plan_id) ON DELETE CASCADE,
-    loan_id BIGINT NOT NULL REFERENCES credit_facilities(loan_id) ON DELETE CASCADE,
-    contract_number VARCHAR(50) NOT NULL,
-    bank_code VARCHAR(20) NOT NULL,
-    action_month VARCHAR(7) NOT NULL,                       -- Tháng thực hiện hành động: YYYY-MM (2026-11 .. 2027-05)
-    action_type VARCHAR(30) NOT NULL,                       -- 'NATURAL_DUE', 'PREPAY_CUT', 'BRIDGE_ROLLOVER', 'REBORROW_DISBURSE'
-    scheduled_amount DECIMAL(18, 2) NOT NULL,               -- Số tiền nợ gốc kế hoạch chi trả
-    reborrow_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,   -- Số tiền vay lại ngay sau tất toán
-    reborrow_term VARCHAR(20),                              -- Kỳ hạn vay lại (1M, 2M, 3M, 4M, 6M)
-    interest_saved DECIMAL(18, 2) DEFAULT 0.00,             -- Số tiền lãi tiết kiệm được từ hành động này
-    notes TEXT,                                             -- Ghi chú kỹ thuật điều phối
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX idx_plan_items_plan ON loan_repayment_plan_items(plan_id);
-CREATE INDEX idx_plan_items_loan ON loan_repayment_plan_items(loan_id);
-CREATE INDEX idx_plan_items_month ON loan_repayment_plan_items(action_month);
-
--- =============================================================================
--- 17. VIEW BÁO CÁO CFO (TỔNG TỒN QUỸ HỢP NHẤT HÔM NAY - TRƯỚC 9H SÁNG)
+-- 15. VIEW BÁO CÁO CFO (TỔNG TỒN QUỸ HỢP NHẤT HÔM NAY - TRƯỚC 9H SÁNG)
 -- Phân tách 2 Khối nguồn tiền độc lập (Khối 1: Cty + Khối 2: Ủy quyền CEO), loại bỏ tiền mặt
 -- =============================================================================
 CREATE OR REPLACE VIEW v_cfo_daily_liquidity AS
@@ -559,7 +509,7 @@ SELECT
 FROM account_summary;
 
 -- =============================================================================
--- 18. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG THEO NGÂN HÀNG
+-- 16. VIEW BÁO CÁO NGHĨA VỤ NỢ TÍN DỤNG THEO NGÂN HÀNG
 -- =============================================================================
 CREATE OR REPLACE VIEW v_cfo_debt_obligations AS
 SELECT 
@@ -580,7 +530,7 @@ WHERE cf.is_active = TRUE AND cf.status = 'ACTIVE'
 GROUP BY cf.entity_id, cf.bank_code, cf.bank_name;
 
 -- =============================================================================
--- 19. VIEW BÁO CÁO THANH KHOẢN RÒNG HỢP NHẤT (NET LIQUIDITY POSITION)
+-- 17. VIEW BÁO CÁO THANH KHOẢN RÒNG HỢP NHẤT (NET LIQUIDITY POSITION)
 -- Thanh khoản Ròng = Tổng tồn quỹ hợp nhất (2 khối) - Nghĩa vụ nợ đến hạn kỳ tới
 -- =============================================================================
 CREATE OR REPLACE VIEW v_cfo_net_liquidity_position AS

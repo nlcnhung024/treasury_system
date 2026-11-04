@@ -120,8 +120,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   12. `credit_statement_items`: Snapshot chi tiết từng khoản vay theo từng file sao kê.
   13. `disbursement_documents`: Bộ hồ sơ giải ngân và bóc tách HĐĐT XML theo NĐ 123/TT 78 (US-07.10).
   14. `loan_repayment_history`: Lịch sử đối soát chi trả nợ và giảm trừ nợ gốc (US-07.9).
-  15. `loan_repayment_plans` & `loan_repayment_plan_items`: Kịch bản kế hoạch trả nợ và điều phối dòng tiền tuần hoàn (US-07.8 / SRPR v2.0).
-  16. View `v_cfo_daily_liquidity`, `v_cfo_debt_obligations` & `v_cfo_net_liquidity_position`: Báo cáo hợp nhất tốc độ cao (< 100ms).
+  15. View `v_cfo_daily_liquidity`, `v_cfo_debt_obligations` & `v_cfo_net_liquidity_position`: Báo cáo hợp nhất tốc độ cao (< 100ms).
 
 ### Phân hệ 6: Trích xuất Báo cáo & Trực quan hóa (Reporting & Analytics)
 - **Bộ lọc đa chiều:** Theo khoảng ngày, tài khoản ngân hàng, loại thu/chi, khoảng số tiền, từ khóa nội dung diễn giải.
@@ -240,16 +239,6 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - **Tổng dư nợ gốc đã trả / Tổng lãi đã trả** = tổng các giao dịch trả gốc / trả lãi đã đối soát từ sao kê (`loan_repayment_history`).
   - Bấm vào khế ước để mở **Bảng dòng tiền**: Thời điểm giao dịch, Nội dung giao dịch, Nợ gốc đầu kỳ, Tổng giá trị giao dịch, Số tiền trả gốc, Số tiền trả lãi, Gốc còn lại. Dòng có trả gốc sau ngày đáo hạn được tô nền hồng (trả nợ quá hạn).
   - Nợ gốc đầu kỳ / Gốc còn lại được **dựng lại theo thứ tự thời gian giao dịch** bắt đầu từ Dư nợ gốc khế ước (không dùng số dư chụp tại thời điểm bấm đối soát). Gốc còn lại âm (tô đỏ) = tổng gốc đã trả vượt dư nợ gốc, cần kiểm tra lại đối soát/giải ngân.
-- **Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn (`/loan-repayment-plan`):**
-  - Màn hình chuyên dụng cho CFO và Kế toán nằm dưới mục *Theo dõi khoản vay*.
-  - Thuật toán *Tối ưu theo trần chi trả* (tính động 100% từ danh mục khoản vay, không cố định số liệu):
-    - **Nguyên tắc duy nhất:** Không để tổng nợ gốc đến hạn (kể cả trả trước hạn) của bất kỳ tháng nào vượt trần chi trả.
-    - **Vay lại theo tỷ lệ:** Mọi khoản tất toán/cắt sớm được vay lại theo `reborrow_rate`, chia vào các tháng còn trống trần trong giới hạn kỳ hạn tối đa từng ngân hàng (MBB/CTG cấu hình được).
-    - **Cắt đỉnh:** Tháng vượt trần được trả trước hạn một phần tại các tháng trước còn dư trần và vay lại ngay với kỳ hạn đáo hạn sau tháng đỉnh.
-    - **Cảnh báo trung thực:** Tháng không khả thi hiển thị `OVER_CAPACITY` và thẻ an toàn hiển thị % tháng đạt thực tế.
-  - Hỗ trợ 2 chế độ thiết lập ngân sách: *Cố định đều các tháng* (mặc định 14 tỷ VND/tháng) và *Tùy chỉnh theo mùa vụ kinh doanh*.
-  - Biểu đồ Cột Stacked Bar: Phân tách minh bạch nợ gốc tự nhiên cũ (cam/xám), nợ bắc cầu đổ về (tím) và nợ thanh toán đề xuất (xanh), đảm bảo 100% các tháng nằm an toàn dưới đường trần chi trả.
-  - Ma trận Điều phối Dòng tiền 7 Tháng (7 cột chuẩn CFO) và Bảng lịch trình chi tiết từng khế ước (70+ hành động thực thi, ghi chú nghiệp vụ và tiền lãi tiết kiệm được).
 - **Phân hệ 7.9: Đối soát Giao dịch Chi Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9):**
   - **Lọc tự động:** Quét toàn bộ giao dịch chi (`debit_amount > 0`) đã phân loại là "Trả nợ" (Category ID 25) trên các tài khoản ngân hàng doanh nghiệp, loại trừ các giao dịch đã đối soát.
   - **Gợi ý khế ước thông minh:** Tự động trích xuất số khế ước (VietinBank 12 số, MBBank `LD...`, `040MAZS...`) và số tiền gốc/lãi gợi ý từ nội dung diễn giải sao kê ngân hàng (`description`). **Quy tắc nghiêm ngặt:** Chỉ hiển thị gợi ý khế ước nếu khế ước đó đã tồn tại trong danh mục khế ước đã nạp (`credit_facilities`). Nếu diễn giải chứa số khế ước nhưng chưa từng nạp vào hệ thống thì để trống, không hiển thị thẻ gợi ý ảo với dư nợ 0 đ.
@@ -282,14 +271,14 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
 - Cung cấp thanh chuyển đổi vai trò (Persona Switcher) linh hoạt trên thanh Sidebar:
   1. **Chị Nghiêm Lê Cẩm Nhung (Kế toán viên - Primary End-User):**
      - Mặc định truy cập: `/` (Màn hình Nạp Sao Kê).
-     - Quyền truy cập: Nạp sao kê tài khoản & tín dụng, Bảng Giao Dịch, Bộ Quy Tắc, Sao Kê Tín Dụng, Kế Hoạch Trả Nợ, Xuất Excel.
+     - Quyền truy cập: Nạp sao kê tài khoản & tín dụng, Bảng Giao Dịch, Bộ Quy Tắc, Sao Kê Tín Dụng, Đối Soát Trả Nợ, Chi Tiết Khế Ước, Xuất Excel.
   2. **Ông Trần Ngọc Tuấn (Giám đốc Tài chính - CFO):**
      - Mặc định truy cập: `/cfo-dashboard` (Tồn Quỹ CFO < 9h sáng & Thanh khoản Ròng).
-     - Quyền truy cập: Xem toàn bộ tồn quỹ hợp nhất đa kỳ, biểu đồ ngân hàng, drill-down giao dịch, giám sát nghĩa vụ nợ tín dụng, mô phỏng Kế Hoạch Trả Nợ, xuất Excel CFO.
+     - Quyền truy cập: Xem toàn bộ tồn quỹ hợp nhất đa kỳ, biểu đồ ngân hàng, drill-down giao dịch, giám sát nghĩa vụ nợ tín dụng, xuất Excel CFO.
   3. **Bà Nguyễn Thị Lan Anh (Tổng Giám đốc - CEO):**
      - Mặc định truy cập: `/ceo-waterfall` (Biểu đồ Thác nước Thu/Chi).
      - Quyền truy cập: Xem biểu đồ Waterfall WTD/MTD, cơ cấu chi phí, giám sát tồn quỹ tổng thể.
 
 - **Tiêu chuẩn Bảng Dữ liệu Toàn Hệ thống (System-wide 100% Sortable Data Tables):**
-  - Toàn bộ các bảng danh sách và ma trận dữ liệu trên tất cả các trang frontend (UploadPage, TransactionsPage, RuleManagementPage, LoanRepaymentReconcilePage, LoanRepaymentPlanPage, CFODashboardPage, CreditStatementsPage) đều được trang bị tiêu đề cột hỗ trợ sắp xếp 2 chiều linh hoạt (Ascending/Descending).
+  - Toàn bộ các bảng danh sách và ma trận dữ liệu trên tất cả các trang frontend (UploadPage, TransactionsPage, RuleManagementPage, LoanRepaymentReconcilePage, ContractDetailsPage, CFODashboardPage, CreditStatementsPage) đều được trang bị tiêu đề cột hỗ trợ sắp xếp 2 chiều linh hoạt (Ascending/Descending).
   - Tích hợp component dùng chung `<SortableTh>`, hỗ trợ tooltip giải thích, biểu tượng trạng thái trực quan (`ArrowUp`/`ArrowDown`/`ArrowUpDown`) và thuật toán so sánh tiếng Việt chuẩn (`localeCompare('vi', { numeric: true })`) cho cả văn bản, tiền tệ, ngày tháng và trạng thái.

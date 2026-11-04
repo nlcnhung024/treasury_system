@@ -76,23 +76,6 @@ export interface DisbursementDocument {
   updated_at: string;
 }
 
-export interface SavedLoanRepaymentPlan {
-  plan_id: number;
-  entity_id?: number | null;
-  plan_name: string;
-  monthly_capacity_ceiling: number;
-  reborrow_rate: number;
-  budget_mode: 'FIXED_CAPACITY' | 'SEASONAL_CUSTOM';
-  start_period: string;
-  end_period: string;
-  total_original_due: number;
-  total_optimized_due: number;
-  total_interest_saved: number;
-  status: 'DRAFT' | 'SIMULATED' | 'APPROVED_BASELINE' | 'ARCHIVED';
-  approved_by?: string | null;
-  created_at: string;
-}
-
 export interface LoanInvoiceReconciliation {
   loan_id: number;
   contract_number: string;
@@ -225,79 +208,6 @@ export interface CreditFacilitySummary {
   total_upcoming_due_30days: number;
   weighted_avg_interest_rate: number;
   by_bank: BankDebtSummary[];
-}
-
-export type CapacityMode = 'UNIFORM' | 'SEASONAL';
-export type RepaymentStrategy = 'SPLIT_LARGE_LOANS' | 'AVALANCHE' | 'SNOWBALL' | 'BALANCED';
-export type ReborrowMode = 'SRPR_OPTIMAL' | 'LUMP_SUM_STANDARD' | 'STAGGERED_SMOOTHING';
-
-export interface MonthlyRepaymentComparisonItem {
-  month: string;
-  natural_due_amount: number;
-  reborrowed_new_due_amount?: number;
-  bridged_due_amount?: number;
-  intraday_reroute_cut_amount?: number;
-  allocated_payment_amount: number;
-  prepaid_principal_amount: number;
-  regular_principal_amount: number;
-  closing_total_debt?: number;
-  reroute_destination_note?: string;
-  monthly_capacity: number;
-  remaining_capacity: number;
-  is_safe: boolean;
-  status_label: 'SAFE' | 'REFINANCED' | 'OVER_CAPACITY';
-}
-
-export interface LoanAllocationActionItem {
-  loan_id: number;
-  bank_code: string;
-  contract_number: string;
-  original_balance: number;
-  interest_rate: number;
-  original_due_date?: string | null;
-  action_type: 'PAY_ON_DUE' | 'PARTIAL_PREPAYMENT' | 'FULL_PREPAYMENT' | 'ROLLOVER_REFINANCE' | 'NEW_REBORROW_DRAWDOWN' | 'STEPPED_BRIDGING_DRAWDOWN' | 'INTRADAY_PREPAY_REROUTE' | 'MATURITY_ROLLOVER';
-  payment_month: string;
-  payment_amount: number;
-  remaining_balance_after: number;
-  days_early: number;
-  estimated_interest_saved: number;
-  prepayment_penalty_fee: number;
-  rollover_new_maturity?: string | null;
-  note: string;
-}
-
-export interface DebtRepaymentPlanResponse {
-  total_principal_debt: number;
-  total_loans_count: number;
-  capacity_mode: CapacityMode;
-  uniform_monthly_capacity: number;
-  prepayment_penalty_rate: number;
-  strategy: RepaymentStrategy;
-  reborrow_rate: number;
-  reborrow_mode: ReborrowMode;
-  total_reborrowed_amount: number;
-  total_cut_and_reborrowed_amount?: number;
-  reborrow_summary_note: string;
-  peak_debt_before: number;
-  peak_debt_after: number;
-  peak_reduction_percent: number;
-  total_interest_saved: number;
-  total_penalty_incurred: number;
-  net_financial_benefit: number;
-  monthly_schedule: MonthlyRepaymentComparisonItem[];
-  allocations: LoanAllocationActionItem[];
-}
-
-export interface RepaymentPlanSimulateRequest {
-  capacity_mode: CapacityMode;
-  uniform_monthly_capacity: number;
-  seasonal_capacities?: Record<string, number>;
-  prepayment_penalty_rate: number;
-  strategy: RepaymentStrategy;
-  mb_tenor_months: number;
-  ctg_tenor_months: number;
-  reborrow_rate: number;
-  reborrow_mode: ReborrowMode;
 }
 
 export interface UnreconciledDebtTransaction {

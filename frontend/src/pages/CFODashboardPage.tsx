@@ -21,7 +21,6 @@ import {
   UserCheck,
   CreditCard,
   Landmark,
-  ArrowUpRight,
 } from 'lucide-react';
 import api from '../services/api';
 import {
@@ -1016,14 +1015,6 @@ export const CFODashboardPage: React.FC = () => {
                 >
                   <CreditCard className="w-3.5 h-3.5" />
                   <span>Khoản vay ({debtSummary.total_active_loans} HĐ)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => navigate('/loan-repayment-plan')}
-                  className="px-3 py-2 bg-white/10 hover:bg-white/20 text-white rounded-lg text-xs font-semibold border border-white/20 transition-colors flex items-center gap-1"
-                >
-                  <span>Kế hoạch trả nợ</span>
-                  <ArrowUpRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             </div>
