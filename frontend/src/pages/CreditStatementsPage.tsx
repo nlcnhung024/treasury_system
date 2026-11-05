@@ -1,52 +1,35 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Upload,
   CheckCircle,
   AlertTriangle,
   FileSpreadsheet,
   Trash2,
-  Search,
-  DollarSign,
-  Calendar,
-  Percent,
-  Layers,
   Building,
   RefreshCw,
-  Clock,
   Plus,
   Edit2,
   X,
-  CreditCard,
   Briefcase,
   FileText,
   Building2,
-  Wallet,
   Download,
   FolderArchive,
   Shield,
   Receipt,
   Tag,
-  File,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  SlidersHorizontal,
-  Table,
-  Sparkles,
-  Info,
+  BarChart3,
+  DollarSign,
+  Calendar,
+  Percent,
   Calculator,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  Copy,
-  Check,
+  Info,
 } from 'lucide-react';
 import api from '../services/api';
 import {
   CreditFacility,
   CreditStatementFile,
-  CreditFacilitySummary,
   InstitutionType,
   InterestPaymentMethod,
   DisbursementDocument,
@@ -54,7 +37,22 @@ import {
   CreditFacilityUpdatePayload,
 } from '../types';
 import { SortableTh } from '../components/common/SortableTh';
-import { SortDirection, sortList } from '../utils/sort';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
+
+const CREDIT_FILE_COLUMNS: ColumnConfig[] = [
+  { field: 'file_id', label: 'File ID', type: 'number', defaultWidth: 80 },
+  { field: 'bank_code', label: 'Ngân Hàng', type: 'text', defaultWidth: 120 },
+  { field: 'original_filename', label: 'Tên File Gốc', type: 'text', defaultWidth: 240 },
+  { field: 'template_code', label: 'Mã Mẫu', type: 'text', defaultWidth: 140 },
+  { field: 'statement_date', label: 'Ngày Số Liệu', type: 'date', defaultWidth: 130 },
+  { field: 'total_principal_amount', label: 'Tổng Dư Nợ', type: 'number', align: 'right', defaultWidth: 150 },
+  { field: 'total_contracts_count', label: 'Số Khoản Vay', type: 'number', align: 'center', defaultWidth: 110 },
+  { field: 'reconciliation_status', label: 'Đối Soát Cân Bằng', type: 'text', align: 'center', defaultWidth: 150 },
+  { field: 'created_at', label: 'Ngày Tải Lên', type: 'date', defaultWidth: 160 },
+];
+import { useCorporateEntity } from '../contexts/CorporateEntityContext';
 
 interface PresetOrg {
   code: string;
@@ -329,242 +327,45 @@ export const renderDossierBadge = (docType: string, allCategories?: DossierCateg
 // ---------------------------------------------------------------------------
 // PIVOT TABLE DEFINITIONS & HELPERS
 // ---------------------------------------------------------------------------
-export interface PivotDimDef {
-  id: string;
-  label: string;
-  getValue: (loan: CreditFacility) => string;
-}
-
-export interface PivotMetricDef {
-  id: string;
-  label: string;
-  shortLabel: string;
-  format: (val: number) => string;
-  unit: string;
-  compute: (loans: CreditFacility[]) => number;
-}
-
-export const PIVOT_ROW_DIMENSIONS: PivotDimDef[] = [
-  {
-    id: 'bank_name',
-    label: 'Ngân hàng / TCTD',
-    getValue: (l) => l.bank_name || l.bank_code || 'Chưa xác định',
-  },
-  {
-    id: 'institution_type',
-    label: 'Loại tổ chức tín dụng',
-    getValue: (l) => {
-      if (l.institution_type === 'BANK') return 'Ngân hàng thương mại';
-      if (l.institution_type === 'FINANCE_COMPANY') return 'Công ty tài chính';
-      if (l.institution_type === 'LEASING_COMPANY') return 'Cho thuê tài chính';
-      return 'Tổ chức khác';
-    },
-  },
-  {
-    id: 'debt_group',
-    label: 'Phân loại nhóm nợ',
-    getValue: (l) => `Nhóm ${l.debt_group || '1'}`,
-  },
-  {
-    id: 'interest_payment_method',
-    label: 'Hình thức trả lãi',
-    getValue: (l) => {
-      if (l.interest_payment_method === 'MONTHLY') return 'Hàng tháng';
-      if (l.interest_payment_method === 'END_OF_TERM') return 'Cuối kỳ / Đáo hạn';
-      return 'Định kỳ khác';
-    },
-  },
-  {
-    id: 'term',
-    label: 'Thời hạn / Kỳ hạn',
-    getValue: (l) => l.term || 'Không ghi kỳ hạn',
-  },
-  {
-    id: 'disbursement_month',
-    label: 'Tháng giải ngân',
-    getValue: (l) => (l.disbursement_date ? l.disbursement_date.substring(0, 7) : 'Chưa có ngày'),
-  },
-  {
-    id: 'maturity_month',
-    label: 'Tháng đáo hạn',
-    getValue: (l) => (l.maturity_date ? l.maturity_date.substring(0, 7) : 'Chưa có ngày'),
-  },
-  {
-    id: 'is_manual',
-    label: 'Nguồn dữ liệu',
-    getValue: (l) => (l.is_manual ? 'Nhập nợ lẻ thủ công' : 'Bóc tách từ file sao kê'),
-  },
-  {
-    id: 'has_dossier',
-    label: 'Hồ sơ giải ngân',
-    getValue: (l) => ((l.dossier_files_count || 0) > 0 ? 'Đã có hồ sơ' : 'Chưa có hồ sơ'),
-  },
-];
-
-export const PIVOT_COL_DIMENSIONS: PivotDimDef[] = [
-  {
-    id: 'NONE',
-    label: '(Không phân chia cột - Bảng 1 Chiều)',
-    getValue: () => '__SINGLE__',
-  },
-  ...PIVOT_ROW_DIMENSIONS,
-];
-
-export const PIVOT_METRIC_DEFS: PivotMetricDef[] = [
-  {
-    id: 'current_principal_balance',
-    label: 'Tổng Dư Nợ Gốc (VNĐ)',
-    shortLabel: 'Dư Nợ Gốc',
-    unit: 'VNĐ',
-    format: (v) => `${Number(v).toLocaleString('vi-VN')} ₫`,
-    compute: (list) => list.reduce((sum, l) => sum + Number(l.current_principal_balance || 0), 0),
-  },
-  {
-    id: 'calculated_interest_due',
-    label: 'Tổng Tiền Lãi Dự Trả TT14 (VNĐ)',
-    shortLabel: 'Lãi Dự Trả',
-    unit: 'VNĐ',
-    format: (v) => `${Number(v).toLocaleString('vi-VN')} ₫`,
-    compute: (list) =>
-      list.reduce((sum, l) => sum + Number(l.calculated_interest_due ?? l.accrued_interest ?? 0), 0),
-  },
-  {
-    id: 'next_principal_amount',
-    label: 'Gốc Đến Hạn Kỳ Tới (VNĐ)',
-    shortLabel: 'Gốc Đến Hạn',
-    unit: 'VNĐ',
-    format: (v) => `${Number(v).toLocaleString('vi-VN')} ₫`,
-    compute: (list) => list.reduce((sum, l) => sum + Number(l.next_principal_amount || 0), 0),
-  },
-  {
-    id: 'wair',
-    label: 'Lãi Suất BQ Gia Quyền (WAIR %)',
-    shortLabel: 'Lãi Suất WAIR',
-    unit: '%/năm',
-    format: (v) => `${Number(v).toFixed(2)} %`,
-    compute: (list) => {
-      const totalP = list.reduce((sum, l) => sum + Number(l.current_principal_balance || 0), 0);
-      if (totalP <= 0) {
-        if (list.length === 0) return 0;
-        return list.reduce((sum, l) => sum + Number(l.interest_rate || 0), 0) / list.length;
-      }
-      const weightedSum = list.reduce(
-        (sum, l) => sum + Number(l.current_principal_balance || 0) * Number(l.interest_rate || 0),
-        0
-      );
-      return weightedSum / totalP;
-    },
-  },
-  {
-    id: 'count',
-    label: 'Số Lượng Hợp Đồng / Khế Ước',
-    shortLabel: 'Số Lượng HĐ',
-    unit: 'HĐ',
-    format: (v) => `${Number(v).toLocaleString('vi-VN')} HĐ`,
-    compute: (list) => list.length,
-  },
-];
-
-export const PIVOT_PRESETS = [
-  {
-    name: 'Ngân hàng × Nhóm nợ',
-    row: 'bank_name',
-    col: 'debt_group',
-    metric: 'current_principal_balance',
-  },
-  {
-    name: 'Ngân hàng × Hình thức trả lãi',
-    row: 'bank_name',
-    col: 'interest_payment_method',
-    metric: 'calculated_interest_due',
-  },
-  {
-    name: 'Loại TCTD × Kỳ hạn',
-    row: 'institution_type',
-    col: 'term',
-    metric: 'current_principal_balance',
-  },
-  {
-    name: 'Tháng đáo hạn × Ngân hàng',
-    row: 'maturity_month',
-    col: 'bank_name',
-    metric: 'next_principal_amount',
-  },
-  {
-    name: 'Ngân hàng × Hồ sơ giải ngân',
-    row: 'bank_name',
-    col: 'has_dossier',
-    metric: 'count',
-  },
-  {
-    name: 'Tổng hợp theo Ngân hàng (1D)',
-    row: 'bank_name',
-    col: 'NONE',
-    metric: 'current_principal_balance',
-  },
-];
 
 export const CreditStatementsPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'loans' | 'files' | 'banks' | 'pivot'>('loans');
-  const [copiedContract, setCopiedContract] = useState<string | null>(null);
-
-  const handleCopyContract = (e: React.MouseEvent, contractNumber: string) => {
-    e.stopPropagation();
-    navigator.clipboard.writeText(contractNumber);
-    setCopiedContract(contractNumber);
-    setTimeout(() => {
-      setCopiedContract((prev) => (prev === contractNumber ? null : prev));
-    }, 2000);
-  };
-
-  // Sorting State
-  const [sortField, setSortField] = useState<string>('contract_number');
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
-
-  // Pivot Table State
-  const [pivotRowDim, setPivotRowDim] = useState<string>('bank_name');
-  const [pivotColDim, setPivotColDim] = useState<string>('debt_group');
-  const [pivotMetric, setPivotMetric] = useState<string>('current_principal_balance');
-  const [pivotSearch, setPivotSearch] = useState<string>('');
+  const { selectedEntity } = useCorporateEntity();
   const [loans, setLoans] = useState<CreditFacility[]>([]);
   const [files, setFiles] = useState<CreditStatementFile[]>([]);
-  const [summary, setSummary] = useState<CreditFacilitySummary | null>(null);
 
-  // Sorting State for Files Table (Tab 3)
-  const [fileSortField, setFileSortField] = useState<string>('file_id');
-  const [fileSortDirection, setFileSortDirection] = useState<SortDirection>('desc');
-  const handleFileSort = (field: string) => {
-    if (fileSortField === field) {
-      setFileSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setFileSortField(field);
-      setFileSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities for Credit Files Table
+  const {
+    sortField: fileSortField,
+    sortDirection: fileSortDirection,
+    handleSort: handleFileSort,
+    filters: fileFilters,
+    setFilter: setFileFilter,
+    clearAllFilters: clearAllFileFilters,
+    activeFilterCount: activeFileFilterCount,
+    visibleColumns: visibleFileColumns,
+    toggleColumn: toggleFileColumn,
+    showAllColumns: showAllFileColumns,
+    resetColumns: resetFileColumns,
+    isColumnVisible: isFileColumnVisible,
+    columnWidths: fileColumnWidths,
+    handleResize: handleFileResize,
+    filterAndSort: filterAndSortFiles,
+  } = useTableGrid<CreditStatementFile>({
+    tableId: 'credit_statement_files_table',
+    columns: CREDIT_FILE_COLUMNS,
+    defaultSortField: 'file_id',
+    defaultSortDirection: 'desc',
+  });
+
   const sortedFiles = useMemo(() => {
-    return sortList(files, fileSortField, fileSortDirection);
-  }, [files, fileSortField, fileSortDirection]);
+    return filterAndSortFiles(files);
+  }, [files, filterAndSortFiles]);
   const [loading, setLoading] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadMessages, setUploadMessages] = useState<
     Array<{ filename: string; type: 'success' | 'warning' | 'error'; text: string }>
   >([]);
 
-  // Filters
-  const [searchTerm, setSearchTerm] = useState<string>('');
-  const [bankFilter, setBankFilter] = useState<string>('ALL');
-  const [institutionFilter, setInstitutionFilter] = useState<string>('ALL');
-  const [sourceFilter, setSourceFilter] = useState<string>('ALL');
-  const [dueFilter, setDueFilter] = useState<string>('ALL');
 
   // Danh sách tổ chức tín dụng (kết hợp preset và các tổ chức tự nhập đã lưu vào localStorage / DB)
   const [organizations, setOrganizations] = useState<PresetOrg[]>(() => {
@@ -605,24 +406,6 @@ export const CreditStatementsPage: React.FC = () => {
     });
   };
 
-  // Danh sách tổ chức cho bộ lọc danh sách khoản vay
-  const filterBankOptions = useMemo(() => {
-    const map = new Map<string, string>();
-    loans.forEach((l) => {
-      const code = (l.bank_code || '').trim().toUpperCase();
-      if (code && !map.has(code)) {
-        map.set(code, l.bank_name || code);
-      }
-    });
-    organizations.forEach((o) => {
-      if (!map.has(o.code)) {
-        map.set(o.code, o.name);
-      }
-    });
-    return Array.from(map.entries())
-      .map(([code, name]) => ({ code, name }))
-      .sort((a, b) => a.code.localeCompare(b.code));
-  }, [loans, organizations]);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
@@ -664,7 +447,7 @@ export const CreditStatementsPage: React.FC = () => {
   const [stagedFiles, setStagedFiles] = useState<StagedDossierFile[]>([]);
   const [stagedDocCategory, setStagedDocCategory] = useState<string>('CONTRACT');
   const [editModalDocs, setEditModalDocs] = useState<DisbursementDocument[]>([]);
-  const [isEditModalDocsLoading, setIsEditModalDocsLoading] = useState<boolean>(false);
+  const [isEditModalDocsLoading] = useState<boolean>(false);
 
   // Dedicated Modal "Nhập Bộ Hồ Sơ Cho Các Khoản Vay Đã Nhập"
   const [isDossierEntryModalOpen, setIsDossierEntryModalOpen] = useState<boolean>(false);
@@ -944,17 +727,15 @@ export const CreditStatementsPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [loansRes, filesRes, summaryRes, orgsRes] = await Promise.all([
+      const [loansRes, filesRes, orgsRes] = await Promise.all([
         api.get('/loans', { params: { limit: 100 } }),
         api.get('/credit-statements', { params: { limit: 50 } }),
-        api.get('/loans/summary'),
         api.get('/loans/organizations').catch(() => ({ data: [] })),
       ]);
       const fetchedLoans: CreditFacility[] = loansRes.data.data || [];
       setLoans(fetchedLoans);
       setFiles(filesRes.data.data || []);
-      setSummary(summaryRes.data || null);
-
+      
       // Tự động đồng bộ các tổ chức từ máy chủ & các khoản vay hiện có vào danh sách gợi ý
       setOrganizations((prev) => {
         const map = new Map<string, PresetOrg>();
@@ -1033,6 +814,9 @@ export const CreditStatementsPage: React.FC = () => {
       const formPayload = new FormData();
       formPayload.append('file', file);
       formPayload.append('uploaded_by', 'Chị Cẩm Nhung');
+      if (selectedEntity && selectedEntity.id !== 'ALL') {
+        formPayload.append('borrower_name', selectedEntity.name);
+      }
 
       try {
         const res = await api.post('/credit-statements/upload', formPayload, {
@@ -1278,66 +1062,6 @@ export const CreditStatementsPage: React.FC = () => {
       total_repayment_amount: 0,
       status: 'ACTIVE',
       note: '',
-    });
-    setIsModalOpen(true);
-  };
-
-  // Mở modal chỉnh sửa
-  const handleOpenEditModal = (loan: CreditFacility) => {
-    setEditingLoan(loan);
-    setModalError(null);
-    setStagedFiles([]);
-    setEditModalDocs([]);
-    setStagedDocCategory('CONTRACT');
-    setIsEditModalDocsLoading(true);
-
-    // Tải danh sách hồ sơ giải ngân đã có của khoản vay
-    api.get(`/loans/${loan.loan_id}/dossier`)
-      .then((res) => {
-        setEditModalDocs(res.data || []);
-        syncDocumentTypesIntoCategories(res.data || []);
-      })
-      .catch((err) => console.error('Lỗi khi tải hồ sơ giải ngân:', err))
-      .finally(() => setIsEditModalDocsLoading(false));
-
-    const matched = organizations.find((p) => p.code === loan.bank_code);
-    if (matched) {
-      setFormOrgPreset(matched.code);
-    } else {
-      const customOrg: PresetOrg = {
-        code: loan.bank_code,
-        name: loan.bank_name || loan.bank_code,
-        type: (loan.institution_type as InstitutionType) || 'OTHER',
-      };
-      registerCustomOrg(customOrg);
-      setFormOrgPreset(loan.bank_code);
-    }
-    setFormData({
-      bank_code: loan.bank_code,
-      bank_name: loan.bank_name,
-      institution_type: loan.institution_type || 'BANK',
-      contract_number: loan.contract_number,
-      borrower_name: loan.borrower_name,
-      cif_number: loan.cif_number || '',
-      loan_purpose: loan.loan_purpose || '',
-      currency: loan.currency || 'VND',
-      disbursement_date: loan.disbursement_date || '',
-      maturity_date: loan.maturity_date || '',
-      term: loan.term || '',
-      interest_rate: Number(loan.interest_rate) || 0,
-      debt_group: loan.debt_group || '1',
-      loan_type: loan.loan_type || 'SHORT_TERM',
-      interest_payment_method: (loan.interest_payment_method || 'MONTHLY') as InterestPaymentMethod,
-      monthly_interest_due_day: loan.monthly_interest_due_day || (loan.bank_code === 'CTG' ? 5 : 25),
-      original_principal_balance: Number(loan.original_principal_balance || loan.current_principal_balance) || 0,
-      current_principal_balance: Number(loan.current_principal_balance) || 0,
-      accrued_interest: Number(loan.accrued_interest) || 0,
-      next_repayment_date: loan.next_repayment_date || '',
-      next_principal_amount: Number(loan.next_principal_amount) || 0,
-      next_interest_amount: Number(loan.next_interest_amount) || 0,
-      total_repayment_amount: Number(loan.total_repayment_amount) || 0,
-      status: loan.status || 'ACTIVE',
-      note: loan.note || '',
     });
     setIsModalOpen(true);
   };
@@ -1807,351 +1531,42 @@ export const CreditStatementsPage: React.FC = () => {
     }
   };
 
-  // Filter loans
-  const filteredLoans = loans.filter((loan) => {
-    // Lọc theo ngân hàng
-    if (bankFilter !== 'ALL') {
-      if (bankFilter === 'MBB') {
-        if (loan.bank_code !== 'MBB' && loan.bank_code !== 'MB') return false;
-      } else if (loan.bank_code !== bankFilter) {
-        return false;
-      }
-    }
-
-    // Lọc theo loại tổ chức
-    if (institutionFilter !== 'ALL') {
-      const type = loan.institution_type || 'BANK';
-      if (type !== institutionFilter) return false;
-    }
-
-    // Lọc theo nguồn gốc (Nhập lẻ vs Sao kê)
-    if (sourceFilter !== 'ALL') {
-      if (sourceFilter === 'MANUAL' && !loan.is_manual) return false;
-      if (sourceFilter === 'AUTO' && loan.is_manual) return false;
-    }
-
-    // Lọc từ khóa tìm kiếm
-    if (searchTerm) {
-      const q = searchTerm.toLowerCase();
-      const matchNo = loan.contract_number.toLowerCase().includes(q);
-      const matchPurpose = loan.loan_purpose?.toLowerCase().includes(q) || false;
-      const matchHolder = loan.borrower_name.toLowerCase().includes(q);
-      const matchBank = loan.bank_name.toLowerCase().includes(q) || loan.bank_code.toLowerCase().includes(q);
-      if (!matchNo && !matchPurpose && !matchHolder && !matchBank) return false;
-    }
-
-    // Lọc hạn trả
-    if (dueFilter === '7DAYS') {
-      if (!loan.next_repayment_date) return false;
-      const due = new Date(loan.next_repayment_date).getTime();
-      const now = new Date().getTime();
-      const diffDays = (due - now) / (1000 * 3600 * 24);
-      if (diffDays < 0 || diffDays > 7) return false;
-    }
-    if (dueFilter === '30DAYS') {
-      if (!loan.next_repayment_date) return false;
-      const due = new Date(loan.next_repayment_date).getTime();
-      const now = new Date().getTime();
-      const diffDays = (due - now) / (1000 * 3600 * 24);
-      if (diffDays < 0 || diffDays > 30) return false;
-    }
-    return true;
-  });
-
-  // Sắp xếp danh sách khoản vay theo cột đang chọn (Sort tính năng theo yêu cầu)
-  const sortedLoans = useMemo(() => {
-    return [...filteredLoans].sort((a: any, b: any) => {
-      let aVal = a[sortField];
-      let bVal = b[sortField];
-
-      if (sortField === 'original_principal_balance') {
-        aVal = Number(a.original_principal_balance || a.current_principal_balance || 0);
-        bVal = Number(b.original_principal_balance || b.current_principal_balance || 0);
-      } else if (sortField === 'total_repaid_principal') {
-        aVal = Number(a.total_repaid_principal || 0);
-        bVal = Number(b.total_repaid_principal || 0);
-      }
-
-      if (aVal === null || aVal === undefined) aVal = '';
-      if (bVal === null || bVal === undefined) bVal = '';
-
-      // Số học
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-      }
-
-      // Chuỗi ký tự (tiếng Việt có dấu và số)
-      const strA = String(aVal);
-      const strB = String(bVal);
-      const cmp = strA.localeCompare(strB, 'vi', { numeric: true, sensitivity: 'base' });
-      return sortDirection === 'asc' ? cmp : -cmp;
-    });
-  }, [filteredLoans, sortField, sortDirection]);
-
-  // Phân trang danh sách khoản vay (Đảm bảo bảng chỉ dài đúng 1 trang màn hình)
-  const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(10);
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchTerm, bankFilter, institutionFilter, sourceFilter, dueFilter, sortField, sortDirection]);
-
-  const totalPages = Math.max(1, Math.ceil(sortedLoans.length / (pageSize >= 9999 ? 1 : pageSize)));
-  const paginatedLoans = useMemo(() => {
-    if (pageSize >= 9999) return sortedLoans;
-    const start = (currentPage - 1) * pageSize;
-    return sortedLoans.slice(start, start + pageSize);
-  }, [sortedLoans, currentPage, pageSize]);
-
-  const renderSortHeader = (field: string, label: string, align: 'left' | 'center' | 'right' = 'left') => {
-    const isActive = sortField === field;
-    const isFirstCol = field === 'contract_number';
-    return (
-      <th
-        onClick={() => handleSort(field)}
-        className={`py-3 px-3 cursor-pointer select-none transition-colors whitespace-nowrap group hover:bg-slate-200/80 ${
-          isActive ? 'text-indigo-700 bg-indigo-50/50' : 'text-slate-600'
-        } ${align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left'} ${
-          isFirstCol
-            ? 'sticky left-0 bg-slate-100 z-30 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-200'
-            : ''
-        }`}
-        title={`Click để sắp xếp theo ${label} (${isActive && sortDirection === 'asc' ? 'Giảm dần' : 'Tăng dần'})`}
-      >
-        <div
-          className={`inline-flex items-center gap-1.5 ${
-            align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-start'
-          }`}
-        >
-          <span>{label}</span>
-          {isActive ? (
-            sortDirection === 'asc' ? (
-              <ArrowUp className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-            ) : (
-              <ArrowDown className="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
-            )
-          ) : (
-            <ArrowUpDown className="w-3 h-3 text-slate-400 group-hover:text-slate-600 opacity-60 group-hover:opacity-100 flex-shrink-0" />
-          )}
-        </div>
-      </th>
-    );
-  };
-
-  // ---------------------------------------------------------------------------
-  // PIVOT MATRIX COMPUTATION
-  // ---------------------------------------------------------------------------
-  const pivotResult = useMemo(() => {
-    const rowDef = PIVOT_ROW_DIMENSIONS.find((d) => d.id === pivotRowDim) || PIVOT_ROW_DIMENSIONS[0];
-    const is2D = pivotColDim !== 'NONE';
-    const colDef = is2D ? PIVOT_COL_DIMENSIONS.find((d) => d.id === pivotColDim) : null;
-    const metricDef = PIVOT_METRIC_DEFS.find((m) => m.id === pivotMetric) || PIVOT_METRIC_DEFS[0];
-
-    const loansToPivot = filteredLoans.filter((l) => {
-      if (!pivotSearch.trim()) return true;
-      const q = pivotSearch.toLowerCase();
-      return (
-        (l.bank_name && l.bank_name.toLowerCase().includes(q)) ||
-        (l.bank_code && l.bank_code.toLowerCase().includes(q)) ||
-        (l.contract_number && l.contract_number.toLowerCase().includes(q)) ||
-        (l.borrower_name && l.borrower_name.toLowerCase().includes(q)) ||
-        (l.loan_purpose && l.loan_purpose.toLowerCase().includes(q))
-      );
-    });
-
-    const rowKeysSet = new Set<string>();
-    const colKeysSet = new Set<string>();
-    const grid: Record<string, Record<string, CreditFacility[]>> = {};
-
-    loansToPivot.forEach((loan) => {
-      const rKey = rowDef.getValue(loan);
-      const cKey = colDef ? colDef.getValue(loan) : '__SINGLE__';
-
-      rowKeysSet.add(rKey);
-      if (colDef) colKeysSet.add(cKey);
-
-      if (!grid[rKey]) grid[rKey] = {};
-      if (!grid[rKey][cKey]) grid[rKey][cKey] = [];
-      grid[rKey][cKey].push(loan);
-    });
-
-    const sortedRowKeys = Array.from(rowKeysSet).sort((a, b) =>
-      a.localeCompare(b, 'vi', { numeric: true })
-    );
-    const sortedColKeys = colDef
-      ? Array.from(colKeysSet).sort((a, b) => a.localeCompare(b, 'vi', { numeric: true }))
-      : ['__SINGLE__'];
-
-    const matrix: Record<string, Record<string, number>> = {};
-    const matrixCounts: Record<string, Record<string, number>> = {};
-    const rowTotals: Record<string, number> = {};
-    const rowCounts: Record<string, number> = {};
-    const colTotals: Record<string, number> = {};
-    const colCounts: Record<string, number> = {};
-    let grandMax = 0;
-
-    sortedRowKeys.forEach((rKey) => {
-      matrix[rKey] = {};
-      matrixCounts[rKey] = {};
-      const allRowLoans: CreditFacility[] = [];
-
-      sortedColKeys.forEach((cKey) => {
-        const cellLoans = grid[rKey]?.[cKey] || [];
-        const val = metricDef.compute(cellLoans);
-        matrix[rKey][cKey] = val;
-        matrixCounts[rKey][cKey] = cellLoans.length;
-        if (val > grandMax) grandMax = val;
-        allRowLoans.push(...cellLoans);
-      });
-
-      rowTotals[rKey] = metricDef.compute(allRowLoans);
-      rowCounts[rKey] = allRowLoans.length;
-    });
-
-    sortedColKeys.forEach((cKey) => {
-      const allColLoans: CreditFacility[] = [];
-      sortedRowKeys.forEach((rKey) => {
-        const cellLoans = grid[rKey]?.[cKey] || [];
-        allColLoans.push(...cellLoans);
-      });
-      colTotals[cKey] = metricDef.compute(allColLoans);
-      colCounts[cKey] = allColLoans.length;
-    });
-
-    const grandTotal = metricDef.compute(loansToPivot);
-
-    // Summary KPIs for current pivot subset
-    const totalPrincipal = loansToPivot.reduce((s, l) => s + Number(l.current_principal_balance || 0), 0);
-    const totalInterest = loansToPivot.reduce(
-      (s, l) => s + Number(l.calculated_interest_due ?? l.accrued_interest ?? 0),
-      0
-    );
-    const totalNextPrincipal = loansToPivot.reduce((s, l) => s + Number(l.next_principal_amount || 0), 0);
-    const avgWair =
-      totalPrincipal > 0
-        ? loansToPivot.reduce(
-            (s, l) => s + Number(l.current_principal_balance || 0) * Number(l.interest_rate || 0),
-            0
-          ) / totalPrincipal
-        : 0;
-
-    return {
-      rowDef,
-      colDef,
-      is2D,
-      metricDef,
-      loansCount: loansToPivot.length,
-      sortedRowKeys,
-      sortedColKeys,
-      matrix,
-      matrixCounts,
-      rowTotals,
-      rowCounts,
-      colTotals,
-      colCounts,
-      grandTotal,
-      grandMax,
-      kpis: {
-        totalPrincipal,
-        totalInterest,
-        totalNextPrincipal,
-        avgWair,
-        totalLoans: loansToPivot.length,
-      },
-    };
-  }, [filteredLoans, pivotRowDim, pivotColDim, pivotMetric, pivotSearch]);
-
-  const handleExportPivotCSV = () => {
-    if (!pivotResult) return;
-    const {
-      rowDef,
-      colDef,
-      is2D,
-      metricDef,
-      sortedRowKeys,
-      sortedColKeys,
-      matrix,
-      rowTotals,
-      colTotals,
-      grandTotal,
-    } = pivotResult;
-
-    const rows: string[][] = [];
-
-    if (is2D && colDef) {
-      rows.push([`${rowDef.label} \\ ${colDef.label}`, ...sortedColKeys, 'Tổng Cộng']);
-    } else {
-      rows.push([rowDef.label, metricDef.label]);
-    }
-
-    sortedRowKeys.forEach((rKey) => {
-      if (is2D && colDef) {
-        const colVals = sortedColKeys.map((cKey) => {
-          const v = matrix[rKey]?.[cKey] || 0;
-          return metricDef.format(v);
-        });
-        rows.push([rKey, ...colVals, metricDef.format(rowTotals[rKey] || 0)]);
-      } else {
-        rows.push([rKey, metricDef.format(matrix[rKey]?.['__SINGLE__'] || 0)]);
-      }
-    });
-
-    if (is2D && colDef) {
-      const colTotalVals = sortedColKeys.map((cKey) => metricDef.format(colTotals[cKey] || 0));
-      rows.push(['TỔNG TẤT CẢ', ...colTotalVals, metricDef.format(grandTotal)]);
-    } else {
-      rows.push(['TỔNG TẤT CẢ', metricDef.format(grandTotal)]);
-    }
-
-    const csvContent =
-      '\uFEFF' +
-      rows
-        .map((row) =>
-          row
-            .map((cell) => {
-              const str = String(cell ?? '').replace(/"/g, '""');
-              return `"${str}"`;
-            })
-            .join(',')
-        )
-        .join('\r\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `pivot_khoan_vay_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
-            <Building className="w-7 h-7 text-indigo-600" />
-            Quản Lý & Đối Soát Sao Kê Tín Dụng
+          <div className="flex items-center space-x-2 text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">
+            <Upload className="w-4 h-4" />
+            <span>Kênh Tiếp Nhận & Bóc Tách Sao Kê</span>
+          </div>
+          <h1 className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+            Nạp Sao Kê Tín Dụng & Lịch Sử Tệp
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
-            Theo dõi hợp đồng vay, khế ước nhận nợ LD từ ngân hàng & các khoản nợ lẻ từ công ty tài chính, thuê tài chính
+          <p className="text-xs text-slate-500 mt-1">
+            Nạp file sao kê danh sách khoản vay, khế ước nhận nợ LD từ ngân hàng & theo dõi nhật ký các file đã xử lý
           </p>
         </div>
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <Link
+            to="/loan-reports"
+            className="inline-flex items-center space-x-2 px-3.5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-sm font-semibold shadow-xs transition-all"
+            title="Mở Báo cáo & Thống kê dư nợ tín dụng chuyên sâu"
+          >
+            <BarChart3 className="w-4 h-4" />
+            <span>Thống Kê Dư Nợ Tín Dụng</span>
+          </Link>
           <button
             onClick={() => handleOpenDossierEntryModal()}
             className="inline-flex items-center space-x-2 px-3.5 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 rounded-lg text-sm font-semibold shadow-2xs hover:shadow-xs transition-all"
             title="Đính kèm bộ hồ sơ chứng từ giải ngân cho khoản vay đã có trong hệ thống"
           >
             <FolderArchive className="w-4 h-4 text-indigo-600" />
-            <span>Nhập Bộ Hồ Sơ Cho Khoản Vay</span>
+            <span>Nhập Bộ Hồ Sơ</span>
           </button>
           <button
             onClick={handleOpenCreateModal}
-            className="inline-flex items-center space-x-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 text-white rounded-lg text-sm font-semibold shadow-sm hover:shadow transition-all"
+            className="inline-flex items-center space-x-2 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-semibold shadow-xs transition-all"
           >
             <Plus className="w-4 h-4" />
             <span>Nhập Lẻ Khoản Vay</span>
@@ -2159,73 +1574,11 @@ export const CreditStatementsPage: React.FC = () => {
           <button
             onClick={fetchData}
             disabled={loading}
-            className="inline-flex items-center space-x-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-sm transition-colors"
+            className="inline-flex items-center space-x-2 px-3 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 shadow-xs transition-colors"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-600' : ''}`} />
             <span>Làm mới</span>
           </button>
-        </div>
-      </div>
-
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Tổng Dư Nợ Vay</span>
-            <DollarSign className="w-4 h-4 text-indigo-600" />
-          </div>
-          <div className="mt-2 text-xl font-bold text-slate-900">
-            {formatVND(summary?.total_principal_balance)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            {summary?.total_active_loans || 0} khoản vay đang theo dõi
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Lãi Dự Trả / Lũy Kế</span>
-            <Percent className="w-4 h-4 text-emerald-600" />
-          </div>
-          <div className="mt-2 text-xl font-bold text-emerald-600">
-            {formatVND((summary?.total_accrued_interest || 0) + (summary?.total_upcoming_interest_due || 0))}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">
-            Đến hạn gần nhất: {formatVND(summary?.total_upcoming_interest_due)}
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Đến Hạn Trong 7 Ngày</span>
-            <Clock className="w-4 h-4 text-amber-600" />
-          </div>
-          <div className="mt-2 text-xl font-bold text-amber-600">
-            {formatVND(summary?.total_upcoming_due_7days)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Gốc & lãi cần thanh toán tuần tới</div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Đến Hạn Trong 30 Ngày</span>
-            <Calendar className="w-4 h-4 text-rose-600" />
-          </div>
-          <div className="mt-2 text-xl font-bold text-rose-600">
-            {formatVND(summary?.total_upcoming_due_30days)}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Gốc & lãi trong tháng tới</div>
-        </div>
-
-        <div className="bg-white rounded-xl p-5 border border-slate-200 shadow-sm">
-          <div className="flex items-center justify-between text-slate-500 text-xs font-semibold uppercase tracking-wider">
-            <span>Lãi Suất BQ (WAIR)</span>
-            <Layers className="w-4 h-4 text-purple-600" />
-          </div>
-          <div className="mt-2 text-xl font-bold text-purple-600">
-            {summary?.weighted_avg_interest_rate ? `${Number(summary.weighted_avg_interest_rate).toFixed(2)} %` : '0.00 %'}
-          </div>
-          <div className="text-xs text-slate-500 mt-1">Weighted Average Interest Rate</div>
         </div>
       </div>
 
@@ -2235,9 +1588,26 @@ export const CreditStatementsPage: React.FC = () => {
           <Upload className="w-5 h-5 text-indigo-600" />
           Nạp File Sao Kê Danh Sách Khoản Vay & Khế Ước LD
         </h2>
-        <p className="text-xs text-slate-500 mb-4">
+        <p className="text-xs text-slate-500 mb-3">
           Hỗ trợ bóc tách tự động: <strong>VietinBank eFAST</strong> (Báo cáo danh sách khoản vay .xls) và <strong>MB (MBBank)</strong> (Báo cáo số dư tài khoản Vay/LD .xlsx). Đối với các khoản nợ từ tổ chức khác hoặc công ty tài chính, sử dụng tính năng <strong>Nhập Lẻ Khoản Vay</strong>.
         </p>
+
+        {/* Thông báo thực thể doanh nghiệp đang chọn từ Header */}
+        <div className="mb-4 px-3.5 py-2 rounded-xl bg-indigo-50/80 border border-indigo-200 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-indigo-600 shrink-0" />
+            <span className="text-slate-700">
+              Doanh nghiệp nạp sao kê:{' '}
+              <strong className="text-indigo-900 font-bold">{selectedEntity.name}</strong>
+              {selectedEntity.taxCode && (
+                <span className="ml-1 font-mono text-slate-500 font-medium">({selectedEntity.taxCode})</span>
+              )}
+            </span>
+          </div>
+          <span className="text-[11px] text-indigo-600 font-medium hidden sm:inline">
+            (Đổi doanh nghiệp trên thanh Header)
+          </span>
+        </div>
 
         <div
           onDragOver={(e) => e.preventDefault()}
@@ -2291,1056 +1661,264 @@ export const CreditStatementsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Tabs Navigation */}
-      <div className="border-b border-slate-200">
-        <nav className="flex space-x-6">
-          <button
-            onClick={() => setActiveTab('loans')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'loans'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
-          >
-            <Layers className="w-4 h-4" />
-            <span>Danh Mục Khoản Vay & Nợ ({filteredLoans.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('banks')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'banks'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
-          >
-            <Building className="w-4 h-4" />
-            <span>Phân Bổ Theo Tổ Chức Tín Dụng ({summary?.by_bank.length || 0})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('files')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'files'
-              ? 'border-indigo-600 text-indigo-600'
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Lịch Sử File Sao Kê Đã Nạp ({files.length})</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('pivot')}
-            className={`pb-3 text-sm font-medium border-b-2 transition-colors flex items-center space-x-2 ${activeTab === 'pivot'
-              ? 'border-indigo-600 text-indigo-600 font-semibold'
-              : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-              }`}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            <span>Phân Tích Đa Chiều (Pivot)</span>
-          </button>
-        </nav>
-      </div>
-
-      {/* TAB 1: Danh Mục Khoản Vay & Khế Ước */}
-      {activeTab === 'loans' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          {/* Controls Bar */}
-          <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row items-center justify-between gap-3">
-            <div className="relative w-full md:w-80">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Tìm số hợp đồng, mục đích, đơn vị..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
-              {/* Lọc loại tổ chức */}
-              <select
-                aria-label="Lọc theo loại tổ chức"
-                value={institutionFilter}
-                onChange={(e) => setInstitutionFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="ALL">Tất cả loại tổ chức</option>
-                <option value="BANK">Ngân hàng thương mại</option>
-                <option value="FINANCE_COMPANY">Công ty tài chính</option>
-                <option value="LEASING_COMPANY">Cho thuê tài chính</option>
-                <option value="OTHER">Tổ chức khác</option>
-              </select>
-
-              {/* Lọc nguồn gốc */}
-              <select
-                aria-label="Lọc theo nguồn dữ liệu"
-                value={sourceFilter}
-                onChange={(e) => setSourceFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="ALL">Tất cả nguồn</option>
-                <option value="MANUAL">Chỉ khoản nợ nhập lẻ</option>
-                <option value="AUTO">Bóc tách từ file sao kê</option>
-              </select>
-
-              {/* Lọc ngân hàng cụ thể */}
-              <select
-                aria-label="Lọc theo ngân hàng"
-                value={bankFilter}
-                onChange={(e) => setBankFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 max-w-[200px] truncate"
-              >
-                <option value="ALL">Tất cả tổ chức tín dụng</option>
-                {filterBankOptions.map((b) => (
-                  <option key={b.code} value={b.code}>
-                    {b.code} - {b.name}
-                  </option>
-                ))}
-              </select>
-
-              {/* Lọc hạn thanh toán */}
-              <select
-                aria-label="Lọc theo ngày đến hạn"
-                value={dueFilter}
-                onChange={(e) => setDueFilter(e.target.value)}
-                className="text-xs bg-white border border-slate-300 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              >
-                <option value="ALL">Tất cả kỳ hạn</option>
-                <option value="7DAYS">Đến hạn trong 7 ngày</option>
-                <option value="30DAYS">Đến hạn trong 30 ngày</option>
-              </select>
-
-              <button
-                onClick={handleOpenCreateModal}
-                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-sm transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Thêm nợ lẻ</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto max-h-[calc(100vh-320px)] min-h-[380px] overflow-y-auto">
-            <table className="w-full min-w-full text-left text-xs border-collapse">
-              <thead className="sticky top-0 bg-slate-100 z-20 shadow-xs">
-                <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider">
-                  {renderSortHeader('contract_number', 'Số HĐ / Khế Ước', 'left')}
-                  {renderSortHeader('bank_name', 'Tổ Chức Cấp Tín Dụng', 'left')}
-                  {renderSortHeader('institution_type', 'Loại Tổ Chức & Nguồn', 'left')}
-                  {renderSortHeader('loan_purpose', 'Mục Đích Khoản Vay', 'left')}
-                  {renderSortHeader('original_principal_balance', 'Dư Nợ Gốc Ban Đầu', 'right')}
-                  {renderSortHeader('total_repaid_principal', 'Đã Trả Gốc', 'right')}
-                  {renderSortHeader('current_principal_balance', 'Dư Nợ Gốc Hiện Tại (Tính Lãi)', 'right')}
-                  {renderSortHeader('interest_rate', 'Lãi Suất', 'center')}
-                  {renderSortHeader('interest_payment_method', 'Hình Thức Trả Lãi', 'center')}
-                  {renderSortHeader('calculated_interest_due', 'Lãi Cần Trả (TT14)', 'right')}
-                  {renderSortHeader('disbursement_date', 'Ngày Giải Ngân', 'center')}
-                  {renderSortHeader('maturity_date', 'Thời Hạn / Đáo Hạn', 'left')}
-                  {renderSortHeader('next_principal_amount', 'Gốc Đến Hạn', 'right')}
-                  {renderSortHeader('next_repayment_date', 'Ngày Trả Nợ', 'center')}
-                  {renderSortHeader('dossier_files_count', 'Hồ Sơ Giải Ngân', 'center')}
-                  {renderSortHeader('debt_group', 'Nhóm Nợ', 'center')}
-                  <th className="py-3 px-3 text-center min-w-[80px] sticky right-0 bg-slate-100 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-slate-200">
-                    Thao Tác
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sortedLoans.length === 0 ? (
-                  <tr>
-                    <td colSpan={17} className="py-8 text-center text-slate-400">
-                      Chưa có khoản vay hoặc khoản nợ lẻ nào phù hợp với điều kiện lọc.
-                    </td>
-                  </tr>
-                ) : (
-                  paginatedLoans.map((loan) => {
-                    const instType = loan.institution_type || 'BANK';
-                    const hasDossier = (loan.dossier_files_count || 0) > 0;
-                    return (
-                      <tr key={loan.loan_id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="py-3 px-3 font-semibold text-indigo-700 whitespace-nowrap sticky left-0 bg-white group-hover:bg-slate-50 z-10 shadow-[4px_0_6px_-2px_rgba(0,0,0,0.06)] border-r border-slate-100">
-                          <div className="flex items-center gap-2">
-                            {hasDossier ? (
-                              <span
-                                className="cursor-pointer"
-                                title="Khoản vay ĐÃ CÓ hồ sơ/sao kê lưu trữ"
-                                onClick={() => handleOpenEditModal(loan)}
-                              >
-                                <FileText className="w-4 h-4 text-indigo-600 flex-shrink-0 hover:text-indigo-800" />
-                              </span>
-                            ) : (
-                              <span
-                                className="cursor-pointer"
-                                title="Khoản vay CHƯA CÓ hồ sơ/sao kê lưu trữ"
-                                onClick={() => handleOpenEditModal(loan)}
-                              >
-                                <File className="w-4 h-4 text-slate-400 flex-shrink-0 hover:text-slate-600" />
-                              </span>
-                            )}
-                            <div className="flex items-center gap-1.5 group">
-                              <span>{loan.contract_number}</span>
-                              <button
-                                type="button"
-                                onClick={(e) => handleCopyContract(e, loan.contract_number)}
-                                className="p-0.5 rounded hover:bg-slate-200 text-slate-400 hover:text-indigo-600 transition-colors opacity-70 group-hover:opacity-100 focus:opacity-100"
-                                title={copiedContract === loan.contract_number ? 'Đã sao chép!' : 'Sao chép số khế ước'}
-                                aria-label={`Sao chép số khế ước ${loan.contract_number}`}
-                              >
-                                {copiedContract === loan.contract_number ? (
-                                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                                ) : (
-                                  <Copy className="w-3.5 h-3.5" />
-                                )}
-                              </button>
-                              {loan.term && <span className="text-slate-400 font-normal text-xs">({loan.term})</span>}
-                            </div>
-                          </div>
-                          {loan.note && (
-                            <p className="text-[10px] text-slate-400 font-normal truncate max-w-[200px] pl-6 mt-0.5" title={loan.note}>
-                              {loan.note}
-                            </p>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 min-w-[220px] max-w-[340px]">
-                          <div className="font-semibold text-slate-800 leading-snug">{loan.bank_name}</div>
-                          <div className="text-[10px] font-mono text-slate-500 mt-0.5">{loan.bank_code}</div>
-                        </td>
-                        <td className="py-3 px-3 whitespace-nowrap">
-                          <div className="flex flex-col gap-1 items-start">
-                            {/* Badge loại tổ chức */}
-                            {instType === 'BANK' && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
-                                <Building2 className="w-2.5 h-2.5" />
-                                Ngân hàng
-                              </span>
-                            )}
-                            {instType === 'FINANCE_COMPANY' && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-200">
-                                <Wallet className="w-2.5 h-2.5" />
-                                Cty Tài chính
-                              </span>
-                            )}
-                            {instType === 'LEASING_COMPANY' && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                                <Briefcase className="w-2.5 h-2.5" />
-                                Cho thuê TC
-                              </span>
-                            )}
-                            {instType === 'OTHER' && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
-                                <CreditCard className="w-2.5 h-2.5" />
-                                Khác
-                              </span>
-                            )}
-
-                            {/* Badge nguồn */}
-                            {loan.is_manual ? (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                <Edit2 className="w-2.5 h-2.5" />
-                                Nhập lẻ
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded text-[9px] font-medium bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                <FileSpreadsheet className="w-2.5 h-2.5" />
-                                Sao kê file
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 min-w-[200px] max-w-sm text-slate-600 leading-snug" title={loan.loan_purpose || ''}>
-                          {loan.loan_purpose || 'Vay vốn phục vụ SXKD'}
-                        </td>
-                        {/* 1. Dư nợ gốc ban đầu (Cố định không đổi sau giải ngân) */}
-                        <td className="py-3 px-3 text-right font-medium text-slate-700 whitespace-nowrap" title="Dư nợ gốc giải ngân ban đầu ghi nhận trên hợp đồng tín dụng/khế ước (Giá trị cố định không đổi)">
-                          {Number(loan.original_principal_balance || loan.current_principal_balance).toLocaleString('vi-VN')} ₫
-                        </td>
-
-                        {/* 2. Đã trả gốc (Tổng nợ gốc đã trả từ sao kê) */}
-                        <td className="py-3 px-3 text-right whitespace-nowrap" title="Tổng số tiền nợ gốc đã trả">
-                          {Number(loan.total_repaid_principal || 0) > 0 ? (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                              -{Number(loan.total_repaid_principal).toLocaleString('vi-VN')} ₫
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 font-mono">-</span>
-                          )}
-                        </td>
-
-                        {/* 3. Dư nợ gốc hiện tại (Mốc tính lãi = Gốc ban đầu - Đã trả gốc) */}
-                        <td className="py-3 px-3 text-right font-bold text-slate-900 whitespace-nowrap" title="Dư nợ gốc hiện tại (Sau khi trừ nợ gốc đã trả - Mốc để tính tiền lãi theo thời gian)">
-                          <div>
-                            <span>{Number(loan.current_principal_balance).toLocaleString('vi-VN')} ₫</span>
-                            {Number(loan.total_repaid_principal || 0) > 0 && Number(loan.original_principal_balance || 0) > 0 && (
-                              <span className="block text-[10px] text-emerald-600 font-medium">
-                                (Còn {((Number(loan.current_principal_balance) / Number(loan.original_principal_balance)) * 100).toFixed(1)}%)
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-center font-medium text-slate-700 whitespace-nowrap">
-                          {Number(loan.interest_rate).toFixed(2)}%
-                        </td>
-                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                          {loan.interest_payment_method === 'END_OF_TERM' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-purple-50 text-purple-700 border border-purple-200">
-                              Cuối kỳ
-                            </span>
-                          ) : (
-                            <span
-                              className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200"
-                              title={`Trả lãi định kỳ ngày ${loan.monthly_interest_due_day || (loan.bank_code === 'CTG' ? 5 : 25)} hằng tháng`}
-                            >
-                              Hằng tháng (ngày {loan.monthly_interest_due_day || (loan.bank_code === 'CTG' ? 5 : 25)})
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-right font-bold text-emerald-700 whitespace-nowrap" title="Số lãi cần trả tính theo Thông tư 14/2017/TT-NHNN (Cơ sở 365 ngày)">
-                          {Number(loan.calculated_interest_due || 0).toLocaleString('vi-VN')} ₫
-                        </td>
-                        {/* Cột Ngày Giải Ngân */}
-                        <td className="py-3 px-3 text-center text-slate-700 whitespace-nowrap font-mono text-[11px]">
-                          {loan.disbursement_date || '-'}
-                        </td>
-                        {/* Cột Thời Hạn / Đáo Hạn */}
-                        <td className="py-3 px-3 text-slate-600 whitespace-nowrap">
-                          {loan.maturity_date ? (
-                            <span>{loan.maturity_date}</span>
-                          ) : (
-                            <span className="text-slate-400">-</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-right font-medium text-slate-700 whitespace-nowrap">
-                          {loan.next_principal_amount > 0
-                            ? `${Number(loan.next_principal_amount).toLocaleString('vi-VN')} ₫`
-                            : '-'}
-                        </td>
-                        <td className="py-3 px-3 text-center text-slate-600 whitespace-nowrap">
-                          {loan.next_repayment_date ? (
-                            <span className="inline-flex items-center gap-1 font-medium text-indigo-600">
-                              <Calendar className="w-3.5 h-3.5" />
-                              {loan.next_repayment_date}
-                            </span>
-                          ) : (
-                            '-'
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                          <div className="flex flex-col items-center gap-1">
-                            {(loan.dossier_files_count || 0) > 0 ? (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 cursor-pointer hover:bg-emerald-100 transition-colors"
-                                title={`${loan.dossier_files_count} chứng từ giải ngân đã lưu trữ. Bấm để xem và quản lý hồ sơ.`}
-                                onClick={() => handleOpenDossierEntryModal(loan)}
-                              >
-                                <CheckCircle className="w-3 h-3 text-emerald-600" />
-                                <span>{loan.dossier_files_count} chứng từ</span>
-                              </span>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => handleOpenDossierEntryModal(loan)}
-                                className="text-slate-400 hover:text-indigo-600 text-xs hover:underline cursor-pointer"
-                                title="Bấm để nạp hồ sơ giải ngân"
-                              >
-                                Chưa có hồ sơ
-                              </button>
-                            )}
-
-                            {/* Cảnh báo thiếu hóa đơn hoặc thông báo đủ hóa đơn XML */}
-                            {loan.invoice_reconciliation_status === 'DEFICIENT' && (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse cursor-pointer hover:bg-rose-200 transition-colors shadow-2xs"
-                                title={`⚠️ Thiếu hóa đơn giải ngân! Tổng HĐ: ${formatVND(loan.total_invoices_amount)} < Dư nợ gốc: ${formatVND(loan.current_principal_balance)} (Còn thiếu ${formatVND(loan.invoice_shortage_amount)})`}
-                                onClick={() => handleOpenDossierEntryModal(loan)}
-                              >
-                                <AlertTriangle className="w-3 h-3 text-rose-600 flex-shrink-0" />
-                                <span>Thiếu HĐ (-{formatVND(loan.invoice_shortage_amount)})</span>
-                              </span>
-                            )}
-                            {loan.invoice_reconciliation_status === 'SUFFICIENT' && (
-                              <span
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer hover:bg-emerald-200 transition-colors"
-                                title={`✅ Đã đủ hóa đơn giải ngân: ${formatVND(loan.total_invoices_amount)} >= Dư nợ gốc: ${formatVND(loan.current_principal_balance)}`}
-                                onClick={() => handleOpenDossierEntryModal(loan)}
-                              >
-                                <span>Đủ HĐ XML</span>
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="py-3 px-3 text-center whitespace-nowrap">
-                          <span className="inline-block px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                            Nhóm {loan.debt_group}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-white group-hover:bg-slate-50 z-10 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] border-l border-slate-100">
-                          <button
-                            onClick={() => handleOpenEditModal(loan)}
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white border border-indigo-200 hover:border-indigo-600 rounded-lg text-xs font-semibold shadow-2xs transition-all"
-                            title="Chỉnh sửa thông tin khoản vay & Quản lý bộ hồ sơ giải ngân"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                            <span>Sửa</span>
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Thanh Phân Trang (Đảm bảo bảng chỉ dài đúng 1 trang) */}
-          <div className="px-4 py-3 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-slate-600 select-none">
-            {/* Trái: Thống kê số lượng bản ghi hiển thị */}
-            <div className="flex items-center gap-1.5">
-              <span>Hiển thị</span>
-              <span className="font-bold text-slate-900">
-                {sortedLoans.length === 0 ? 0 : (currentPage - 1) * pageSize + 1}
+      {/* Lịch Sử File Sao Kê Đã Nạp */}
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden p-5 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          <div>
+            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+              <FileSpreadsheet className="w-5 h-5 text-indigo-600" />
+              <span>Lịch Sử Các File Sao Kê Tín Dụng Đã Nạp</span>
+              <span className="text-xs bg-indigo-50 text-indigo-700 border border-indigo-200 px-2.5 py-0.5 rounded-full font-semibold">
+                {files.length} tệp tin
               </span>
-              <span>-</span>
-              <span className="font-bold text-slate-900">
-                {Math.min(sortedLoans.length, currentPage * pageSize)}
-              </span>
-              <span>trên tổng số</span>
-              <span className="font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
-                {sortedLoans.length}
-              </span>
-              <span>khoản vay</span>
-            </div>
-
-            {/* Giữa: Lựa chọn số dòng mỗi trang */}
-            <div className="flex items-center gap-2">
-              <span className="text-slate-500 font-medium">Mỗi trang:</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
-                className="bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs text-slate-800 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 shadow-2xs"
-              >
-                <option value={10}>10 dòng / trang (Chuẩn 1 trang)</option>
-                <option value={15}>15 dòng / trang</option>
-                <option value={20}>20 dòng / trang</option>
-                <option value={50}>50 dòng / trang</option>
-                <option value={9999}>Tất cả ({sortedLoans.length})</option>
-              </select>
-            </div>
-
-            {/* Phải: Các nút chuyển trang */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setCurrentPage(1)}
-                disabled={currentPage <= 1}
-                className="p-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors shadow-2xs"
-                title="Về trang đầu tiên"
-              >
-                <ChevronsLeft className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage <= 1}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors font-medium shadow-2xs"
-                title="Trang trước"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-                <span>Trước</span>
-              </button>
-
-              <div className="px-2 font-semibold text-slate-700">
-                Trang <span className="text-indigo-600 font-bold">{currentPage}</span> / {totalPages}
-              </div>
-
-              <button
-                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage >= totalPages}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors font-medium shadow-2xs"
-                title="Trang tiếp theo"
-              >
-                <span>Sau</span>
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-              <button
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={currentPage >= totalPages}
-                className="p-1.5 border border-slate-300 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-white text-slate-700 transition-colors shadow-2xs"
-                title="Đến trang cuối cùng"
-              >
-                <ChevronsRight className="w-4 h-4" />
-              </button>
-            </div>
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Danh sách các file bảng sao kê tín dụng đã bóc tách vào hệ thống, tình trạng đối soát cân bằng và tổng dư nợ.
+            </p>
           </div>
         </div>
-      )}
 
-      {/* TAB 2: Phân Bổ Ngân Hàng / Tổ Chức Tín Dụng */}
-      {activeTab === 'banks' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {summary?.by_bank.map((b) => (
-            <div key={b.bank_code} className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                <div className="flex items-center space-x-3">
-                  <div
-                    className={`w-10 h-10 rounded-lg flex items-center justify-center font-bold text-white shadow ${b.bank_code === 'CTG'
-                      ? 'bg-sky-600'
-                      : b.bank_code === 'MBB' || b.bank_code === 'MB'
-                        ? 'bg-indigo-600'
-                        : b.bank_code.includes('LEASING') || b.bank_code === 'CHAILEASE' || b.bank_code === 'BSL'
-                          ? 'bg-amber-600'
-                          : b.bank_code.includes('CREDIT') || b.bank_code.includes('FIN')
-                            ? 'bg-purple-600'
-                            : 'bg-emerald-600'
-                      }`}
+        <TableGridToolbar
+          columns={CREDIT_FILE_COLUMNS}
+          visibleColumns={visibleFileColumns}
+          onToggleColumn={toggleFileColumn}
+          onShowAllColumns={showAllFileColumns}
+          onResetColumns={resetFileColumns}
+          filteredCount={sortedFiles.length}
+          totalCount={files.length}
+          activeFilterCount={activeFileFilterCount}
+          onClearAllFilters={clearAllFileFilters}
+        />
+
+        <div className="overflow-x-auto border border-slate-200 rounded-xl">
+          <table className="w-full min-w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider">
+                {isFileColumnVisible('file_id') && (
+                  <SortableTh
+                    field="file_id"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    filterType="number"
+                    filterValue={fileFilters['file_id']}
+                    onFilterChange={(v) => setFileFilter('file_id', v)}
+                    width={fileColumnWidths['file_id']}
+                    onResize={(w) => handleFileResize('file_id', w)}
+                    className="py-3 px-3"
                   >
-                    {b.bank_code.length > 4 ? b.bank_code.substring(0, 3) : b.bank_code}
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-slate-900 text-sm truncate max-w-[200px]" title={b.bank_name}>
-                      {b.bank_name}
-                    </h3>
-                    <p className="text-xs text-slate-500">{b.loans_count} khoản vay / nợ đang quản lý</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex justify-between items-center text-xs text-slate-500">
-                <span>Lãi suất bình quân (WAIR):</span>
-                <span className="text-sm font-bold text-indigo-600">
-                  {Number(b.weighted_avg_interest_rate).toFixed(2)} %/năm
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                  <div className="text-[11px] text-slate-500">Dư nợ gốc hiện tại</div>
-                  <div className="font-bold text-slate-900 text-sm mt-0.5">{formatVND(b.total_principal_balance)}</div>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                  <div className="text-[11px] text-slate-500">Lãi cộng dồn / dự trả</div>
-                  <div className="font-bold text-emerald-600 text-sm mt-0.5">
-                    {formatVND(b.total_accrued_interest || b.upcoming_interest_due)}
-                  </div>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                  <div className="text-[11px] text-slate-500">Gốc đến hạn gần nhất</div>
-                  <div className="font-bold text-slate-800 text-xs mt-0.5">{formatVND(b.upcoming_principal_due)}</div>
-                </div>
-                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-100">
-                  <div className="text-[11px] text-slate-500">Lãi phải trả gần nhất</div>
-                  <div className="font-bold text-amber-600 text-xs mt-0.5">{formatVND(b.upcoming_interest_due)}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* TAB 3: Lịch Sử File Đã Nạp */}
-      {activeTab === 'files' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider">
-                  <SortableTh field="file_id" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} className="py-3 px-3">
                     File ID
                   </SortableTh>
-                  <SortableTh field="bank_code" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} className="py-3 px-3">
+                )}
+                {isFileColumnVisible('bank_code') && (
+                  <SortableTh
+                    field="bank_code"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    filterType="text"
+                    filterValue={fileFilters['bank_code']}
+                    onFilterChange={(v) => setFileFilter('bank_code', v)}
+                    width={fileColumnWidths['bank_code']}
+                    onResize={(w) => handleFileResize('bank_code', w)}
+                    className="py-3 px-3"
+                  >
                     Ngân Hàng
                   </SortableTh>
-                  <SortableTh field="original_filename" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} className="py-3 px-3">
+                )}
+                {isFileColumnVisible('original_filename') && (
+                  <SortableTh
+                    field="original_filename"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    filterType="text"
+                    filterValue={fileFilters['original_filename']}
+                    onFilterChange={(v) => setFileFilter('original_filename', v)}
+                    width={fileColumnWidths['original_filename']}
+                    onResize={(w) => handleFileResize('original_filename', w)}
+                    className="py-3 px-3"
+                  >
                     Tên File Gốc
                   </SortableTh>
-                  <SortableTh field="template_code" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} className="py-3 px-3">
+                )}
+                {isFileColumnVisible('template_code') && (
+                  <SortableTh
+                    field="template_code"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    filterType="text"
+                    filterValue={fileFilters['template_code']}
+                    onFilterChange={(v) => setFileFilter('template_code', v)}
+                    width={fileColumnWidths['template_code']}
+                    onResize={(w) => handleFileResize('template_code', w)}
+                    className="py-3 px-3"
+                  >
                     Mã Mẫu
                   </SortableTh>
-                  <SortableTh field="statement_date" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} className="py-3 px-3">
+                )}
+                {isFileColumnVisible('statement_date') && (
+                  <SortableTh
+                    field="statement_date"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    filterType="date"
+                    filterValue={fileFilters['statement_date']}
+                    onFilterChange={(v) => setFileFilter('statement_date', v)}
+                    width={fileColumnWidths['statement_date']}
+                    onResize={(w) => handleFileResize('statement_date', w)}
+                    className="py-3 px-3"
+                  >
                     Ngày Số Liệu
                   </SortableTh>
-                  <SortableTh field="total_principal_amount" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} align="right" className="py-3 px-3">
+                )}
+                {isFileColumnVisible('total_principal_amount') && (
+                  <SortableTh
+                    field="total_principal_amount"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={fileFilters['total_principal_amount']}
+                    onFilterChange={(v) => setFileFilter('total_principal_amount', v)}
+                    width={fileColumnWidths['total_principal_amount']}
+                    onResize={(w) => handleFileResize('total_principal_amount', w)}
+                    className="py-3 px-3"
+                  >
                     Tổng Dư Nợ
                   </SortableTh>
-                  <SortableTh field="total_contracts_count" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} align="center" className="py-3 px-3">
+                )}
+                {isFileColumnVisible('total_contracts_count') && (
+                  <SortableTh
+                    field="total_contracts_count"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    align="center"
+                    filterType="number"
+                    filterValue={fileFilters['total_contracts_count']}
+                    onFilterChange={(v) => setFileFilter('total_contracts_count', v)}
+                    width={fileColumnWidths['total_contracts_count']}
+                    onResize={(w) => handleFileResize('total_contracts_count', w)}
+                    className="py-3 px-3"
+                  >
                     Số Khoản Vay
                   </SortableTh>
-                  <SortableTh field="reconciliation_status" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} align="center" className="py-3 px-3">
+                )}
+                {isFileColumnVisible('reconciliation_status') && (
+                  <SortableTh
+                    field="reconciliation_status"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={fileFilters['reconciliation_status']}
+                    onFilterChange={(v) => setFileFilter('reconciliation_status', v)}
+                    width={fileColumnWidths['reconciliation_status']}
+                    onResize={(w) => handleFileResize('reconciliation_status', w)}
+                    className="py-3 px-3"
+                  >
                     Đối Soát Cân Bằng
                   </SortableTh>
-                  <SortableTh field="created_at" currentSortField={fileSortField} currentSortDirection={fileSortDirection} onSort={handleFileSort} className="py-3 px-3">
+                )}
+                {isFileColumnVisible('created_at') && (
+                  <SortableTh
+                    field="created_at"
+                    currentSortField={fileSortField}
+                    currentSortDirection={fileSortDirection}
+                    onSort={handleFileSort}
+                    filterType="date"
+                    filterValue={fileFilters['created_at']}
+                    onFilterChange={(v) => setFileFilter('created_at', v)}
+                    width={fileColumnWidths['created_at']}
+                    onResize={(w) => handleFileResize('created_at', w)}
+                    className="py-3 px-3"
+                  >
                     Ngày Tải Lên
                   </SortableTh>
-                  <th className="py-3 px-3 text-center">Thao Tác</th>
+                )}
+                <th className="py-3 px-3 text-center">Thao Tác</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {sortedFiles.length === 0 ? (
+                <tr>
+                  <td colSpan={CREDIT_FILE_COLUMNS.filter((c) => isFileColumnVisible(c.field)).length + 1} className="py-12 text-center text-slate-400">
+                    {files.length === 0
+                      ? 'Chưa có file sao kê tín dụng nào được nạp vào hệ thống.'
+                      : 'Không có file nào khớp với điều kiện lọc trên bảng.'}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {sortedFiles.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="py-8 text-center text-slate-400">
-                      Chưa có file sao kê tín dụng nào được nạp vào hệ thống.
-                    </td>
-                  </tr>
-                ) : (
-                  sortedFiles.map((file) => (
-                    <tr key={file.file_id} className="hover:bg-slate-50 transition-colors">
+              ) : (
+                sortedFiles.map((file) => (
+                  <tr key={file.file_id} className="hover:bg-slate-50 transition-colors">
+                    {isFileColumnVisible('file_id') && (
                       <td className="py-2.5 px-3 font-semibold text-slate-500">#{file.file_id}</td>
+                    )}
+                    {isFileColumnVisible('bank_code') && (
                       <td className="py-2.5 px-3 font-bold text-slate-800">{file.bank_code}</td>
+                    )}
+                    {isFileColumnVisible('original_filename') && (
                       <td className="py-2.5 px-3 text-slate-700 max-w-xs truncate" title={file.original_filename}>
                         {file.original_filename}
                       </td>
+                    )}
+                    {isFileColumnVisible('template_code') && (
                       <td className="py-2.5 px-3 font-mono text-[11px] text-slate-600">{file.template_code}</td>
+                    )}
+                    {isFileColumnVisible('statement_date') && (
                       <td className="py-2.5 px-3 text-slate-600">{file.statement_date || '-'}</td>
+                    )}
+                    {isFileColumnVisible('total_principal_amount') && (
                       <td className="py-2.5 px-3 text-right font-bold text-slate-900">
                         {Number(file.total_principal_amount).toLocaleString('vi-VN')} ₫
                       </td>
+                    )}
+                    {isFileColumnVisible('total_contracts_count') && (
                       <td className="py-2.5 px-3 text-center font-semibold text-slate-700">
                         {file.total_contracts_count}
                       </td>
+                    )}
+                    {isFileColumnVisible('reconciliation_status') && (
                       <td className="py-2.5 px-3 text-center">
-                        {file.reconciliation_status === 'BALANCED' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">
-                            <CheckCircle className="w-3 h-3 text-emerald-600" />
-                            Khớp 100%
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800">
-                            <AlertTriangle className="w-3 h-3 text-rose-600" />
-                            Lệch số dư
-                          </span>
-                        )}
+                      {file.reconciliation_status === 'BALANCED' ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">
+                          <CheckCircle className="w-3 h-3 text-emerald-600" />
+                          Khớp 100%
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-rose-100 text-rose-800">
+                          <AlertTriangle className="w-3 h-3 text-rose-600" />
+                          Lệch số dư
+                        </span>
+                      )}
                       </td>
+                    )}
+                    {isFileColumnVisible('created_at') && (
                       <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
                         {new Date(file.created_at).toLocaleString('vi-VN')}
                       </td>
-                      <td className="py-2.5 px-3 text-center">
-                        <button
-                          onClick={() => handleDeleteFile(file.file_id)}
-                          className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors"
-                          title="Xóa file"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================================= */}
-      {/* TAB 4: PHÂN TÍCH ĐA CHIỀU (PIVOT TABLE) CHO DANH MỤC KHOẢN VAY            */}
-      {/* ========================================================================= */}
-      {activeTab === 'pivot' && (
-        <div className="space-y-5">
-          {/* Top Card: Title, Subtitle, Quick Presets & Export */}
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                  <SlidersHorizontal className="w-5 h-5 text-indigo-600" />
-                  <span>Ma Trận Xoay & Phân Tích Đa Chiều (Pivot Table)</span>
-                  <span className="text-xs font-normal text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                    {pivotResult.loansCount} khoản vay đang khảo sát
-                  </span>
-                </h2>
-                <p className="text-xs text-slate-500 mt-1">
-                  Khảo sát danh mục tín dụng linh hoạt theo 2 chiều (Dòng × Cột) kết hợp các chỉ số tài chính trọng yếu. Tự động liên kết với bộ lọc toàn cục ở phía trên.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleExportPivotCSV}
-                  className="inline-flex items-center space-x-2 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
-                  title="Xuất ma trận Pivot hiện tại ra file CSV tương thích Excel (UTF-8 BOM)"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>Xuất File CSV / Excel</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Presets */}
-            <div className="pt-3 border-t border-slate-100">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold text-slate-600 flex items-center gap-1.5 mr-1">
-                  <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                  <span>Mẫu xem nhanh (Presets):</span>
-                </span>
-                {PIVOT_PRESETS.map((preset, idx) => {
-                  const isActive =
-                    pivotRowDim === preset.row &&
-                    pivotColDim === preset.col &&
-                    pivotMetric === preset.metric;
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => {
-                        setPivotRowDim(preset.row);
-                        setPivotColDim(preset.col);
-                        setPivotMetric(preset.metric);
-                      }}
-                      className={`text-xs px-2.5 py-1 rounded-lg border transition-all ${
-                        isActive
-                          ? 'bg-indigo-600 text-white border-indigo-600 font-semibold shadow-xs'
-                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100 hover:border-slate-300'
-                      }`}
-                    >
-                      {preset.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Controls Bar: Select Row Dim, Col Dim, Metric, Search */}
-          <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {/* Row Dimension */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
-                  1. Chiều Dòng (Row Group)
-                </label>
-                <select
-                  value={pivotRowDim}
-                  onChange={(e) => setPivotRowDim(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                >
-                  {PIVOT_ROW_DIMENSIONS.map((dim) => (
-                    <option key={dim.id} value={dim.id}>
-                      {dim.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Column Dimension */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
-                  2. Chiều Cột (Column Pivot)
-                </label>
-                <select
-                  value={pivotColDim}
-                  onChange={(e) => setPivotColDim(e.target.value)}
-                  className="w-full text-xs bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                >
-                  {PIVOT_COL_DIMENSIONS.map((dim) => (
-                    <option key={dim.id} value={dim.id}>
-                      {dim.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Aggregation Metric */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
-                  3. Chỉ Số Tổng Hợp (Metric)
-                </label>
-                <select
-                  value={pivotMetric}
-                  onChange={(e) => setPivotMetric(e.target.value)}
-                  className="w-full text-xs bg-indigo-50 border border-indigo-300 rounded-lg px-3 py-2 text-indigo-900 font-semibold focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                >
-                  {PIVOT_METRIC_DEFS.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Search in Pivot */}
-              <div>
-                <label className="block text-[11px] font-semibold text-slate-600 uppercase tracking-wider mb-1.5">
-                  4. Lọc Nhanh Nội Bộ
-                </label>
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
-                  <input
-                    type="text"
-                    placeholder="Lọc dòng / cột..."
-                    value={pivotSearch}
-                    onChange={(e) => setPivotSearch(e.target.value)}
-                    className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white"
-                  />
-                  {pivotSearch && (
-                    <button
-                      onClick={() => setPivotSearch('')}
-                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Sub-KPI Badges for the filtered pivot dataset */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs">
-                <span>Tổng Dư Nợ Gốc</span>
-                <DollarSign className="w-4 h-4 text-sky-600" />
-              </div>
-              <div className="text-base font-bold text-slate-900 mt-1">
-                {formatVND(pivotResult.kpis.totalPrincipal)}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Dư nợ theo bộ lọc hiện tại</div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs">
-                <span>Lãi Dự Trả TT14</span>
-                <Percent className="w-4 h-4 text-emerald-600" />
-              </div>
-              <div className="text-base font-bold text-emerald-600 mt-1">
-                {formatVND(pivotResult.kpis.totalInterest)}
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Lãi tích lũy đến hạn</div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs">
-                <span>Lãi Suất BQ (WAIR)</span>
-                <Layers className="w-4 h-4 text-purple-600" />
-              </div>
-              <div className="text-base font-bold text-purple-600 mt-1">
-                {pivotResult.kpis.avgWair.toFixed(2)} %/năm
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Bình quân gia quyền dư nợ</div>
-            </div>
-
-            <div className="bg-white rounded-xl border border-slate-200 p-3.5 shadow-xs">
-              <div className="flex items-center justify-between text-slate-500 text-xs">
-                <span>Số Khoản Vay / Khế Ước</span>
-                <Table className="w-4 h-4 text-indigo-600" />
-              </div>
-              <div className="text-base font-bold text-indigo-600 mt-1">
-                {pivotResult.kpis.totalLoans.toLocaleString('vi-VN')} HĐ
-              </div>
-              <div className="text-[11px] text-slate-400 mt-0.5">Khoản nợ nằm trong ma trận</div>
-            </div>
-          </div>
-
-          {/* Pivot Table Main View */}
-          <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-700 font-semibold border-b border-slate-200 uppercase tracking-wider">
-                    {/* Top-left cell: Row label \ Col label */}
-                    <th className="py-3 px-4 sticky left-0 bg-slate-100 z-10 border-r border-slate-200 min-w-[220px]">
-                      <div className="flex items-center gap-1.5 text-indigo-900">
-                        <span className="font-bold">{pivotResult.rowDef.label}</span>
-                        {pivotResult.is2D && pivotResult.colDef && (
-                          <>
-                            <span className="text-slate-400">/</span>
-                            <span className="text-slate-500 text-[11px] font-normal">
-                              {pivotResult.colDef.label}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </th>
-
-                    {/* Column Headers */}
-                    {pivotResult.is2D ? (
-                      <>
-                        {pivotResult.sortedColKeys.map((cKey) => (
-                          <th
-                            key={cKey}
-                            className="py-3 px-3 text-right whitespace-nowrap min-w-[130px] border-r border-slate-200"
-                          >
-                            <div className="text-slate-800 font-bold">{cKey}</div>
-                            <div className="text-[10px] text-slate-400 font-normal">
-                              {pivotResult.colCounts[cKey] || 0} HĐ
-                            </div>
-                          </th>
-                        ))}
-                        {/* Grand Total Column Header */}
-                        <th className="py-3 px-4 text-right whitespace-nowrap min-w-[140px] bg-indigo-50/70 text-indigo-950 font-bold">
-                          <div>Tổng Cộng</div>
-                          <div className="text-[10px] text-indigo-600 font-normal">
-                            {pivotResult.loansCount} HĐ
-                          </div>
-                        </th>
-                      </>
-                    ) : (
-                      <th className="py-3 px-4 text-right whitespace-nowrap min-w-[180px] bg-indigo-50/70 text-indigo-950 font-bold">
-                        <div>{pivotResult.metricDef.label}</div>
-                      </th>
                     )}
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-slate-100">
-                  {pivotResult.sortedRowKeys.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={pivotResult.is2D ? pivotResult.sortedColKeys.length + 2 : 2}
-                        className="py-12 text-center text-slate-400"
+                    <td className="py-2.5 px-3 text-center">
+                      <button
+                        onClick={() => handleDeleteFile(file.file_id)}
+                        className="p-1 rounded text-rose-500 hover:bg-rose-50 hover:text-rose-700 transition-colors"
+                        title="Xóa file"
                       >
-                        Không có dữ liệu thỏa mãn điều kiện lọc. Vui lòng thử nới lỏng bộ lọc.
-                      </td>
-                    </tr>
-                  ) : (
-                    pivotResult.sortedRowKeys.map((rKey) => {
-                      const rowTotal = pivotResult.rowTotals[rKey] || 0;
-                      const rowCount = pivotResult.rowCounts[rKey] || 0;
-
-                      return (
-                        <tr key={rKey} className="hover:bg-slate-50/80 transition-colors group">
-                          {/* Row Header cell */}
-                          <td className="py-2.5 px-4 sticky left-0 bg-white group-hover:bg-slate-50/80 z-10 border-r border-slate-200 font-medium text-slate-800">
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="truncate max-w-[260px]" title={rKey}>
-                                {rKey}
-                              </span>
-                              <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded flex-shrink-0">
-                                {rowCount}
-                              </span>
-                            </div>
-                          </td>
-
-                          {/* 2D Data Cells */}
-                          {pivotResult.is2D ? (
-                            <>
-                              {pivotResult.sortedColKeys.map((cKey) => {
-                                const val = pivotResult.matrix[rKey]?.[cKey] || 0;
-                                const count = pivotResult.matrixCounts[rKey]?.[cKey] || 0;
-                                const heatRatio =
-                                  pivotResult.grandMax > 0 && val > 0
-                                    ? Math.min(100, Math.round((val / pivotResult.grandMax) * 100))
-                                    : 0;
-
-                                return (
-                                  <td
-                                    key={cKey}
-                                    className="py-2 px-3 text-right whitespace-nowrap border-r border-slate-100 relative group/cell"
-                                  >
-                                    {val > 0 ? (
-                                      <div>
-                                        <div className="font-semibold text-slate-800">
-                                          {pivotResult.metricDef.format(val)}
-                                        </div>
-                                        {pivotResult.metricDef.id !== 'count' && (
-                                          <div className="text-[10px] text-slate-400">
-                                            {count} HĐ
-                                          </div>
-                                        )}
-                                        {/* Subtle heat bar */}
-                                        <div className="w-full bg-slate-100 h-1 rounded-full mt-1 overflow-hidden">
-                                          <div
-                                            className="bg-indigo-500 h-full rounded-full transition-all duration-300"
-                                            style={{ width: `${heatRatio}%` }}
-                                          />
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <span className="text-slate-300">-</span>
-                                    )}
-                                  </td>
-                                );
-                              })}
-
-                              {/* Row Total Cell */}
-                              <td className="py-2.5 px-4 text-right whitespace-nowrap bg-indigo-50/30 font-bold text-indigo-900 border-l border-indigo-100">
-                                <div>{pivotResult.metricDef.format(rowTotal)}</div>
-                                {pivotResult.metricDef.id !== 'count' && (
-                                  <div className="text-[10px] text-indigo-500 font-normal">
-                                    {rowCount} HĐ
-                                  </div>
-                                )}
-                              </td>
-                            </>
-                          ) : (
-                            /* 1D Data Cell */
-                            <td className="py-2.5 px-4 text-right whitespace-nowrap font-bold text-slate-900">
-                              <div className="flex items-center justify-end gap-3">
-                                <span>
-                                  {pivotResult.metricDef.format(
-                                    pivotResult.matrix[rKey]?.['__SINGLE__'] || 0
-                                  )}
-                                </span>
-                                {pivotResult.grandTotal > 0 && (
-                                  <span className="text-[10px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                                    {(
-                                      ((pivotResult.matrix[rKey]?.['__SINGLE__'] || 0) /
-                                        pivotResult.grandTotal) *
-                                      100
-                                    ).toFixed(1)}
-                                    %
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                          )}
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-
-                {/* Grand Total Row */}
-                {pivotResult.sortedRowKeys.length > 0 && (
-                  <tfoot>
-                    <tr className="bg-indigo-50/70 border-t-2 border-indigo-200 font-bold text-slate-900 text-xs">
-                      <td className="py-3 px-4 sticky left-0 bg-indigo-50/90 z-10 border-r border-indigo-200 text-indigo-950">
-                        <div className="flex items-center justify-between">
-                          <span>TỔNG CỘNG TOÀN BỘ</span>
-                          <span className="text-[10px] text-indigo-700 font-semibold bg-indigo-100 px-2 py-0.5 rounded-full">
-                            {pivotResult.loansCount} HĐ
-                          </span>
-                        </div>
-                      </td>
-
-                      {pivotResult.is2D ? (
-                        <>
-                          {pivotResult.sortedColKeys.map((cKey) => (
-                            <td
-                              key={cKey}
-                              className="py-3 px-3 text-right whitespace-nowrap border-r border-indigo-100 text-slate-900"
-                            >
-                              <div>
-                                {pivotResult.metricDef.format(pivotResult.colTotals[cKey] || 0)}
-                              </div>
-                              {pivotResult.metricDef.id !== 'count' && (
-                                <div className="text-[10px] text-slate-500 font-normal">
-                                  {pivotResult.colCounts[cKey] || 0} HĐ
-                                </div>
-                              )}
-                            </td>
-                          ))}
-                          <td className="py-3 px-4 text-right whitespace-nowrap bg-indigo-100/80 text-indigo-950 font-black text-sm">
-                            <div>{pivotResult.metricDef.format(pivotResult.grandTotal)}</div>
-                            {pivotResult.metricDef.id !== 'count' && (
-                              <div className="text-[10px] text-indigo-700 font-normal">
-                                {pivotResult.loansCount} HĐ
-                              </div>
-                            )}
-                          </td>
-                        </>
-                      ) : (
-                        <td className="py-3 px-4 text-right whitespace-nowrap text-indigo-950 font-black text-sm">
-                          {pivotResult.metricDef.format(pivotResult.grandTotal)}
-                        </td>
-                      )}
-                    </tr>
-                  </tfoot>
-                )}
-              </table>
-            </div>
-          </div>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
 
       {/* ========================================================================= */}
       {/* MODAL: NHẬP BỘ HỒ SƠ CHO CÁC KHOẢN VAY ĐÃ NHẬP (CẤU TRÚC FORM CHUẨN)       */}

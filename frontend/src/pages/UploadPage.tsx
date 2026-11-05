@@ -8,13 +8,30 @@ import {
   Trash2,
   FileSpreadsheet,
   Sparkles,
+  Building2,
 } from 'lucide-react';
 import api from '../services/api';
+import { useCorporateEntity } from '../contexts/CorporateEntityContext';
 import { StatementFile } from '../types';
 import { SortableTh } from '../components/common/SortableTh';
-import { SortDirection, sortList } from '../utils/sort';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
+
+const STATEMENT_FILE_COLUMNS: ColumnConfig[] = [
+  { field: 'original_filename', label: 'File Sao Kê / Kỳ', type: 'text', defaultWidth: 230 },
+  { field: 'bank_account', label: 'Ngân hàng & Số TK', type: 'text', defaultWidth: 170 },
+  { field: 'template_code', label: 'Mẫu & Chế độ Đối soát', type: 'text', defaultWidth: 150 },
+  { field: 'total_transactions', label: 'Số dòng', type: 'number', align: 'center', defaultWidth: 90 },
+  { field: 'opening_balance', label: 'Số dư Đầu kỳ', type: 'number', align: 'right', defaultWidth: 130 },
+  { field: 'total_credit', label: 'Tổng Có (+)', type: 'number', align: 'right', defaultWidth: 130 },
+  { field: 'total_debit', label: 'Tổng Nợ (-)', type: 'number', align: 'right', defaultWidth: 130 },
+  { field: 'closing_balance', label: 'Số dư Cuối kỳ', type: 'number', align: 'right', defaultWidth: 130 },
+  { field: 'reconciliation_status', label: 'Trạng thái Đối soát', type: 'text', align: 'center', defaultWidth: 150 },
+];
 
 export const UploadPage: React.FC = () => {
+  const { selectedEntity } = useCorporateEntity();
   const [selectedBank, setSelectedBank] = useState<string>('AUTO_DETECT');
   const [isUploading, setIsUploading] = useState<boolean>(false);
   const [uploadMessages, setUploadMessages] = useState<
@@ -23,24 +40,40 @@ export const UploadPage: React.FC = () => {
   const [statements, setStatements] = useState<StatementFile[]>([]);
   const [loadingList, setLoadingList] = useState<boolean>(false);
 
-  // Sorting State
-  const [sortField, setSortField] = useState<string>('file_id');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities (Sort, Filter, Visibility, Resizing)
+  const {
+    sortField,
+    sortDirection,
+    handleSort,
+    filters,
+    setFilter,
+    clearAllFilters,
+    activeFilterCount,
+    visibleColumns,
+    toggleColumn,
+    showAllColumns,
+    resetColumns,
+    isColumnVisible,
+    columnWidths,
+    handleResize,
+    filterAndSort,
+  } = useTableGrid<StatementFile>({
+    tableId: 'upload_statements_table',
+    columns: STATEMENT_FILE_COLUMNS,
+    defaultSortField: 'file_id',
+    defaultSortDirection: 'desc',
+  });
 
   const sortedStatements = useMemo(() => {
-    return sortList(statements, sortField, sortDirection, {
-      bank_account: (st) => `${st.bank_code || ''} ${st.account_number || ''}`,
+    return filterAndSort(statements, {
+      bank_account: (st) => `${st.bank_code || ''} ${st.account_number || ''} ${st.account_holder || ''}`,
+      total_transactions: (st) => st.total_transactions_count,
+      opening_balance: (st) => st.header_opening_balance,
+      total_credit: (st) => st.total_credit_amount,
+      total_debit: (st) => st.total_debit_amount,
+      closing_balance: (st) => st.calculated_closing_balance,
     });
-  }, [statements, sortField, sortDirection]);
+  }, [statements, filterAndSort]);
 
   const fetchStatements = async () => {
     setLoadingList(true);
@@ -102,6 +135,9 @@ export const UploadPage: React.FC = () => {
       formData.append('file', file);
       if (selectedBank !== 'AUTO_DETECT') {
         formData.append('bank_code', selectedBank);
+      }
+      if (selectedEntity && selectedEntity.id !== 'ALL') {
+        formData.append('account_holder', selectedEntity.name);
       }
 
       try {
@@ -171,7 +207,22 @@ export const UploadPage: React.FC = () => {
           </div>
         </div>
 
-        <div
+                {/* Active Corporate Entity Banner */}
+        <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-blue-50/80 border border-blue-200 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-blue-600 shrink-0" />
+            <span className="text-slate-700">
+              Doanh nghiệp nạp sao kê: <strong className="text-blue-900 font-bold">{selectedEntity.name}</strong>
+              {selectedEntity.taxCode && (
+                <span className="ml-1 font-mono text-slate-500 font-medium">({selectedEntity.taxCode})</span>
+              )}
+            </span>
+          </div>
+          <span className="text-[11px] text-blue-600 font-medium hidden sm:inline">
+            (Thực thể tự động đồng bộ từ Dropdown Header)
+          </span>
+        </div>
+<div
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleFileDrop}
           className="border-2 border-dashed border-slate-300 hover:border-blue-500 rounded-xl p-8 text-center transition-colors bg-slate-50 cursor-pointer"
@@ -253,98 +304,243 @@ export const UploadPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Table Grid Toolbar */}
+        <TableGridToolbar
+          columns={STATEMENT_FILE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onShowAllColumns={showAllColumns}
+          onResetColumns={resetColumns}
+          filteredCount={sortedStatements.length}
+          totalCount={statements.length}
+          activeFilterCount={activeFilterCount}
+          onClearAllFilters={clearAllFilters}
+        />
+
         <div className="overflow-x-auto border border-slate-200 rounded-lg">
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-100 uppercase font-semibold text-slate-700 border-b border-slate-200">
               <tr>
-                <SortableTh field="original_filename" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  File Sao Kê / Kỳ
-                </SortableTh>
-                <SortableTh field="bank_account" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Ngân hàng & Số TK
-                </SortableTh>
-                <SortableTh field="template_code" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Mẫu & Chế độ Đối soát
-                </SortableTh>
-                <SortableTh field="total_transactions" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
-                  Số dòng
-                </SortableTh>
-                <SortableTh field="opening_balance" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Số dư Đầu kỳ
-                </SortableTh>
-                <SortableTh field="total_credit" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Tổng Có (+)
-                </SortableTh>
-                <SortableTh field="total_debit" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Tổng Nợ (-)
-                </SortableTh>
-                <SortableTh field="closing_balance" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Số dư Cuối kỳ
-                </SortableTh>
-                <SortableTh field="reconciliation_status" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
-                  Trạng thái Đối soát
-                </SortableTh>
-                <th className="px-3 py-3 text-center">Thao tác</th>
+                {isColumnVisible('original_filename') && (
+                  <SortableTh
+                    field="original_filename"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['original_filename']}
+                    onFilterChange={(v) => setFilter('original_filename', v)}
+                    width={columnWidths['original_filename']}
+                    onResize={(w) => handleResize('original_filename', w)}
+                  >
+                    File Sao Kê / Kỳ
+                  </SortableTh>
+                )}
+                {isColumnVisible('bank_account') && (
+                  <SortableTh
+                    field="bank_account"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['bank_account']}
+                    onFilterChange={(v) => setFilter('bank_account', v)}
+                    width={columnWidths['bank_account']}
+                    onResize={(w) => handleResize('bank_account', w)}
+                  >
+                    Ngân hàng & Số TK
+                  </SortableTh>
+                )}
+                {isColumnVisible('template_code') && (
+                  <SortableTh
+                    field="template_code"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['template_code']}
+                    onFilterChange={(v) => setFilter('template_code', v)}
+                    width={columnWidths['template_code']}
+                    onResize={(w) => handleResize('template_code', w)}
+                  >
+                    Mẫu & Chế độ Đối soát
+                  </SortableTh>
+                )}
+                {isColumnVisible('total_transactions') && (
+                  <SortableTh
+                    field="total_transactions"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="number"
+                    filterValue={filters['total_transactions']}
+                    onFilterChange={(v) => setFilter('total_transactions', v)}
+                    width={columnWidths['total_transactions']}
+                    onResize={(w) => handleResize('total_transactions', w)}
+                  >
+                    Số dòng
+                  </SortableTh>
+                )}
+                {isColumnVisible('opening_balance') && (
+                  <SortableTh
+                    field="opening_balance"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['opening_balance']}
+                    onFilterChange={(v) => setFilter('opening_balance', v)}
+                    width={columnWidths['opening_balance']}
+                    onResize={(w) => handleResize('opening_balance', w)}
+                  >
+                    Số dư Đầu kỳ
+                  </SortableTh>
+                )}
+                {isColumnVisible('total_credit') && (
+                  <SortableTh
+                    field="total_credit"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['total_credit']}
+                    onFilterChange={(v) => setFilter('total_credit', v)}
+                    width={columnWidths['total_credit']}
+                    onResize={(w) => handleResize('total_credit', w)}
+                  >
+                    Tổng Có (+)
+                  </SortableTh>
+                )}
+                {isColumnVisible('total_debit') && (
+                  <SortableTh
+                    field="total_debit"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['total_debit']}
+                    onFilterChange={(v) => setFilter('total_debit', v)}
+                    width={columnWidths['total_debit']}
+                    onResize={(w) => handleResize('total_debit', w)}
+                  >
+                    Tổng Nợ (-)
+                  </SortableTh>
+                )}
+                {isColumnVisible('closing_balance') && (
+                  <SortableTh
+                    field="closing_balance"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['closing_balance']}
+                    onFilterChange={(v) => setFilter('closing_balance', v)}
+                    width={columnWidths['closing_balance']}
+                    onResize={(w) => handleResize('closing_balance', w)}
+                  >
+                    Số dư Cuối kỳ
+                  </SortableTh>
+                )}
+                {isColumnVisible('reconciliation_status') && (
+                  <SortableTh
+                    field="reconciliation_status"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={filters['reconciliation_status']}
+                    onFilterChange={(v) => setFilter('reconciliation_status', v)}
+                    width={columnWidths['reconciliation_status']}
+                    onResize={(w) => handleResize('reconciliation_status', w)}
+                  >
+                    Trạng thái Đối soát
+                  </SortableTh>
+                )}
+                <th className="px-3 py-3 text-center w-20">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {sortedStatements.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-400 text-sm">
-                    Chưa có file sao kê nào được tải lên. Hãy kéo-thả 7 file mẫu từ thư mục{' '}
-                    <code className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">Resources/Samples_sao_ke</code>{' '}
-                    vào khung trên.
+                  <td
+                    colSpan={STATEMENT_FILE_COLUMNS.filter((c) => isColumnVisible(c.field)).length + 1}
+                    className="px-4 py-8 text-center text-slate-400 text-sm"
+                  >
+                    Chưa có file sao kê nào được tải lên hoặc không khớp bộ lọc.
                   </td>
                 </tr>
               ) : (
                 sortedStatements.map((st) => (
                   <tr key={st.file_id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-3 py-3">
-                      <div className="font-semibold text-slate-900 max-w-[220px] truncate" title={st.original_filename}>
-                        {st.original_filename}
-                      </div>
-                      <div className="text-[11px] text-slate-400 mt-0.5">
-                        {st.statement_period_start && st.statement_period_end
-                          ? `Kỳ: ${st.statement_period_start} → ${st.statement_period_end}`
-                          : `Tải lên: ${new Date(st.created_at).toLocaleString('vi-VN')}`}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="font-bold text-blue-700">
-                        {st.bank_code || '—'} • <span className="font-mono">{st.account_number || '—'}</span>
-                      </div>
-                      <div className="text-[11px] text-slate-500 max-w-[180px] truncate" title={st.account_holder || ''}>
-                        {st.account_holder || '—'}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px] font-semibold">
-                        {st.template_code || 'AUTO'}
-                      </span>
-                      <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                        {st.reconciliation_mode || '—'}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 text-center font-mono font-bold text-slate-800">
-                      {st.total_transactions_count}
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono text-slate-700">
-                      {st.header_opening_balance !== null && st.header_opening_balance !== undefined
-                        ? Number(st.header_opening_balance).toLocaleString('vi-VN')
-                        : '—'}
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono text-emerald-600 font-medium">
-                      +{Number(st.total_credit_amount).toLocaleString('vi-VN')}
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono text-red-600 font-medium">
-                      -{Number(st.total_debit_amount).toLocaleString('vi-VN')}
-                    </td>
-                    <td className="px-3 py-3 text-right font-mono font-bold text-slate-900">
-                      {st.calculated_closing_balance !== null && st.calculated_closing_balance !== undefined
-                        ? Number(st.calculated_closing_balance).toLocaleString('vi-VN')
-                        : '—'}
-                    </td>
-                    <td className="px-3 py-3 text-center">
+                    {isColumnVisible('original_filename') && (
+                      <td className="px-3 py-3">
+                        <div className="font-semibold text-slate-900 max-w-[220px] truncate" title={st.original_filename}>
+                          {st.original_filename}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {st.statement_period_start && st.statement_period_end
+                            ? `Kỳ: ${st.statement_period_start} → ${st.statement_period_end}`
+                            : `Tải lên: ${new Date(st.created_at).toLocaleString('vi-VN')}`}
+                        </div>
+                      </td>
+                    )}
+                    {isColumnVisible('bank_account') && (
+                      <td className="px-3 py-3">
+                        <div className="font-bold text-blue-700">
+                          {st.bank_code || '—'} • <span className="font-mono">{st.account_number || '—'}</span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 max-w-[180px] truncate" title={st.account_holder || ''}>
+                          {st.account_holder || '—'}
+                        </div>
+                      </td>
+                    )}
+                    {isColumnVisible('template_code') && (
+                      <td className="px-3 py-3">
+                        <span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-800 font-mono text-[11px] font-semibold">
+                          {st.template_code || 'AUTO'}
+                        </span>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          {st.reconciliation_mode || '—'}
+                        </div>
+                      </td>
+                    )}
+                    {isColumnVisible('total_transactions') && (
+                      <td className="px-3 py-3 text-center font-mono font-bold text-slate-800">
+                        {st.total_transactions_count}
+                      </td>
+                    )}
+                    {isColumnVisible('opening_balance') && (
+                      <td className="px-3 py-3 text-right font-mono text-slate-700">
+                        {st.header_opening_balance !== null && st.header_opening_balance !== undefined
+                          ? Number(st.header_opening_balance).toLocaleString('vi-VN')
+                          : '—'}
+                      </td>
+                    )}
+                    {isColumnVisible('total_credit') && (
+                      <td className="px-3 py-3 text-right font-mono text-emerald-600 font-medium">
+                        +{Number(st.total_credit_amount).toLocaleString('vi-VN')}
+                      </td>
+                    )}
+                    {isColumnVisible('total_debit') && (
+                      <td className="px-3 py-3 text-right font-mono text-red-600 font-medium">
+                        -{Number(st.total_debit_amount).toLocaleString('vi-VN')}
+                      </td>
+                    )}
+                    {isColumnVisible('closing_balance') && (
+                      <td className="px-3 py-3 text-right font-mono font-bold text-slate-900">
+                        {st.calculated_closing_balance !== null && st.calculated_closing_balance !== undefined
+                          ? Number(st.calculated_closing_balance).toLocaleString('vi-VN')
+                          : '—'}
+                      </td>
+                    )}
+                    {isColumnVisible('reconciliation_status') && (
+                      <td className="px-3 py-3 text-center">
                       {st.reconciliation_status === 'BALANCED' ? (
                         <div>
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800">
@@ -380,15 +576,18 @@ export const UploadPage: React.FC = () => {
                         </span>
                       )}
                     </td>
-                    <td className="px-3 py-3 text-center">
-                      <button
-                        onClick={() => handleDeleteFile(st.file_id, st.original_filename)}
-                        title="Xóa file sao kê này"
-                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
+                    )}
+                    {isColumnVisible('actions') && (
+                      <td className="px-3 py-3 text-center">
+                        <button
+                          onClick={() => handleDeleteFile(st.file_id, st.original_filename)}
+                          title="Xóa file sao kê này"
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

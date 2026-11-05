@@ -1,8 +1,8 @@
 # TÀI LIỆU THIẾT KẾ KIẾN TRÚC HỆ THỐNG (SOFTWARE ARCHITECTURE SPECIFICATION)
 
 > **Dự án:** Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động (Bank Statement Processing & Reporting System)  
-> **Phiên bản:** 1.1.0  
-> **Trạng thái:** Bản thiết kế Kiến trúc Chính thức (Architectural Baseline) - Đã đồng bộ với sản phẩm thực tế  
+> **Phiên bản:** 1.2.0  
+> **Trạng thái:** Bản thiết kế Kiến trúc Chính thức (Architectural Baseline) - Đã đồng bộ với sản phẩm thực tế (Cập nhật 2026-11-04: Chuẩn hóa kiến trúc Bảng Dữ liệu Đa năng)  
 > **Chủ trì (Lead System Architect):** System & Data Architect Team (`@SystemArchitect`)  
 > **Tài liệu căn cứ:** [`docs/BRD.md`](./BRD.md), [`docs/Bank_Mapping_Matrix.md`](./Bank_Mapping_Matrix.md), [`database/schema.sql`](../database/schema.sql), [`agent/PRODUCT_SPEC.md`](../agent/PRODUCT_SPEC.md), [`agent/common_rules.md`](../agent/common_rules.md), [`agent/02_system_architect/rules.md`](../agent/02_system_architect/rules.md)
 
@@ -239,6 +239,23 @@ Cơ sở dữ liệu được tổ chức theo chuẩn **PostgreSQL 15+**, tuân
 - **Quản lý Nghĩa vụ Nợ & Tính Lãi Theo Luật:** API `/api/v1/loans` và `/api/v1/loans/summary` cung cấp danh sách khoản vay, bộ lọc đa tiêu chí (Ngân hàng, Nhóm nợ, Số ngày đến hạn), tính toán lãi suất bình quân gia quyền và tổng nghĩa vụ nợ đến hạn trong 7 ngày, 30 ngày tới.
 - **Tính Lãi Theo Thông tư 14/2017/TT-NHNN:** Tự động tính toán số tiền lãi cần trả (`calculated_interest_due`) theo chuẩn pháp luật Việt Nam (cơ sở Actual/365, tính ngày đầu bỏ ngày cuối) cho 2 hình thức: trả lãi hằng tháng (`MONTHLY` dựa trên ngày trả lãi `monthly_interest_due_day`) và trả lãi cuối kỳ (`END_OF_TERM` từ ngày giải ngân đến ngày đáo hạn).
 - **Liên kết Hồ sơ Giải ngân Object Storage:** Mỗi khoản vay liên kết với 1 bộ hồ sơ giải ngân gồm nhiều tài liệu (Hợp đồng tín dụng, Giấy nhận nợ, Hóa đơn thương mại, Biên bản định giá tài sản, Phê duyệt tín dụng, Khác) lưu trữ tại MinIO On-Premise theo đường dẫn phân cấp `disbursement_dossiers/{bank_code}/{contract_number}/`, bảo vệ bằng mã băm SHA-256 chống giả mạo và ghi nhận đầy đủ nhật ký kiểm toán.
+
+### 5.7. Kiến trúc Thành phần Bảng Dữ liệu Đa năng (Universal Interactive Data Grid Architecture)
+Nhằm đồng bộ trải nghiệm người dùng trên tất cả các màn hình danh sách (Giao dịch, Sổ phụ tín dụng, Danh mục khoản vay, Kho hóa đơn, Nhật ký đối soát), tầng Frontend triển khai kiến trúc Component Bảng Dữ liệu Đa năng với 4 trụ cột kỹ thuật:
+1. **Header Tích Hợp Sort & Filter Popover:**
+   - Mỗi tiêu đề cột kết hợp tương tác Sắp xếp 2 chiều (Click text/icon) và Bộ lọc cột (Nút Filter kích hoạt Popover hoặc Input lọc tích hợp).
+   - Biểu tượng trực quan: `ArrowUp`, `ArrowDown`, `ArrowUpDown`, cùng icon `Filter` đổi màu hoặc hiển thị badge khi cột đang áp dụng lọc.
+2. **Bộ Lọc Phân Tách Theo Kiểu Dữ Liệu:**
+   - **Dữ liệu dạng Chữ (Text / Code / Trạng thái):** Lọc theo điều kiện chuỗi (Condition Filter) gồm các toán tử: Chứa (`contains` - không phân biệt hoa/thường, hỗ trợ tiếng Việt có dấu/không dấu), Bằng (`equals`), Bắt đầu bằng (`startsWith`), Kết thúc bằng (`endsWith`), Không chứa (`notContains`), Rỗng (`isEmpty`), Không rỗng (`isNotEmpty`).
+   - **Dữ liệu dạng Số / Tiền tệ / Ngày tháng (Number, Currency, Date):** Lọc theo điều kiện khoảng (Range Filter) với 2 giá trị cận biên `[Min, Max]` hoặc `[Từ ngày, Đến ngày]`. Đối với ngày tháng, xử lý bao gồm cả ngày cận biên (`00:00:00` đến `23:59:59`).
+3. **Quản Lý Ẩn / Hiện Cột (Column Visibility Management):**
+   - Tích hợp thanh công cụ Dropdown "Tùy chỉnh cột" cho phép người dùng bật/tắt (checkbox) từng cột.
+   - Hỗ trợ cờ `disableHide` cho các cột định danh bắt buộc (STT, Mã hợp đồng, Thao tác).
+   - Tự động đồng bộ và lưu nhớ trạng thái danh sách cột hiển thị vào `localStorage` theo khóa định danh bảng (`grid_cols_{table_id}`).
+4. **Tùy Chỉnh Độ Rộng Cột & An Toàn Bố Cục (Resizable Columns):**
+   - Tích hợp thanh Resizer tại mép phân tách giữa các tiêu đề cột, hỗ trợ kéo thả chuột (Mouse drag) điều chỉnh độ rộng linh hoạt.
+   - Ràng buộc độ rộng tối thiểu an toàn (`minWidth: 80px`) tránh co giật vỡ bảng, cắt chữ (`text-ellipsis`) kèm tooltip khi chuỗi dữ liệu quá dài.
+   - Ghi nhớ độ rộng cột tùy chỉnh vào `localStorage` (`grid_widths_{table_id}`).
 
 ---
 

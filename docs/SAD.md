@@ -27,6 +27,8 @@
 | **1.10.0** | 2026-11-03 | `@SystemArchitect` | Tái cấu trúc Kiến trúc Phân hệ Đối soát Trả nợ Ngân hàng (US-07.9 & US-07.11): Xác lập cột Dư nợ trên file tín dụng là Dư nợ tại thời điểm xuất file (Snapshot Balance at `statement_date`), phân nhánh luồng Pre-Snapshot (hoàn nguyên gốc ban đầu, chống trừ 2 lần) vs Post-Snapshot (giảm trừ hiện tại), cập nhật bảng `loan_repayment_history` với `repayment_timing` và `snapshot_date`. |
 | **1.11.0** | 2026-11-04 | `@SystemArchitect` | Tinh gọn kiến trúc CSDL: Loại bỏ phân hệ Kế hoạch trả nợ (`loan_repayment_plans`, `loan_repayment_plan_items` US-07.8) khỏi ERD và CSDL PostgreSQL; tối ưu hóa cụm bảng tín dụng tập trung cho Quản lý khế ước, Hồ sơ giải ngân và Đối soát giảm trừ dư nợ. |
 | **1.12.0** | 2026-11-04 | `@SystemArchitect` | Tái cấu trúc Phân hệ Hóa đơn & Hồ sơ giải ngân (US-07.10): Tách biệt CSDL Hóa đơn thành Kho lưu trữ độc lập (`invoices`, `invoice_items`), thiết kế bảng quan hệ N-N `loan_invoice_allocations` bảo đảm nhận nợ cho khoản vay; thiết lập các quy tắc kỹ thuật nghiêm ngặt: ghép cặp tự động XML & PDF, kiểm soát ràng buộc duy nhất một TCTD (`locked_bank_code`), và xác thực tổng tiền nhận nợ bằng chính xác gốc vay ban đầu. |
+| **1.13.0** | 2026-11-04 | `@SystemArchitect` | Chuẩn hóa Kiến trúc Giao diện Bảng Dữ liệu Đa năng (Universal Interactive Data Grid Standard): Bổ sung tiêu chuẩn kiến trúc cho toàn bộ các bảng frontend với Header Sort & Filter (lọc điều kiện chuỗi cho dạng Text, lọc khoảng Min-Max/Từ-Đến cho dạng Số và Ngày), Column Visibility Manager (ẩn/hiện cột có ghi nhớ localStorage), và Drag Resizing Handle (thay đổi độ rộng cột kèm min-width an toàn). |
+| **1.14.0** | 2026-11-04 | `@SystemArchitect` | Chuẩn hóa Bảng phụ Danh mục Ngân hàng (`banks` Master Directory): Bổ sung bảng phụ `banks` (bank_code, bank_name, branch_name, tax_code, short_name), thiết lập khóa ngoại `bank_id` tại `bank_accounts` và `credit_facilities`, chuẩn hóa quy tắc hiển thị tên viết tắt trên toàn bộ hệ thống API và Frontend. |
 
 ---
 
@@ -253,7 +255,7 @@ bank-statement-system/
 │   ├── src/
 │   │   ├── components/              # UI Components tái sử dụng
 │   │   │   ├── layout/              # Sidebar, TopHeader, Navbar
-│   │   │   ├── common/              # Button, Modal, Dropdown, Table
+│   │   │   ├── common/              # Button, Modal, Dropdown, SortableTh, TableFilter, ColumnManager
 │   │   │   ├── upload/              # DragDropZone, ProgressTracker
 │   │   │   ├── transactions/        # InlineTaggingRow, NoteEditor
 │   │   │   ├── rules/               # RuleBuilderForm, CategoryManager
@@ -262,16 +264,37 @@ bank-statement-system/
 │   │   │   ├── UploadPage.tsx
 │   │   │   ├── TransactionsPage.tsx
 │   │   │   ├── CreditStatementsPage.tsx # Màn hình Sao kê Tín dụng & Danh mục Nợ Vay
+│   │   │   ├── LoanReportsPage.tsx      # Báo cáo Dư nợ Tín dụng & Pivot Grid
+│   │   │   ├── ContractDetailsPage.tsx  # Chi tiết Khế ước & Đối soát Hóa đơn
+│   │   │   ├── InvoiceRegistryPage.tsx  # Kho Hóa đơn Doanh nghiệp XML & PDF
+│   │   │   ├── LoanRepaymentReconcilePage.tsx # Đối soát Trả nợ Ngân hàng
 │   │   │   ├── RuleManagementPage.tsx
-│   │   │   ├── CFODashboardPage.tsx # Báo cáo Tồn quỹ (<9h) & Thanh khoản Ròng
-│   │   │   └── CEOWaterfallPage.tsx # Biểu đồ Thác nước WTD/MTD
+│   │   │   ├── CFODashboardPage.tsx     # Báo cáo Tồn quỹ (<9h) & Thanh khoản Ròng
+│   │   │   └── CEOWaterfallPage.tsx     # Biểu đồ Thác nước WTD/MTD
 │   │   ├── types/                   # TypeScript interfaces (credit.ts, index.ts)
 │   │   └── services/                # Axios API Client & Endpoints
+│   ├── utils/                       # sort.ts, format.ts, grid.ts
 ├── database/
 │   ├── migrations/                  # Alembic / Flyway migration scripts
 │   └── schema.sql                   # Bản DDL chuẩn hóa 3NF (Accounts, Transactions, Credit & Views)
 └── docs/                            # Tài liệu dự án (BRD, SAD, API, Specs)
 ```
+
+#### 3.3.1. Tiêu chuẩn Kiến trúc Bảng Dữ liệu Đa năng (Universal Interactive Data Grid Architecture)
+Toàn bộ các bảng hiển thị dữ liệu trên Frontend được chuẩn hóa theo kiến trúc Data Grid tương tác cao:
+1. **Header Tích Hợp Sắp Xếp (Sort) và Bộ Lọc (Filter):**
+   - Hỗ trợ Sort 2 chiều với thuật toán so sánh tiếng Việt (`localeCompare('vi', { numeric: true })`) cho văn bản, số học cho tiền tệ/Decimal, và epoch timestamp cho ngày tháng.
+   - Mỗi cột tích hợp công cụ lọc trực tiếp trên Header (Header Filter Popover/Row) với icon nhận diện trực quan khi bộ lọc đang hoạt động.
+2. **Bộ Lọc Phân Tách Theo Kiểu Dữ Liệu:**
+   - **Dữ liệu dạng Chữ (Text / String / Danh mục / Mã):** Lọc theo điều kiện chuỗi (Condition Filter: Chứa, Bằng chính xác, Bắt đầu bằng, Kết thúc bằng, Không chứa, Rỗng, Không rỗng).
+   - **Dữ liệu dạng Số hoặc Ngày (Number / Currency / Decimal / Date / Timestamp):** Lọc theo điều kiện khoảng (Range Filter: `[Min, Max]` hoặc `[Từ ngày, Đến ngày]` bao gồm cả ngày biên).
+3. **Quản Lý Ẩn / Hiện Cột (Column Visibility Management):**
+   - Menu dropdown "Tùy chỉnh cột" trên thanh toolbar của bảng, cho phép bật/tắt (checkbox) từng cột. Khóa cố định các cột bắt buộc (`disableHide`).
+   - Tự động lưu nhớ cấu hình hiển thị cột vào `localStorage` theo từng `table_id`.
+4. **Thay Đổi Độ Rộng Cột (Resizable Columns):**
+   - Hỗ trợ kéo thả chuột (Mouse drag) tại vạch phân tách cột để co dãn độ rộng linh hoạt.
+   - Ràng buộc độ rộng tối thiểu an toàn (`minWidth >= 80px`) tránh vỡ bảng, kết hợp `text-ellipsis` và tooltip hiển thị nội dung dài.
+   - Lưu nhớ độ rộng cột đã tùy chỉnh vào `localStorage`.
 
 ---
 

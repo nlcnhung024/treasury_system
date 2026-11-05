@@ -515,7 +515,11 @@ async def _recalculate_invoice_state(db: AsyncSession, invoice_id: int) -> None:
     await db.flush()
 
 
-async def get_loan_allocated_invoices(db: AsyncSession, loan_id: int) -> LoanAllocatedInvoicesResponse:
+async def get_loan_allocated_invoices(
+    db: AsyncSession,
+    loan_id: int,
+    skip_auto_sync: bool = False,
+) -> LoanAllocatedInvoicesResponse:
     """Lấy danh sách các hóa đơn và số tiền nhận nợ đang bảo đảm cho khoản vay."""
     stmt_loan = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
     loan_res = await db.execute(stmt_loan)
@@ -530,6 +534,20 @@ async def get_loan_allocated_invoices(db: AsyncSession, loan_id: int) -> LoanAll
         .order_by(LoanInvoiceAllocation.allocation_id.asc())
     )
     allocs = (await db.execute(stmt_alloc)).scalars().all()
+
+    # Tự động đồng bộ cuốn chiếu hóa đơn từ hồ sơ nếu bộ hồ sơ đã có hóa đơn nhưng chưa được gắn nhận nợ
+    if not skip_auto_sync and len(allocs) == 0:
+        stmt_has_dossier_inv = select(func.count(DisbursementDocument.document_id)).where(
+            DisbursementDocument.loan_id == loan_id,
+            or_(
+                DisbursementDocument.document_type == "INVOICE",
+                DisbursementDocument.file_name.ilike("%.xml"),
+                DisbursementDocument.invoice_id.isnot(None),
+            ),
+        )
+        has_dossier_inv = ((await db.execute(stmt_has_dossier_inv)).scalar() or 0) > 0
+        if has_dossier_inv:
+            return await auto_sync_dossier_invoices_rolling(db, loan_id, user="SYSTEM")
 
     total_allocated = sum(a.allocated_amount for a in allocs)
     principal = loan.original_principal_balance or Decimal("0.00")
@@ -557,6 +575,7 @@ async def get_loan_allocated_invoices(db: AsyncSession, loan_id: int) -> LoanAll
             invoice_series=a.invoice.invoice_series if a.invoice else None,
             seller_name=a.invoice.seller_name if a.invoice else None,
             total_invoice_amount=a.invoice.total_amount if a.invoice else None,
+            remaining_amount=a.invoice.remaining_amount if a.invoice else None,
             created_at=a.created_at,
         )
         for a in allocs
@@ -573,6 +592,163 @@ async def get_loan_allocated_invoices(db: AsyncSession, loan_id: int) -> LoanAll
         status_message=msg,
         allocations=alloc_items,
     )
+
+
+async def auto_sync_dossier_invoices_rolling(
+    db: AsyncSession,
+    loan_id: int,
+    user: str = "SYSTEM",
+    force_recalculate: bool = False,
+) -> LoanAllocatedInvoicesResponse:
+    """
+    Thuật toán tự động đồng bộ hóa đơn từ hồ sơ giải ngân sang tab Hóa đơn nhận nợ.
+    Thuật toán gợi ý điền số tiền nhận nợ cuốn chiếu:
+    1. Quét toàn bộ chứng từ hóa đơn (XML/PDF) trong hồ sơ giải ngân của khoản vay.
+    2. Đảm bảo mọi hóa đơn đều đã được liên kết với bảng hóa đơn tổng (invoices).
+    3. Lấy giá trị còn được giải ngân của từng hóa đơn (remaining_amount) trong bảng hóa đơn tổng.
+    4. Sắp xếp hóa đơn theo thứ tự thời gian (invoice_date ASC, invoice_id ASC).
+    5. Cuốn chiếu điền số tiền nhận nợ cho từng hóa đơn đến khi đủ số lượng dư nợ gốc của khoản vay (original_principal_balance).
+    6. Tự động lưu phân bổ vào loan_invoice_allocations và cập nhật trạng thái hóa đơn.
+    """
+    stmt_loan = select(CreditFacility).where(CreditFacility.loan_id == loan_id)
+    loan_res = await db.execute(stmt_loan)
+    loan = loan_res.scalar_one_or_none()
+    if not loan:
+        raise ValueError(f"Không tìm thấy khoản vay #{loan_id}")
+
+    principal = loan.original_principal_balance or Decimal("0.00")
+    if principal <= Decimal("0.00"):
+        return await get_loan_allocated_invoices(db, loan_id, skip_auto_sync=True)
+
+    loan_bank = loan.bank_code.strip().upper() if loan.bank_code else ""
+
+    # 1. Quét các chứng từ hóa đơn trong hồ sơ giải ngân của khoản vay
+    stmt_docs = (
+        select(DisbursementDocument)
+        .where(
+            DisbursementDocument.loan_id == loan_id,
+            or_(
+                DisbursementDocument.document_type == "INVOICE",
+                DisbursementDocument.file_name.ilike("%.xml"),
+                DisbursementDocument.invoice_id.isnot(None),
+            ),
+        )
+        .order_by(DisbursementDocument.document_id.asc())
+    )
+    docs = (await db.execute(stmt_docs)).scalars().all()
+
+    # Nếu có file XML chưa liên kết invoice_id, tự động liên kết hoặc nạp vào kho
+    unlinked_xml = [d for d in docs if d.invoice_id is None and d.file_name.lower().endswith(".xml")]
+    if unlinked_xml:
+        for u_doc in unlinked_xml:
+            try:
+                content = read_statement_bytes(u_doc.storage_path)
+                await auto_sync_dossier_document_to_invoice(
+                    db=db,
+                    loan=loan,
+                    doc_record=u_doc,
+                    content=content,
+                )
+            except Exception as e:
+                logger.warning(f"Lỗi khi liên kết doc #{u_doc.document_id} vào kho: {e}")
+        await db.commit()
+
+    # 2. Lấy danh sách invoice_id duy nhất từ hồ sơ giải ngân
+    dossier_inv_ids: List[int] = []
+    seen_ids = set()
+    for d in docs:
+        if d.invoice_id and d.invoice_id not in seen_ids:
+            seen_ids.add(d.invoice_id)
+            dossier_inv_ids.append(d.invoice_id)
+
+    if not dossier_inv_ids:
+        # Không có hóa đơn nào trong hồ sơ giải ngân
+        return await get_loan_allocated_invoices(db, loan_id, skip_auto_sync=True)
+
+    # 3. Lấy các phân bổ hiện có của khoản vay này
+    existing_alloc_stmt = (
+        select(LoanInvoiceAllocation)
+        .where(LoanInvoiceAllocation.loan_id == loan_id)
+        .options(selectinload(LoanInvoiceAllocation.invoice))
+    )
+    existing_allocs = (await db.execute(existing_alloc_stmt)).scalars().all()
+
+    # Nếu force_recalculate, ta xóa hết phân bổ hiện có để cuốn chiếu lại từ đầu
+    if force_recalculate and existing_allocs:
+        for old_alloc in existing_allocs:
+            old_inv_id = old_alloc.invoice_id
+            await db.delete(old_alloc)
+            await db.flush()
+            await _recalculate_invoice_state(db, old_inv_id)
+        await db.commit()
+        existing_allocs = []
+
+    # 4. Lấy các hóa đơn tương ứng từ bảng hóa đơn tổng
+    stmt_invs = (
+        select(Invoice)
+        .where(Invoice.invoice_id.in_(dossier_inv_ids))
+        .options(selectinload(Invoice.allocations))
+        .order_by(Invoice.invoice_date.asc(), Invoice.invoice_id.asc())
+    )
+    invoices = (await db.execute(stmt_invs)).scalars().all()
+
+    # 5. Thuật toán Cuốn Chiếu (Rolling Allocation Algorithm)
+    current_total_allocated = sum(a.allocated_amount for a in existing_allocs)
+    remaining_principal_needed = principal - current_total_allocated
+
+    # Nếu đã khớp 100% hoặc vượt quá dư nợ gốc thì không cần cuốn chiếu thêm
+    if remaining_principal_needed <= Decimal("0.00"):
+        return await get_loan_allocated_invoices(db, loan_id, skip_auto_sync=True)
+
+    allocations_map: Dict[int, SingleAllocationItem] = {}
+    for a in existing_allocs:
+        allocations_map[a.invoice_id] = SingleAllocationItem(
+            invoice_id=a.invoice_id,
+            allocated_amount=a.allocated_amount,
+            notes=a.notes,
+        )
+
+    for inv in invoices:
+        if remaining_principal_needed <= Decimal("0.00"):
+            break
+
+        # Kiểm tra ràng buộc ngân hàng (Single Bank Rule)
+        if inv.locked_bank_code and inv.locked_bank_code.strip().upper() != loan_bank:
+            continue
+
+        # Lấy hạn mức còn lại có thể sử dụng của hóa đơn này
+        existing_alloc_this_inv = allocations_map.get(inv.invoice_id)
+        current_amount_for_loan = existing_alloc_this_inv.allocated_amount if existing_alloc_this_inv else Decimal("0.00")
+        available_limit = inv.remaining_amount + current_amount_for_loan
+
+        if available_limit <= Decimal("0.00"):
+            continue
+
+        # Cuốn chiếu: lấy giá trị còn được giải ngân của hóa đơn trong bảng hóa đơn tổng
+        # Cuốn chiếu đến khi đủ số lượng dư nợ gốc của khoản vay
+        alloc_amount = min(available_limit, current_amount_for_loan + remaining_principal_needed)
+        incremental = alloc_amount - current_amount_for_loan
+
+        if incremental > Decimal("0.00"):
+            allocations_map[inv.invoice_id] = SingleAllocationItem(
+                invoice_id=inv.invoice_id,
+                allocated_amount=alloc_amount,
+                notes=f"Đồng bộ cuốn chiếu từ hồ sơ ({loan.contract_number})",
+            )
+            remaining_principal_needed -= incremental
+
+    # 6. Ghi nhận phân bổ và cập nhật trạng thái hóa đơn
+    final_items = list(allocations_map.values())
+    if final_items:
+        return await allocate_invoices_to_loan(
+            db=db,
+            loan_id=loan_id,
+            allocation_items=final_items,
+            strict_principal_check=False,
+            user=user,
+        )
+
+    return await get_loan_allocated_invoices(db, loan_id, skip_auto_sync=True)
 
 
 async def remove_loan_allocation(db: AsyncSession, allocation_id: int) -> None:

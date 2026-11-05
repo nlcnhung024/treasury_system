@@ -17,6 +17,7 @@ import {
   CheckCheck,
   FileText,
   Receipt,
+  BarChart3,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -90,6 +91,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
 
   const khoanVayNavItems = [
     { to: '/credit-statements', label: 'Sao Kê Tín Dụng', icon: Landmark },
+    { to: '/loan-reports', label: 'Thống Kê Dư Nợ Tín Dụng', icon: BarChart3 },
     { to: '/invoices', label: 'Kho Hóa Đơn & Đảm Bảo', icon: Receipt },
     { to: '/loan-repayments', label: 'Đối soát trả nợ', icon: CheckCheck },
     { to: '/contract-details', label: 'Chi tiết khế ước', icon: FileText },

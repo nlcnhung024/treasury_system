@@ -34,6 +34,7 @@ class LoanAllocationItemResponse(BaseModel):
     invoice_series: Optional[str] = None
     seller_name: Optional[str] = None
     total_invoice_amount: Optional[Decimal] = None
+    remaining_amount: Optional[Decimal] = None
     created_at: Optional[datetime] = None
 
 

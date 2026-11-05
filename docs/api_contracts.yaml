@@ -2111,6 +2111,33 @@ paths:
                     type: number
                     format: decimal
 
+
+  /loans/{loan_id}/auto-sync-dossier-invoices:
+    post:
+      summary: Tự động đồng bộ hóa đơn từ hồ sơ sang tab nhận nợ theo thuật toán cuốn chiếu
+      description: Quét hóa đơn trong bộ hồ sơ giải ngân, trích hạn mức còn lại từ bảng hóa đơn tổng, cuốn chiếu điền số tiền nhận nợ đến khi đủ số lượng dư nợ gốc
+      tags:
+        - Invoices Management
+      parameters:
+        - name: loan_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: force_recalculate
+          in: query
+          required: false
+          schema:
+            type: boolean
+            default: false
+      responses:
+        '200':
+          description: Kết quả đồng bộ cuốn chiếu hóa đơn nhận nợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanAllocatedInvoicesResponse'
+
   /loans/repayment-reconciliations/reconcile:
     post:
       summary: Đối soát giao dịch trả nợ, chia gốc - lãi và giảm trừ nợ gốc
@@ -2558,6 +2585,87 @@ paths:
         '200':
           description: Hủy phân bổ thành công
 
+  /banks:
+    get:
+      summary: Lấy danh mục các ngân hàng / tổ chức tín dụng liên kết
+      tags:
+        - Banks
+      parameters:
+        - name: active_only
+          in: query
+          schema:
+            type: boolean
+            default: true
+      responses:
+        '200':
+          description: Danh sách ngân hàng
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/BankItemResponse'
+    post:
+      summary: Thêm mới ngân hàng vào danh mục
+      tags:
+        - Banks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BankCreateRequest'
+      responses:
+        '201':
+          description: Tạo ngân hàng thành công
+
+  /banks/{bank_id}:
+    get:
+      summary: Lấy chi tiết một ngân hàng
+      tags:
+        - Banks
+      parameters:
+        - name: bank_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Chi tiết ngân hàng
+    put:
+      summary: Cập nhật thông tin ngân hàng
+      tags:
+        - Banks
+      parameters:
+        - name: bank_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BankUpdateRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+    delete:
+      summary: Vô hiệu hóa ngân hàng
+      tags:
+        - Banks
+      parameters:
+        - name: bank_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Đã vô hiệu hóa
+
 # =============================================================================
 # THÀNH PHẦN TÁI SỬ DỤNG (COMPONENTS & SCHEMAS)
 # =============================================================================
@@ -2576,6 +2684,68 @@ components:
       description: API Key bảo mật dùng riêng cho Background Worker và giao tiếp giữa các vi dịch vụ nội bộ.
 
   schemas:
+    BankItemResponse:
+      type: object
+      properties:
+        bank_id:
+          type: integer
+        bank_code:
+          type: string
+        bank_name:
+          type: string
+        branch_name:
+          type: string
+          nullable: true
+        tax_code:
+          type: string
+          nullable: true
+        short_name:
+          type: string
+        is_active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    BankCreateRequest:
+      type: object
+      required:
+        - bank_code
+        - bank_name
+        - short_name
+      properties:
+        bank_code:
+          type: string
+        bank_name:
+          type: string
+        branch_name:
+          type: string
+        tax_code:
+          type: string
+        short_name:
+          type: string
+        is_active:
+          type: boolean
+
+    BankUpdateRequest:
+      type: object
+      properties:
+        bank_code:
+          type: string
+        bank_name:
+          type: string
+        branch_name:
+          type: string
+        tax_code:
+          type: string
+        short_name:
+          type: string
+        is_active:
+          type: boolean
+
     LoginRequest:
       type: object
       required:
@@ -4433,6 +4603,10 @@ components:
         total_invoice_amount:
           type: number
           nullable: true
+        remaining_amount:
+          type: number
+          nullable: true
+          description: Số tiền khả dụng còn lại của hóa đơn trong kho hóa đơn tổng
         created_at:
           type: string
           format: date-time

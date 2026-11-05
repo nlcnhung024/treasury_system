@@ -29,11 +29,31 @@ CREATE INDEX idx_corporate_entities_tax_code ON corporate_entities(tax_code);
 CREATE INDEX idx_corporate_entities_code ON corporate_entities(entity_code);
 
 -- =============================================================================
+-- 1.1 BẢNG PHỤ DANH MỤC NGÂN HÀNG & TCTD (BANKS MASTER DIRECTORY)
+-- Chứa thông tin chuẩn hóa về các tổ chức tín dụng / ngân hàng liên kết
+-- =============================================================================
+CREATE TABLE banks (
+    bank_id BIGSERIAL PRIMARY KEY,
+    bank_code VARCHAR(20) NOT NULL UNIQUE,                  -- MBB, CTG, VPB, TPB, SHB, MBV, EVF, VCB, TCB...
+    bank_name VARCHAR(150) NOT NULL,                        -- Tên ngân hàng đầy đủ (vd: Ngân hàng TMCP Quân Đội)
+    branch_name VARCHAR(150),                               -- Tên chi nhánh (vd: Chi nhánh Ba Đình, Chi nhánh Thăng Long...)
+    tax_code VARCHAR(50),                                   -- Mã số thuế ngân hàng/chi nhánh (vd: 0100283873)
+    short_name VARCHAR(50) NOT NULL,                        -- Tên viết tắt hiển thị (vd: MB, VietinBank, VPBank, TPBank...)
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,                -- Trạng thái hoạt động
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_banks_code ON banks(bank_code);
+CREATE INDEX idx_banks_short_name ON banks(short_name);
+
+-- =============================================================================
 -- 2. BẢNG NGÂN HÀNG & TÀI KHOẢN THANH TOÁN (BANK ACCOUNTS)
 -- Lưu thông tin tài khoản doanh nghiệp (Khối 1) và tài khoản cá nhân CEO ủy quyền (Khối 2)
 -- =============================================================================
 CREATE TABLE bank_accounts (
     account_id BIGSERIAL PRIMARY KEY,
+    bank_id BIGINT REFERENCES banks(bank_id) ON DELETE SET NULL,
     entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     bank_code VARCHAR(20) NOT NULL,                         -- MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB...
     bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng đầy đủ
@@ -284,6 +304,7 @@ CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
 CREATE TABLE credit_statement_files (
     file_id BIGSERIAL PRIMARY KEY,
     file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    bank_id BIGINT REFERENCES banks(bank_id) ON DELETE SET NULL,
     entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB...
     template_code VARCHAR(50) NOT NULL,                     -- CTG_LOAN_XLS, MBB_LOAN_LD_XLSX
@@ -325,6 +346,7 @@ CREATE INDEX idx_credit_files_created ON credit_statement_files(created_at DESC)
 -- =============================================================================
 CREATE TABLE credit_facilities (
     loan_id BIGSERIAL PRIMARY KEY,
+    bank_id BIGINT REFERENCES banks(bank_id) ON DELETE SET NULL,
     entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     bank_code VARCHAR(20) NOT NULL,                         -- CTG, MBB...
     bank_name VARCHAR(100) NOT NULL,                        -- Tên ngân hàng

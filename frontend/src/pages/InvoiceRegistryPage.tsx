@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
   UploadCloud,
@@ -14,6 +14,22 @@ import {
   Receipt,
   X,
 } from 'lucide-react';
+import { SortableTh } from '../components/common/SortableTh';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
+
+const INVOICE_COLUMNS: ColumnConfig[] = [
+  { field: 'invoice_number', label: 'Số HĐ / Ký hiệu', type: 'text', defaultWidth: 160 },
+  { field: 'invoice_date', label: 'Ngày lập', type: 'date', defaultWidth: 120 },
+  { field: 'seller_name', label: 'Bên bán (Nhà cung cấp)', type: 'text', defaultWidth: 220 },
+  { field: 'total_amount', label: 'Tổng giá trị', type: 'number', align: 'right', defaultWidth: 150 },
+  { field: 'allocated_amount', label: 'Đã nhận nợ', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'remaining_amount', label: 'Còn lại khả dụng', type: 'number', align: 'right', defaultWidth: 150 },
+  { field: 'locked_bank_code', label: 'Ngân hàng khóa', type: 'text', align: 'center', defaultWidth: 130 },
+  { field: 'attachment', label: 'Chứng từ đính kèm', type: 'text', align: 'center', defaultWidth: 140 },
+  { field: 'status', label: 'Trạng thái', type: 'text', align: 'center', defaultWidth: 130 },
+];
 import api from '../services/api';
 import {
   InvoiceRegistryItem,
@@ -38,6 +54,36 @@ export const InvoiceRegistryPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [bankFilter, setBankFilter] = useState<string>('');
+
+  // Table Grid Capabilities
+  const {
+    sortField,
+    sortDirection,
+    handleSort,
+    filters,
+    setFilter,
+    clearAllFilters,
+    activeFilterCount,
+    visibleColumns,
+    toggleColumn,
+    showAllColumns,
+    resetColumns,
+    isColumnVisible,
+    columnWidths,
+    handleResize,
+    filterAndSort,
+  } = useTableGrid<InvoiceRegistryItem>({
+    tableId: 'invoices_registry_table',
+    columns: INVOICE_COLUMNS,
+    defaultSortField: 'invoice_date',
+    defaultSortDirection: 'desc',
+  });
+
+  const displayInvoices = useMemo(() => {
+    return filterAndSort(invoices, {
+      attachment: (inv) => `${inv.xml_file_name || ''} ${inv.has_pdf ? 'PDF' : ''}`,
+    });
+  }, [invoices, filterAndSort]);
 
   // Modals
   const [isUploadModalOpen, setIsUploadModalOpen] = useState<boolean>(false);
@@ -514,72 +560,233 @@ export const InvoiceRegistryPage: React.FC = () => {
           </span>
         </div>
 
+        <TableGridToolbar
+          columns={INVOICE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onShowAllColumns={showAllColumns}
+          onResetColumns={resetColumns}
+          filteredCount={displayInvoices.length}
+          totalCount={invoices.length}
+          activeFilterCount={activeFilterCount}
+          onClearAllFilters={clearAllFilters}
+        />
+
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-100/75 text-slate-700 font-semibold border-b border-slate-200">
-                <th className="px-4 py-3">Số HĐ / Ký hiệu</th>
-                <th className="px-4 py-3">Ngày lập</th>
-                <th className="px-4 py-3">Bên bán (Nhà cung cấp)</th>
-                <th className="px-4 py-3 text-right">Tổng giá trị</th>
-                <th className="px-4 py-3 text-right">Đã nhận nợ</th>
-                <th className="px-4 py-3 text-right">Còn lại khả dụng</th>
-                <th className="px-4 py-3 text-center">Ngân hàng khóa</th>
-                <th className="px-4 py-3 text-center">Chứng từ đính kèm</th>
-                <th className="px-4 py-3 text-center">Trạng thái</th>
+                {isColumnVisible('invoice_number') && (
+                  <SortableTh
+                    field="invoice_number"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['invoice_number']}
+                    onFilterChange={(v) => setFilter('invoice_number', v)}
+                    width={columnWidths['invoice_number']}
+                    onResize={(w) => handleResize('invoice_number', w)}
+                    className="px-4 py-3"
+                  >
+                    Số HĐ / Ký hiệu
+                  </SortableTh>
+                )}
+                {isColumnVisible('invoice_date') && (
+                  <SortableTh
+                    field="invoice_date"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="date"
+                    filterValue={filters['invoice_date']}
+                    onFilterChange={(v) => setFilter('invoice_date', v)}
+                    width={columnWidths['invoice_date']}
+                    onResize={(w) => handleResize('invoice_date', w)}
+                    className="px-4 py-3"
+                  >
+                    Ngày lập
+                  </SortableTh>
+                )}
+                {isColumnVisible('seller_name') && (
+                  <SortableTh
+                    field="seller_name"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['seller_name']}
+                    onFilterChange={(v) => setFilter('seller_name', v)}
+                    width={columnWidths['seller_name']}
+                    onResize={(w) => handleResize('seller_name', w)}
+                    className="px-4 py-3"
+                  >
+                    Bên bán (Nhà cung cấp)
+                  </SortableTh>
+                )}
+                {isColumnVisible('total_amount') && (
+                  <SortableTh
+                    field="total_amount"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['total_amount']}
+                    onFilterChange={(v) => setFilter('total_amount', v)}
+                    width={columnWidths['total_amount']}
+                    onResize={(w) => handleResize('total_amount', w)}
+                    className="px-4 py-3"
+                  >
+                    Tổng giá trị
+                  </SortableTh>
+                )}
+                {isColumnVisible('allocated_amount') && (
+                  <SortableTh
+                    field="allocated_amount"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['allocated_amount']}
+                    onFilterChange={(v) => setFilter('allocated_amount', v)}
+                    width={columnWidths['allocated_amount']}
+                    onResize={(w) => handleResize('allocated_amount', w)}
+                    className="px-4 py-3"
+                  >
+                    Đã nhận nợ
+                  </SortableTh>
+                )}
+                {isColumnVisible('remaining_amount') && (
+                  <SortableTh
+                    field="remaining_amount"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['remaining_amount']}
+                    onFilterChange={(v) => setFilter('remaining_amount', v)}
+                    width={columnWidths['remaining_amount']}
+                    onResize={(w) => handleResize('remaining_amount', w)}
+                    className="px-4 py-3"
+                  >
+                    Còn lại khả dụng
+                  </SortableTh>
+                )}
+                {isColumnVisible('locked_bank_code') && (
+                  <SortableTh
+                    field="locked_bank_code"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={filters['locked_bank_code']}
+                    onFilterChange={(v) => setFilter('locked_bank_code', v)}
+                    width={columnWidths['locked_bank_code']}
+                    onResize={(w) => handleResize('locked_bank_code', w)}
+                    className="px-4 py-3"
+                  >
+                    Ngân hàng khóa
+                  </SortableTh>
+                )}
+                {isColumnVisible('attachment') && (
+                  <SortableTh
+                    field="attachment"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={filters['attachment']}
+                    onFilterChange={(v) => setFilter('attachment', v)}
+                    width={columnWidths['attachment']}
+                    onResize={(w) => handleResize('attachment', w)}
+                    className="px-4 py-3"
+                  >
+                    Chứng từ đính kèm
+                  </SortableTh>
+                )}
+                {isColumnVisible('status') && (
+                  <SortableTh
+                    field="status"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={filters['status']}
+                    onFilterChange={(v) => setFilter('status', v)}
+                    width={columnWidths['status']}
+                    onResize={(w) => handleResize('status', w)}
+                    className="px-4 py-3"
+                  >
+                    Trạng thái
+                  </SortableTh>
+                )}
                 <th className="px-4 py-3 text-right">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
+                  <td colSpan={INVOICE_COLUMNS.filter((c) => isColumnVisible(c.field)).length + 1} className="px-4 py-8 text-center text-slate-500">
                     <RefreshCw className="w-5 h-5 animate-spin mx-auto text-blue-600 mb-2" />
                     Đang tải danh sách hóa đơn...
                   </td>
                 </tr>
-              ) : invoices.length === 0 ? (
+              ) : displayInvoices.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-4 py-8 text-center text-slate-500">
-                    Chưa có hóa đơn nào trong kho. Hãy bấm <b>"Nạp Hóa đơn (XML & PDF)"</b> hoặc <b>"Nạp Gói ZIP"</b> để bắt đầu.
+                  <td colSpan={INVOICE_COLUMNS.filter((c) => isColumnVisible(c.field)).length + 1} className="px-4 py-8 text-center text-slate-500">
+                    {invoices.length === 0
+                      ? 'Chưa có hóa đơn nào trong kho. Hãy bấm "Nạp Hóa đơn (XML & PDF)" hoặc "Nạp Gói ZIP" để bắt đầu.'
+                      : 'Không tìm thấy hóa đơn nào khớp với điều kiện lọc trên bảng.'}
                   </td>
                 </tr>
               ) : (
-                invoices.map((inv) => (
+                displayInvoices.map((inv) => (
                   <tr key={inv.invoice_id} className="hover:bg-slate-50/80 transition-colors">
-                    {/* Số HĐ & Ký hiệu */}
+                    {isColumnVisible('invoice_number') && (
                     <td className="px-4 py-3">
                       <div className="font-bold text-slate-900">{inv.invoice_number}</div>
                       <div className="text-[11px] text-slate-500">
                         Mẫu {inv.invoice_template} • {inv.invoice_series}
                       </div>
                     </td>
+                  )}
 
-                    {/* Ngày lập */}
+                  {isColumnVisible('invoice_date') && (
                     <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
+                  )}
 
-                    {/* Bên bán */}
+                    {isColumnVisible('seller_name') && (
                     <td className="px-4 py-3 max-w-[220px]">
                       <div className="font-medium text-slate-900 truncate" title={inv.seller_name}>
                         {inv.seller_name}
                       </div>
                       <div className="text-[11px] text-slate-500">MST: {inv.seller_tax_code}</div>
                     </td>
+                  )}
 
-                    {/* Tổng giá trị */}
+                  {isColumnVisible('total_amount') && (
                     <td className="px-4 py-3 text-right font-bold text-slate-900">{fmtVND(inv.total_amount)}</td>
+                  )}
 
-                    {/* Đã nhận nợ */}
+                    {isColumnVisible('allocated_amount') && (
                     <td className="px-4 py-3 text-right font-semibold text-purple-700">
                       {fmtVND(inv.allocated_amount)}
                     </td>
+                  )}
 
-                    {/* Còn lại */}
+                    {isColumnVisible('remaining_amount') && (
                     <td className="px-4 py-3 text-right font-bold text-emerald-700">
                       {fmtVND(inv.remaining_amount)}
                     </td>
+                  )}
 
-                    {/* Ngân hàng khóa */}
+                    {isColumnVisible('locked_bank_code') && (
                     <td className="px-4 py-3 text-center">
                       {inv.locked_bank_code ? (
                         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
@@ -592,8 +799,9 @@ export const InvoiceRegistryPage: React.FC = () => {
                         </span>
                       )}
                     </td>
+                  )}
 
-                    {/* Chứng từ đính kèm (XML / PDF) */}
+                  {isColumnVisible('attachment') && (
                     <td className="px-4 py-3 text-center">
                       <div className="flex items-center justify-center gap-1.5">
                         {/* File XML */}
@@ -637,8 +845,9 @@ export const InvoiceRegistryPage: React.FC = () => {
                         )}
                       </div>
                     </td>
+                  )}
 
-                    {/* Trạng thái */}
+                  {isColumnVisible('status') && (
                     <td className="px-4 py-3 text-center">
                       {inv.status === 'AVAILABLE' && (
                         <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-800">
@@ -656,8 +865,9 @@ export const InvoiceRegistryPage: React.FC = () => {
                         </span>
                       )}
                     </td>
+                  )}
 
-                    {/* Thao tác */}
+                  {/* Thao tác */}
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         {/* Xem chi tiết */}

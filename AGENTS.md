@@ -17,10 +17,12 @@ Khi thiết kế hoặc quản lý hệ thống Agent và Rules cho dự án, tr
   - Tiêu chuẩn kiểm thử (Coverage, sandbox test data, bắt buộc 100% teardown không để rò rỉ mock data ra CSDL dùng chung).
   - **TUYỆT ĐỐI KHÔNG:** Mô tả nghiệp vụ ngân hàng/tài chính, luồng màn hình người dùng, hoặc tính năng sản phẩm trong `rules.md`.
 
-## 3. Nguồn Chân lý Nghiệp vụ & Bối cảnh Dự án (Docs & Product Spec as Single Source of Truth)
-- Toàn bộ Agent BẮT BUỘC phải đọc và bám sát các tài liệu đặc tả nghiệp vụ, yêu cầu và bối cảnh dự án được lưu trữ trong thư mục `docs/` (bao gồm nhưng không giới hạn: `docs/BRD.md`, `docs/SRS.md`, `docs/PRD.md`,...) kết hợp cùng tài liệu đặc tả sản phẩm chính thức `agent/PRODUCT_SPEC.md`.
-- Mọi Agent bắt buộc phải tra cứu kỹ thư mục `docs/` để nắm rõ toàn diện bối cảnh bài toán trước khi thực thi nhiệm vụ kỹ thuật.
-- Toàn bộ mô tả bài toán, mục tiêu sản phẩm, luồng thao tác người dùng và quy tắc nghiệp vụ phải được quy định tập trung tại các tài liệu này. Mọi Agent không được tự ý suy diễn hoặc thay đổi ngoài tài liệu.
+## 3. Nguồn Chân lý Nghiệp vụ & Nguyên tắc Tra cứu Tiết kiệm Token (On-Demand Retrieval)
+- Nguồn chân lý nghiệp vụ được quy định tập trung tại `agent/PRODUCT_SPEC.md` và thư mục `docs/` (`docs/BRD.md`, `docs/Bank_Mapping_Matrix.md`, v.v.). Mọi Agent không được tự ý suy diễn hoặc thay đổi ngoài tài liệu.
+- **Quy tắc Tiết kiệm Token (BẮT BUỘC):**
+  - **CẤM đọc toàn bộ thư mục `docs/` hoặc đọc toàn bộ các file lớn (>30KB) trong một lượt.**
+  - Agent bắt buộc tham chiếu tệp chỉ mục [`docs/INDEX.md`](file:///c:/Users/Admin/OneDrive/Sao%20kê/docs/INDEX.md) để xác định chính xác tài liệu và phạm vi cần đọc.
+  - Sử dụng công cụ tìm kiếm từ khóa (`grep`), hoặc đọc có giới hạn dòng (`StartLine`/`EndLine`) chỉ với các phân đoạn liên quan trực tiếp đến nhiệm vụ đang thực hiện.
 
 ## 4. Bộ Nguyên tắc Kỹ thuật Chung (Common Technical Baseline)
 - Thiết lập tệp `agent/common_rules.md` chứa các tiêu chuẩn kỹ thuật áp dụng chung cho toàn bộ dự án.
@@ -41,7 +43,7 @@ Trong suốt quá trình xây dựng dự án, mỗi khi người dùng sửa l�
   - Cấu trúc bảng, tên cột, kiểu dữ liệu & ràng buộc `ENUM` CSDL: `database/schema.sql`.
   - Đặc tả giao tiếp API, Request/Response Schema & HTTP Status: `docs/api_contracts.yaml`.
   - Kiến trúc hệ thống tổng thể & luồng xử lý kỹ thuật: `docs/SAD.md` (và `docs/architecture_spec.md`).
-- **Cổng Kiểm tra Đồng bộ Chéo trước khi Hoàn tất (Pre-Signoff Consistency Gate):** Trước khi kết thúc nhiệm vụ tạo mới hoặc chỉnh sửa tài liệu, Agent bắt buộc phải thực hiện quét đối chiếu (`grep`/kiểm tra chéo) trên toàn bộ thư mục `docs/` và `database/` để xác nhận không tồn tại sự khác biệt về tên trường, mã trạng thái, kiểu dữ liệu hoặc công thức giữa các tệp.
+- **Cổng Kiểm tra Đồng bộ Chéo Tiết kiệm Token (Targeted Consistency Gate):** Trước khi kết thúc nhiệm vụ có chỉnh sửa định nghĩa dùng chung, Agent thực hiện quét đối chiếu có mục tiêu (`grep` chính xác tên trường, mã ENUM, endpoint vừa chỉnh sửa) trên các tệp liên quan trong `docs/` và `database/schema.sql`. **Cấm đọc toàn bộ nội dung file để kiểm tra chéo.**
 
 
 

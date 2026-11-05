@@ -2,8 +2,8 @@
 
 > **Dự án:** Hệ thống Xử lý & Báo cáo Sao kê Ngân hàng Tự động (Bank Statement Processing & Reporting System)  
 > **Mã dự án:** `BSP-2026`  
-> **Phiên bản:** 1.2.0  
-> **Ngày cập nhật:** 2026-10-31  
+> **Phiên bản:** 1.3.0  
+> **Ngày cập nhật:** 2026-11-04  
 > **Trạng thái:** Tài liệu gốc chuẩn hóa (Single Source of Truth) về kiến trúc sản phẩm, tính năng và luồng hệ thống.  
 > **Tài liệu Bối cảnh & Yêu cầu:** Toàn bộ Agent BẮT BUỘC phải đọc kết hợp các tài liệu trong thư mục [`docs/`](../docs/) (như `docs/BRD.md`, `docs/Bank_Mapping_Matrix.md`, `docs/SAD.md`, `docs/api_contracts.yaml`, `docs/security_threat_modeling.md`) để nắm trọn vẹn bối cảnh nghiệp vụ và mục tiêu dự án.
 
@@ -229,19 +229,22 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - Tự động tính Lãi suất bình quân gia quyền của toàn bộ danh mục nợ vay.
   - Tích hợp số liệu vào CFO Dashboard phục vụ giám sát Thanh khoản Ròng.
 - **Màn hình Chi tiết khế ước (`/contract-details`):**
-  - Nằm dưới nhóm *Theo dõi khoản vay*. Bảng liệt kê toàn bộ khế ước với các cột: Ngân hàng, Số khế ước (kèm nút 1-chạm sao chép nhanh số khế ước vào clipboard), Dư nợ gốc, Tổng dư nợ gốc đã trả, Dư nợ gốc hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn.
+  - Nằm dưới nhóm *Theo dõi khoản vay*. Quản lý danh mục toàn diện từng khế ước với các cột: Ngân hàng, Số khế ước (kèm nút 1-chạm sao chép nhanh vào clipboard), Chủ thể đứng tên vay (`borrower_name`), Dư nợ gốc ban đầu, Tổng gốc đã trả, Dư nợ gốc hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn, Huy hiệu Bảo đảm HĐ và Cột Thao tác.
+  - **Chức năng Chỉnh sửa Trực tiếp Thông tin Khế ước (In-place Contract Edit Modal):**
+    - Cho phép chỉnh sửa trực tiếp: Số khế ước, TCTD/Ngân hàng (`bank_name`, `bank_code`), Chủ thể vay (`borrower_name`), Dư nợ gốc ban đầu, Dư nợ gốc hiện tại, Lãi suất, Ngày giải ngân, Ngày đáo hạn, Kỳ hạn, Mục đích vay, Phân loại nhóm nợ CIC (Nhóm 1 đến 5), Trạng thái (ACTIVE, SETTLED, OVERDUE) và Ghi chú nội bộ.
+    - Gọi API `PUT /loans/{loan_id}`, tự động tính toán lại lãi dự trả theo Thông tư 14/2017/TT-NHNN và làm mới danh sách.
+  - **Không gian Đối soát Số tiền Nhận nợ với Hóa đơn Tương ứng (Invoice Reconciliation Workspace & Allocation Engine):**
+    - Vùng mở rộng khế ước tổ chức 3 Sub-tabs chuyên biệt:
+      - *Tab 1: Dòng tiền trả nợ đã đối soát:* Bảng dòng tiền gốc/lãi hoàn nguyên theo thời gian giao dịch, tô nền hồng cảnh báo trả gốc quá hạn, hoàn lãi tất toán, tích hợp dòng tổng cộng cuối bảng (tổng số giao dịch, tổng giá trị thanh toán, tổng gốc đã trả, tổng lãi đã trả, dư nợ gốc còn lại cuối kỳ).
+      - *Tab 2: Đối soát nhận nợ & Hóa đơn tương ứng:* Thẻ KPI so khớp gốc nhận nợ vs tổng tiền HĐ đã gán, tỷ lệ & chênh lệch bảo đảm, bảng danh sách HĐ đã gán kèm modal gán HĐ mới và hủy gán.
+      - *Tab 3: Bộ hồ sơ giải ngân:* Quản lý toàn diện chứng từ lưu trữ trên Object Storage. Mặc định phân loại hiển thị 2 loại chính: Khế ước nhận nợ và Hóa đơn, kèm nút dấu "+" để mở rộng thêm loại chứng từ khác khi có nhu cầu. Tích hợp khu vực kéo thả tệp tin trực tiếp (inline drag-and-drop zone) hỗ trợ tải nhiều file cùng lúc, loại bỏ cửa sổ phụ modal.
+        - 4 Thẻ KPI: Gốc nhận nợ khế ước, Hóa đơn đã gán bảo đảm, Chênh lệch bảo đảm (Khớp 100%, Thiếu X đ, Thừa X đ), Badge trạng thái bảo đảm (Khớp 100%, Chưa đủ hóa đơn, Chưa có hóa đơn).
+        - Bảng danh sách hóa đơn đã gán: Số HĐ, Ký hiệu, Nhà cung cấp (NCC), Tổng tiền HĐ, Số tiền bảo đảm nhận nợ đã gán, Ngày gán, Ghi chú và Nút "Hủy gán" giải phóng hạn mức (`DELETE /loans/{loan_id}/allocated-invoices/{allocation_id}`).
+        - Nút và Modal "Gán Hóa Đơn Mới": Lọc hóa đơn cùng TCTD còn hạn mức chưa phân bổ (`remaining_amount > 0`), tìm kiếm theo số HĐ/NCC/MST, tự động gợi ý số tiền phân bổ theo số thiếu hoặc hạn mức HĐ, gọi `POST /loans/{loan_id}/allocate-invoices`.
   - **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hỗ trợ thanh lọc chuyên sâu bên dưới từng tiêu đề cột (bật/tắt bằng nút *Lọc cột*, hiển thị số lượng bộ lọc đang kích hoạt và nút *Xóa lọc* 1-chạm):
-    - *Ngân hàng:* Dropdown chọn theo danh sách ngân hàng thực tế có trong hệ thống (VietinBank, MBBank, TPBank, VPBank,...).
-    - *Số khế ước:* Lọc nhanh theo chuỗi ký tự khế ước không phân biệt hoa thường.
-    - *Dư nợ gốc / Tổng gốc đã trả / Lãi ước tính / Tổng lãi đã trả:* Lọc linh hoạt theo số tiền (hỗ trợ nhập có hoặc không dấu chấm).
-    - *Dư nợ gốc hiện tại:* Dropdown lọc nhanh theo trạng thái nợ (*Tất cả nợ*, *Còn nợ (> 0)*, *Tất toán (= 0)*).
-    - *Lãi suất:* Lọc theo tỷ lệ phần trăm (vd: 8.5, 9.38).
-    - *Ngày giải ngân / Ngày đáo hạn:* Lọc linh hoạt theo ngày/tháng/năm (vd: 10/3, 2026).
-    - Badge đếm số lượng: *Hiển thị X / Y khế ước*.
+    - *Ngân hàng, Số khế ước, Chủ thể vay, Dư nợ gốc, Đã trả gốc, Dư nợ hiện tại, Lãi suất, Lãi tính, Lãi trả, Ngày giải ngân, Ngày đáo hạn, Trạng thái bảo đảm HĐ.*
   - **Lãi ước tính** = Dư nợ gốc × Lãi suất năm × Số ngày (từ ngày giải ngân đến ngày đáo hạn) / 365.
   - **Tổng dư nợ gốc đã trả / Tổng lãi đã trả** = tổng các giao dịch trả gốc / trả lãi đã đối soát từ sao kê (`loan_repayment_history`).
-  - Bấm vào khế ước để mở **Bảng dòng tiền**: Thời điểm giao dịch, Nội dung giao dịch, Nợ gốc đầu kỳ, Tổng giá trị giao dịch, Số tiền trả gốc, Số tiền trả lãi, Gốc còn lại. Dòng có trả gốc sau ngày đáo hạn được tô nền hồng (trả nợ quá hạn).
-  - Nợ gốc đầu kỳ / Gốc còn lại được **dựng lại theo thứ tự thời gian giao dịch** bắt đầu từ Dư nợ gốc khế ước (không dùng số dư chụp tại thời điểm bấm đối soát). Gốc còn lại âm (tô đỏ) = tổng gốc đã trả vượt dư nợ gốc, cần kiểm tra lại đối soát/giải ngân.
 - **Phân hệ 7.9: Đối soát Giao dịch Chi Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9):**
   - **Lọc tự động:** Quét toàn bộ giao dịch chi (`debit_amount > 0`) đã phân loại là "Trả nợ" (Category ID 25) trên các tài khoản ngân hàng doanh nghiệp, loại trừ các giao dịch đã đối soát.
   - **Gợi ý khế ước thông minh:** Tự động trích xuất số khế ước (VietinBank 12 số, MBBank `LD...`, `040MAZS...`) và số tiền gốc/lãi gợi ý từ nội dung diễn giải sao kê ngân hàng (`description`). **Quy tắc nghiêm ngặt:** Chỉ hiển thị gợi ý khế ước nếu khế ước đó đã tồn tại trong danh mục khế ước đã nạp (`credit_facilities`). Nếu diễn giải chứa số khế ước nhưng chưa từng nạp vào hệ thống thì để trống, không hiển thị thẻ gợi ý ảo với dư nợ 0 đ.
@@ -279,11 +282,80 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
       - Tuyệt đối cấm gán phần tiền còn lại của hóa đơn đó cho khoản vay tại Ngân hàng B khác (`locked_bank_code != B`), ngăn chặn 100% rủi ro đúp tài sản bảo đảm giữa các ngân hàng.
       - Khi toàn bộ phân bổ của hóa đơn được giải phóng, `locked_bank_code` tự động trả về `NULL` (hóa đơn tự do).
 
+- **Phân hệ 7.14: Bảng Phụ Danh Mục Ngân Hàng & Chuẩn Hóa Hiển Thị Tên Viết Tắt (Banks Master Directory & Short Name Display):**
+  - **Bảng Danh Mục Ngân Hàng Chuẩn Hóa (`banks`):**
+    - Độc lập quản trị danh mục các ngân hàng thương mại và tổ chức tín dụng trong hệ thống: `bank_id`, `bank_code` (Mã hệ thống: CTG, MBB, VPB, TPB, MBV, SHB, EVF, VCB, TCB, BID...), `bank_name` (Tên đầy đủ), `branch_name` (Chi nhánh giao dịch), `tax_code` (Mã số thuế), `short_name` (Tên viết tắt hiển thị: VietinBank, MB, VPBank, TPBank, EVNFinance...), `is_active`.
+  - **Khóa Ngoại Liên Kết:**
+    - `bank_accounts.bank_id` và `credit_facilities.bank_id` trỏ trực tiếp đến `banks.bank_id`.
+    - Khi nạp sao kê tín dụng hoặc sao kê tài khoản ngân hàng, hệ thống tự động tra cứu mã `bank_code` đối chiếu với bảng `banks` để gán `bank_id` và gán tên hiển thị `short_name`.
+  - **Quy Tắc Hiển Thị Toàn Hệ Thống:**
+    - Toàn bộ giao diện frontend (Bảng khế ước, Sao kê tín dụng, CFO Dashboard, Báo cáo dòng tiền) và các API phản hồi ưu tiên hiển thị bằng tên viết tắt (`short_name`), mang lại trải nghiệm tinh gọn, chuyên nghiệp và nhất quán cho người dùng.
+    - Cung cấp API CRUD `/api/v1/banks` phục vụ việc truy xuất và quản trị danh mục ngân hàng.
+
+- **Phân hệ 7.11: Phân Tách Màn Hình Nạp Sao Kê Tín Dụng & Trung Tâm Báo Cáo Thống Kê Dư Nợ (US-07.11):**
+  - **Màn hình Nạp Sao Kê Tín Dụng (`/credit-statements`):** Thiết kế tối giản, tập trung thuần túy vào nghiệp vụ tiếp nhận và đối soát file:
+    + Header với các tác vụ nhanh (+ Nhập lẻ khoản vay, Nhập bộ hồ sơ, Làm mới, Nút chuyển hướng sang Thống kê dư nợ).
+    + Vùng kéo thả nạp file sao kê tín dụng (.xlsx, .xls từ VietinBank eFAST, MBBank LD...).
+    + Đặt ngay bên dưới là Bảng "Lịch Sử Các File Sao Kê Đã Nạp" (File ID, Ngân hàng, Tên file gốc, Mã mẫu, Ngày số liệu, Tổng dư nợ, Số khoản vay, Trạng thái khớp 100%/lệch, Ngày tải lên, Thao tác xóa file).
+    + Loại bỏ hoàn toàn các thẻ KPI và bảng phân tích đa chiều khỏi màn hình này để giữ luồng tiếp nhận file tinh gọn, không tải thừa tài nguyên.
+  - **Trung Tâm Thống Kê Dư Nợ Tín Dụng & Dòng Tiền Đáo Hạn (`/loan-reports`):** Màn hình báo cáo phân tích chuyên sâu gồm 2 Tab chính:
+    + **Tab 1: Báo Cáo Insight & Dòng Tiền Đáo Hạn:**
+      * Bộ 5 thẻ KPI tài chính nợ chuẩn hóa (Tổng dư nợ hiện tại, Lãi dự trả/lũy kế TT14 không bị lỗi NaN, Áp lực trả nợ 7 ngày, Áp lực trả nợ 30 ngày, Lãi suất bình quân gia quyền WAIR).
+      * Bậc thang áp lực dòng tiền đáo hạn (Maturity Ladder) phân bổ nghĩa vụ theo các mốc: Đến hạn $\le 7$ ngày, $8 - 30$ ngày, $31 - 90$ ngày, $91 - 180$ ngày, $> 180$ ngày kèm thanh tiến độ tỷ lệ % trực quan.
+      * Biểu đồ & bảng cơ cấu dư nợ theo Chủ thể vay (`borrower_name`): Thống kê hạn mức nợ, tỷ trọng %, số khế ước và lãi suất bình quân của từng đơn vị/pháp nhân thành viên trong tập đoàn.
+      * Biểu đồ & bảng phân bổ dư nợ theo Tổ chức tín dụng (Ngân hàng & Công ty tài chính).
+      * Widget Cảnh báo khế ước cận đáo hạn trong vòng 14 ngày tới để chủ động điều phối thanh khoản.
+    + **Tab 2: Danh Mục Khế Ước & Phân Tích Đa Chiều:**
+      * **Chế độ 1 - Danh mục khế ước chi tiết:** Màn hình báo cáo chỉ đọc (read-only), tuyệt đối không có chức năng chỉnh sửa khế ước trực tiếp; hỗ trợ sao chép số hợp đồng 1-click, tìm kiếm nhanh và lọc đa tiêu chí (chủ thể vay, ngân hàng, nhóm nợ).
+      * **Chế độ 2 - Bàn làm việc Phân tích đa chiều (Pivot Grid Workspace):** Phân tích ma trận xoay theo Dòng $	imes$ Cột linh hoạt, hỗ trợ xuất CSV/Excel UTF-8 BOM, **tích hợp tính năng Lưu Mẫu Phân Tích Tùy Chỉnh (Custom Presets)** và **Tự động lưu trạng thái (Auto-persist active layout)** vào `localStorage` giúp giữ nguyên 100% giao diện đã chỉnh khi người dùng reload trang.
+
+
+- **Phân hệ 7.12: Bộ Chọn & Mở Rộng Thực Thể Doanh Nghiệp Trên Header (Corporate Entity Switcher & Ecosystem Expansion):**
+  - **Dropdown Thực Thể Doanh Nghiệp trên Header chính (`TopHeader.tsx`):**
+    + Cung cấp bộ chọn trực quan trên thanh tiêu đề chung của toàn bộ ứng dụng, hiển thị biểu tượng tòa nhà, tên pháp nhân, mã số thuế và badge phân biệt.
+    + Hỗ trợ các thực thể cấu hình sẵn trong hệ sinh thái:
+      * `ALL`: Tất cả doanh nghiệp (Hợp nhất dữ liệu toàn hệ thống).
+      * `SUNRISE`: `CÔNG TY CỔ PHẦN XI MĂNG SUNRISE` (MST: `0109730501` - Pháp nhân vay & sản xuất kinh doanh xi măng).
+      * `HUONG_DUONG`: `CÔNG TY CỔ PHẦN THƯƠNG MẠI VÀ PHÁT TRIỂN HƯỚNG DƯƠNG` (MST: `0110176990` - Pháp nhân thương mại).
+      * `LAN_ANH`: `BÀ NGUYỄN THỊ LAN ANH (CEO)` (MST: `0109730501` - Kênh rút tiền mặt cá nhân điều hành).
+    + Tự động lưu trạng thái lựa chọn vào `localStorage` (`bsp_selected_corporate_entity_id`) giúp giữ nguyên thực thể đã chọn khi làm mới (F5) trình duyệt.
+  - **Nút "+ Thêm người hoặc công ty vào hệ sinh thái" (Ecosystem Entity Creator):**
+    + Đặt tại chân menu dropdown popover với nút viền đứt nét trực quan, cho phép người dùng mở modal tạo mới thực thể thuộc hệ sinh thái.
+    + Modal nhập liệu chuyên nghiệp hỗ trợ:
+      * Phân loại: 🏢 Công ty / Pháp nhân (`CORPORATE`) hoặc 👤 Cá nhân / Lãnh đạo ủy quyền (`SPECIAL_CASH`).
+      * Tên hiển thị ngắn gọn (`shortName`) và Tên pháp nhân đầy đủ (`companyName`).
+      * Mã số thuế / Số CCCD, Nhãn phân loại (Badge gợi ý nhanh), Mô tả vai trò, Màu sắc đại diện.
+    + Đồng bộ 2 tầng: Lưu vào CSDL PostgreSQL (`corporate_entities`) qua API `POST /api/v1/corporate-entities` và lưu đệm `localStorage` (`bsp_custom_corporate_entities`).
+    + Tự động chuyển ngay sang thực thể vừa tạo làm thực thể đang kích hoạt trên toàn hệ thống.
+  - **Dropdown Thực Thể Doanh Nghiệp trên Header chính (`TopHeader.tsx`):**
+    + Cung cấp bộ chọn trực quan trên thanh tiêu đề chung của toàn bộ ứng dụng, hiển thị biểu tượng tòa nhà, tên pháp nhân, mã số thuế và badge phân biệt.
+    + Hỗ trợ các thực thể cấu hình sẵn trong hệ sinh thái:
+      * `ALL`: Tất cả doanh nghiệp (Hợp nhất dữ liệu toàn hệ thống).
+      * `SUNRISE`: `CÔNG TY CỔ PHẦN XI MĂNG SUNRISE` (MST: `0109730501` - Pháp nhân vay & sản xuất kinh doanh xi măng).
+      * `HUONG_DUONG`: `CÔNG TY CỔ PHẦN THƯƠNG MẠI VÀ PHÁT TRIỂN HƯỚNG DƯƠNG` (MST: `0110176990` - Pháp nhân thương mại).
+      * `LAN_ANH`: `BÀ NGUYỄN THỊ LAN ANH (CEO)` (MST: `0109730501` - Kênh rút tiền mặt cá nhân điều hành).
+    + Tự động lưu trạng thái lựa chọn vào `localStorage` (`bsp_selected_corporate_entity_id`) giúp giữ nguyên thực thể đã chọn khi làm mới (F5) trình duyệt.
+  - **Cơ chế Phân định Thực thể khi Nạp Sao Kê (Ingestion Entity Binding):**
+    + Khắc phục triệt để hạn chế của các mẫu sao kê tín dụng (như MBBank LD `.xlsx` không in tên doanh nghiệp ở header) hoặc sao kê tài khoản CASA:
+    + Khi người dùng nạp file sao kê tín dụng (`/credit-statements`) hoặc sao kê tài khoản (`/`), hệ thống tự động truyền thực thể doanh nghiệp đang chọn trên Header (`borrower_name` hoặc `account_holder`) xuống API backend.
+    + Backend ưu tiên gán thực thể được chọn cho các khoản vay / tài khoản ngân hàng, thay vì để giá trị mặc định chung chung không xác định.
+    + Hiển thị Banner trực quan thông báo doanh nghiệp đang tiếp nhận file ngay phía trên vùng kéo-thả Upload trên cả hai trang nạp sao kê, giúp kế toán viên luôn nhận diện rõ ngữ cảnh trước khi thả file.
+
+### 5.6 Thuật Toán Cuốn Chiếu Đồng Bộ Hóa Đơn Từ Hồ Sơ Khế Ước Sang Hóa Đơn Nhận Nợ
+- **Mục tiêu:** Khi hồ sơ khế ước đã có chứng từ hóa đơn (XML/PDF), người dùng không cần phải tính toán thủ công từng số tiền nhận nợ. Hệ thống tự động đồng bộ và gợi ý điền số tiền nhận nợ cuốn chiếu từ bảng hóa đơn tổng đến khi khớp 100% dư nợ gốc.
+- **Quy trình cuốn chiếu:**
+  1. Trích xuất danh sách hóa đơn khả dụng trong hồ sơ khế ước.
+  2. Lấy hạn mức còn lại (`remaining_amount`) của từng hóa đơn từ kho hóa đơn tổng.
+  3. Sắp xếp theo ngày lập hóa đơn tăng dần (FIFO).
+  4. Lần lượt phân bổ vào khoản vay cho đến khi tổng số tiền nhận nợ bằng chính xác dư nợ gốc (`original_principal_balance`).
+  5. Hóa đơn chạm ngưỡng dư nợ gốc được trích một phần, phần còn lại lưu trữ tiếp trong kho để bảo đảm cho các khế ước cùng ngân hàng sau đó.
+  6. Cho phép chỉnh sửa thủ công số tiền nhận nợ trực tiếp trên từng hóa đơn trong bảng (loại bỏ cột ngày gán để bảng tinh gọn, tập trung vào số liệu tài chính) và bấm nút **Lưu** để đồng bộ vào CSDL.
+
 ### Phân hệ 8: Trải nghiệm Người dùng & Điều hướng theo Vai trò (Role Navigation & Personas)
 - Cung cấp thanh chuyển đổi vai trò (Persona Switcher) linh hoạt trên thanh Sidebar:
   1. **Chị Nghiêm Lê Cẩm Nhung (Kế toán viên - Primary End-User):**
      - Mặc định truy cập: `/` (Màn hình Nạp Sao Kê).
-     - Quyền truy cập: Nạp sao kê tài khoản & tín dụng, Bảng Giao Dịch, Bộ Quy Tắc, Sao Kê Tín Dụng, Đối Soát Trả Nợ, Chi Tiết Khế Ước, Xuất Excel.
+     - Quyền truy cập: Nạp sao kê tài khoản & tín dụng, Bảng Giao Dịch, Bộ Quy Tắc, Sao Kê Tín Dụng, Thống Kê Dư Nợ Tín Dụng, Đối Soát Trả Nợ, Chi Tiết Khế Ước, Xuất Excel.
   2. **Ông Trần Ngọc Tuấn (Giám đốc Tài chính - CFO):**
      - Mặc định truy cập: `/cfo-dashboard` (Tồn Quỹ CFO < 9h sáng & Thanh khoản Ròng).
      - Quyền truy cập: Xem toàn bộ tồn quỹ hợp nhất đa kỳ, biểu đồ ngân hàng, drill-down giao dịch, giám sát nghĩa vụ nợ tín dụng, xuất Excel CFO.
@@ -291,6 +363,15 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
      - Mặc định truy cập: `/ceo-waterfall` (Biểu đồ Thác nước Thu/Chi).
      - Quyền truy cập: Xem biểu đồ Waterfall WTD/MTD, cơ cấu chi phí, giám sát tồn quỹ tổng thể.
 
-- **Tiêu chuẩn Bảng Dữ liệu Toàn Hệ thống (System-wide 100% Sortable Data Tables):**
-  - Toàn bộ các bảng danh sách và ma trận dữ liệu trên tất cả các trang frontend (UploadPage, TransactionsPage, RuleManagementPage, LoanRepaymentReconcilePage, ContractDetailsPage, CFODashboardPage, CreditStatementsPage) đều được trang bị tiêu đề cột hỗ trợ sắp xếp 2 chiều linh hoạt (Ascending/Descending).
-  - Tích hợp component dùng chung `<SortableTh>`, hỗ trợ tooltip giải thích, biểu tượng trạng thái trực quan (`ArrowUp`/`ArrowDown`/`ArrowUpDown`) và thuật toán so sánh tiếng Việt chuẩn (`localeCompare('vi', { numeric: true })`) cho cả văn bản, tiền tệ, ngày tháng và trạng thái.
+- **Tiêu chuẩn Bảng Dữ liệu Đa năng Toàn Hệ thống (System-wide Universal Interactive Data Table Standard):**
+  - Toàn bộ các bảng danh sách và ma trận dữ liệu trên tất cả các trang frontend (`UploadPage`, `TransactionsPage`, `RuleManagementPage`, `LoanRepaymentReconcilePage`, `ContractDetailsPage`, `CFODashboardPage`, `CreditStatementsPage`, `LoanReportsPage`, `InvoiceRegistryPage`) bắt buộc phải đáp ứng 4 tiêu chuẩn thiết kế tương tác:
+    1. **Header luôn có chức năng Sắp xếp (Sort) và Bộ lọc (Filter):**
+       - Sắp xếp 2 chiều linh hoạt (`Ascending`/`Descending`) với icon trực quan (`ArrowUp`/`ArrowDown`/`ArrowUpDown`), tooltip giải thích và thuật toán so sánh tiếng Việt chuẩn (`localeCompare('vi', { numeric: true })`) cho cả văn bản, tiền tệ, ngày tháng và trạng thái.
+       - Tích hợp công cụ lọc trực tiếp trên Header (Header Filter Popover/Inline Filter) với biểu tượng đổi màu nhận diện khi cột đang được kích hoạt bộ lọc.
+    2. **Bộ lọc thông minh theo Kiểu Dữ liệu (Data-Type-Driven Filtering):**
+       - **Dữ liệu dạng Chữ (Text / String / Danh mục / Mã):** Bắt buộc lọc bằng điều kiện (Condition-based: Chứa / `contains`, Bằng chính xác / `equals`, Bắt đầu bằng / `startsWith`, Kết thúc bằng / `endsWith`, Không chứa / `doesNotContain`, Rỗng / `isEmpty`, Không rỗng / `isNotEmpty`).
+       - **Dữ liệu dạng Số hoặc Ngày tháng (Number / Currency / Decimal / Date / Timestamp):** Bắt buộc lọc theo điều kiện khoảng (Range-based: Khoảng số tiền `[Min, Max]`, Khoảng ngày `[Từ ngày, Đến ngày]`, $\ge$, $\le$).
+    3. **Quản trị Ẩn / Hiện Cột (Column Visibility Toggle):**
+       - Cung cấp dropdown menu "Tùy chỉnh cột" trên thanh công cụ của bảng, cho phép người dùng chủ động tích chọn bật/tắt (ẩn/hiện) từng cột dữ liệu tùy theo nhu cầu xem, kèm nút "Hiện tất cả" và "Khôi phục mặc định". Trạng thái ẩn/hiện cột được tự động lưu vào `localStorage` theo từng màn hình.
+    4. **Tùy chỉnh Thay đổi Độ rộng Cột (Column Resizing):**
+       - Cho phép người dùng kéo thả (drag & drop) mép phân tách giữa các cột để co dãn độ rộng linh hoạt, áp dụng độ rộng tối thiểu (`minWidth`) an toàn để chống co rúm vỡ bố cục, hỗ trợ cắt chữ (`truncate`) kèm tooltip khi nội dung vượt quá kích thước.

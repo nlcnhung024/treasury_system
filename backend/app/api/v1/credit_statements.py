@@ -16,6 +16,7 @@ from app.core.database import get_db
 from app.core.security import verify_file_magic_bytes
 from app.core.config import settings
 from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument, LoanRepaymentHistory
+from app.models.invoice import LoanInvoiceAllocation
 from app.models.audit_log import AuditLog
 from app.schemas.credit import (
     CreditStatementFileItem,
@@ -54,6 +55,7 @@ router = APIRouter(tags=["Credit Statements & Loans"])
 async def upload_credit_statement(
     file: UploadFile = File(...),
     uploaded_by: str = Form("Chị Cẩm Nhung"),
+    borrower_name: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
     header_bytes = await file.read(8)
@@ -73,6 +75,7 @@ async def upload_credit_statement(
             file_bytes=full_content,
             filename=file.filename or "statement.xlsx",
             uploaded_by=uploaded_by,
+            borrower_name=borrower_name,
             db=db,
         )
         return CreditUploadResponse(**result)
@@ -587,6 +590,31 @@ async def list_contract_details(db: AsyncSession = Depends(get_db)):
         for row in (await db.execute(paid_stmt)).all()
     }
 
+    # Thống kê hóa đơn bảo đảm đã gán đối soát cho từng khế ước
+    alloc_stmt = (
+        select(
+            LoanInvoiceAllocation.loan_id,
+            func.coalesce(func.sum(LoanInvoiceAllocation.allocated_amount), 0),
+            func.count(LoanInvoiceAllocation.allocation_id),
+        ).group_by(LoanInvoiceAllocation.loan_id)
+    )
+    alloc_map = {
+        row[0]: (Decimal(row[1]), int(row[2]))
+        for row in (await db.execute(alloc_stmt)).all()
+    }
+
+    # Thống kê hồ sơ giải ngân đã lưu trữ cho từng khế ước
+    doc_stmt = (
+        select(
+            DisbursementDocument.loan_id,
+            func.count(DisbursementDocument.document_id),
+        ).group_by(DisbursementDocument.loan_id)
+    )
+    doc_map = {
+        row[0]: int(row[1])
+        for row in (await db.execute(doc_stmt)).all()
+    }
+
     loans = (
         await db.execute(
             select(CreditFacility).order_by(CreditFacility.bank_code, CreditFacility.disbursement_date, CreditFacility.contract_number)
@@ -597,11 +625,30 @@ async def list_contract_details(db: AsyncSession = Depends(get_db)):
     for loan in loans:
         original = Decimal(loan.original_principal_balance or 0)
         paid_principal, paid_interest, count = paid_map.get(loan.loan_id, (Decimal("0"), Decimal("0"), 0))
+        allocated_amt, alloc_count = alloc_map.get(loan.loan_id, (Decimal("0"), 0))
+
+        if alloc_count == 0:
+            rec_status = "NO_INVOICE"
+        elif allocated_amt >= original and original > 0:
+            rec_status = "FULLY_SECURED"
+        elif allocated_amt > 0:
+            rec_status = "UNDER_SECURED"
+        else:
+            rec_status = "NO_INVOICE"
+
         items.append({
             "loan_id": loan.loan_id,
+            "bank_id": loan.bank_id,
             "bank_code": loan.bank_code,
             "bank_name": loan.bank_name,
             "contract_number": loan.contract_number,
+            "borrower_name": loan.borrower_name,
+            "cif_number": loan.cif_number,
+            "loan_purpose": loan.loan_purpose,
+            "term": loan.term,
+            "debt_group": loan.debt_group,
+            "loan_type": loan.loan_type,
+            "institution_type": loan.institution_type,
             "original_principal_balance": str(original),
             "total_principal_paid": str(paid_principal.quantize(Decimal("0.01"))),
             "current_principal_balance": str(Decimal(loan.current_principal_balance or 0)),
@@ -612,6 +659,11 @@ async def list_contract_details(db: AsyncSession = Depends(get_db)):
             "maturity_date": loan.maturity_date.isoformat() if loan.maturity_date else None,
             "repayment_count": count,
             "status": loan.status,
+            "note": loan.note,
+            "allocated_invoices_amount": str(allocated_amt.quantize(Decimal("0.01"))),
+            "allocated_invoices_count": alloc_count,
+            "invoice_reconciliation_status": rec_status,
+            "dossier_count": doc_map.get(loan.loan_id, 0),
         })
     return {"data": items}
 
@@ -825,6 +877,48 @@ async def update_loan(
     return res_item
 
 
+@router.post("/loans/sync-mb-borrowers")
+async def sync_mb_borrowers(
+    target_borrower_name: str = Form("CONG TY CO PHAN XI MANG SUNRISE"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cập nhật tên doanh nghiệp cho các khoản vay MB hoặc các khoản vay chưa phân biệt được pháp nhân.
+    """
+    stmt = (
+        select(CreditFacility)
+        .where(
+            or_(
+                CreditFacility.borrower_name == "Doanh nghiệp vay vốn",
+                CreditFacility.borrower_name == "Doanh nghiệp vay vốn MB",
+                CreditFacility.borrower_name.ilike("%Doanh nghiệp vay vốn%"),
+            )
+        )
+    )
+    loans = (await db.execute(stmt)).scalars().all()
+    count = 0
+    for loan in loans:
+        old_val = loan.borrower_name
+        loan.borrower_name = target_borrower_name
+        count += 1
+        audit = AuditLog(
+            actor="Chị Cẩm Nhung",
+            action="UPDATE_LOAN_BORROWER",
+            target_entity="credit_facilities",
+            target_id=str(loan.loan_id),
+            details={
+                "contract_number": loan.contract_number,
+                "bank_code": loan.bank_code,
+                "old_borrower_name": old_val,
+                "new_borrower_name": target_borrower_name,
+                "reason": "Chuẩn hóa chủ thể vay sang " + target_borrower_name,
+            },
+        )
+        db.add(audit)
+    await db.commit()
+    return {"updated_count": count, "borrower_name": target_borrower_name}
+
+
 @router.delete("/loans/{loan_id}")
 async def delete_loan(
     loan_id: int,
@@ -942,8 +1036,16 @@ async def upload_disbursement_document(
             doc_record=doc_record,
             content=content,
         )
+        # Tự động đồng bộ cuốn chiếu sang tab Hóa đơn nhận nợ nếu là tài liệu hóa đơn
+        if doc_record.invoice_id or original_filename.lower().endswith(".xml") or document_type == "INVOICE":
+            await invoice_service.auto_sync_dossier_invoices_rolling(
+                db=db,
+                loan_id=loan_id,
+                user=uploaded_by,
+                force_recalculate=False,
+            )
     except Exception as exc:
-        logger.warning(f"Lỗi khi tự động bổ sung hóa đơn giải ngân vào Kho Hóa Đơn: {exc}")
+        logger.warning(f"Lỗi khi tự động bổ sung hoặc cuốn chiếu hóa đơn giải ngân: {exc}")
 
     audit = AuditLog(
         actor=uploaded_by,

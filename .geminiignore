@@ -1,0 +1,22 @@
+# Ignore data storage, PDFs, large assets
+backend/storage/
+**/*.pdf
+**/*.log
+*.log
+
+# Ignore dependencies & build outputs
+**/node_modules/
+**/venv/
+**/__pycache__/
+frontend/dist/
+frontend/package-lock.json
+
+# Ignore sensitive credentials & local configs
+.env
+.env.*
+!.env.example
+
+# Ignore temporary resources and scratch
+scratch/
+Resources/
+

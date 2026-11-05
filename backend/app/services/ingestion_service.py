@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.database import AsyncSessionLocal
 from app.models.account import BankAccount
+from app.models.bank import Bank
 from app.models.statement_file import BankStatementFile
 from app.models.transaction import BankTransaction
 from app.models.category_rule import ClassificationRule
@@ -112,7 +113,7 @@ async def sync_and_recalculate_cash_ledger(db: AsyncSession) -> int:
     return created_count
 
 
-async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, Any]:
+async def process_statement_file(file_id: int, db: AsyncSession, account_holder: Optional[str] = None) -> Dict[str, Any]:
     """
     Pipeline ETL & Đối soát đầu-cuối cho một file sao kê ngân hàng:
     1. Đọc file gốc từ Hybrid Storage (MinIO / Local Disk).
@@ -165,11 +166,18 @@ async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, An
                 if pkg.reconciliation.header_opening_balance is not None
                 else Decimal("0.00")
             )
+            effective_holder = account_holder if (account_holder and account_holder.strip()) else pkg.account_holder
+            bank_stmt = select(Bank).where(Bank.bank_code == pkg.bank_code)
+            bank_rec = (await db.execute(bank_stmt)).scalar_one_or_none()
+            bank_id = bank_rec.bank_id if bank_rec else None
+            b_name = bank_rec.short_name if bank_rec else pkg.bank_name
+
             account = BankAccount(
+                bank_id=bank_id,
                 bank_code=pkg.bank_code,
-                bank_name=pkg.bank_name,
+                bank_name=b_name,
                 account_number=pkg.account_number,
-                account_holder=pkg.account_holder,
+                account_holder=effective_holder,
                 tax_code=pkg.tax_code or "0109730501",
                 account_type=pkg.account_type,
                 currency=pkg.currency,
@@ -180,9 +188,18 @@ async def process_statement_file(file_id: int, db: AsyncSession) -> Dict[str, An
             db.add(account)
             await db.flush()
         else:
-            account.bank_code = pkg.bank_code
-            account.bank_name = pkg.bank_name
-            account.account_holder = pkg.account_holder
+            bank_stmt = select(Bank).where(Bank.bank_code == pkg.bank_code)
+            bank_rec = (await db.execute(bank_stmt)).scalar_one_or_none()
+            if bank_rec:
+                account.bank_id = bank_rec.bank_id
+                account.bank_name = bank_rec.short_name
+            else:
+                account.bank_code = pkg.bank_code
+                account.bank_name = pkg.bank_name
+            if account_holder and account_holder.strip():
+                account.account_holder = account_holder.strip()
+            elif pkg.account_holder and pkg.account_holder != "DOANH NGHIEP CHUA XAC DINH":
+                account.account_holder = pkg.account_holder
             if pkg.tax_code:
                 account.tax_code = pkg.tax_code
             account.account_type = pkg.account_type

@@ -23,7 +23,29 @@ import {
   CreditFacility,
 } from '../types';
 import { SortableTh } from '../components/common/SortableTh';
-import { SortDirection, sortList } from '../utils/sort';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
+
+const UNREC_COLUMNS: ColumnConfig[] = [
+  { field: 'transaction_date', label: 'Thời Gian Giao Dịch', type: 'date', defaultWidth: 150 },
+  { field: 'account', label: 'Tài Khoản / Ngân Hàng', type: 'text', defaultWidth: 160 },
+  { field: 'debit_amount', label: 'Số Tiền Chi Ra', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'suggested_principal_amount', label: 'Trả Gốc', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'suggested_interest_amount', label: 'Trả Lãi', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'description', label: 'Nội Dung Sao Kê Ngân Hàng', type: 'text', defaultWidth: 260 },
+  { field: 'suggested_contract_number', label: 'Gợi Ý Khế Ước Tự Động', type: 'text', defaultWidth: 180 },
+];
+
+const HIST_COLUMNS: ColumnConfig[] = [
+  { field: 'repayment_date', label: 'Thời Điểm Trả Nợ (Sao kê)', type: 'date', defaultWidth: 150 },
+  { field: 'contract', label: 'Khế Ước / Ngân Hàng', type: 'text', defaultWidth: 160 },
+  { field: 'principal_amount', label: 'Số Tiền Trả Gốc', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'interest_amount', label: 'Số Tiền Trả Lãi', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'remaining_principal_balance', label: 'Dư Nợ Còn Lại', type: 'number', align: 'right', defaultWidth: 150 },
+  { field: 'transaction_description', label: 'Nội Dung Diễn Giải', type: 'text', defaultWidth: 220 },
+  { field: 'reconciled_by', label: 'Người Thực Hiện', type: 'text', defaultWidth: 130 },
+];
 
 const BANK_LABELS: Record<string, string> = {
   CTG: 'VietinBank (CTG)',
@@ -67,17 +89,30 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
   // Rollback confirmation
   const [rollbackItem, setRollbackItem] = useState<LoanRepaymentHistoryRecord | null>(null);
 
-  // Sorting State for Unreconciled
-  const [unrecSortField, setUnrecSortField] = useState<string>('transaction_date');
-  const [unrecSortDirection, setUnrecSortDirection] = useState<SortDirection>('desc');
-  const handleUnrecSort = (field: string) => {
-    if (unrecSortField === field) {
-      setUnrecSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setUnrecSortField(field);
-      setUnrecSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities for Unreconciled Table
+  const {
+    sortField: unrecSortField,
+    sortDirection: unrecSortDirection,
+    handleSort: handleUnrecSort,
+    filters: unrecFilters,
+    setFilter: setUnrecFilter,
+    clearAllFilters: clearAllUnrecFilters,
+    activeFilterCount: activeUnrecFilterCount,
+    visibleColumns: visibleUnrecColumns,
+    toggleColumn: toggleUnrecColumn,
+    showAllColumns: showAllUnrecColumns,
+    resetColumns: resetUnrecColumns,
+    isColumnVisible: isUnrecColumnVisible,
+    columnWidths: unrecColumnWidths,
+    handleResize: handleUnrecResize,
+    filterAndSort: filterAndSortUnrec,
+  } = useTableGrid<UnreconciledDebtTransaction>({
+    tableId: 'reconcile_unreconciled_table',
+    columns: UNREC_COLUMNS,
+    defaultSortField: 'transaction_date',
+    defaultSortDirection: 'desc',
+  });
+
   const sortedUnreconciledList = useMemo(() => {
     let list = unreconciledList;
     if (searchTerm.trim()) {
@@ -91,22 +126,35 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
         (tx.counter_party && tx.counter_party.toLowerCase().includes(q))
       );
     }
-    return sortList(list, unrecSortField, unrecSortDirection, {
+    return filterAndSortUnrec(list, {
       account: (tx) => `${tx.bank_code || ''} ${tx.account_number || ''}`,
     });
-  }, [unreconciledList, unrecSortField, unrecSortDirection, searchTerm]);
+  }, [unreconciledList, filterAndSortUnrec, searchTerm]);
 
-  // Sorting State for History
-  const [histSortField, setHistSortField] = useState<string>('repayment_date');
-  const [histSortDirection, setHistSortDirection] = useState<SortDirection>('desc');
-  const handleHistSort = (field: string) => {
-    if (histSortField === field) {
-      setHistSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setHistSortField(field);
-      setHistSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities for History Table
+  const {
+    sortField: histSortField,
+    sortDirection: histSortDirection,
+    handleSort: handleHistSort,
+    filters: histFilters,
+    setFilter: setHistFilter,
+    clearAllFilters: clearAllHistFilters,
+    activeFilterCount: activeHistFilterCount,
+    visibleColumns: visibleHistColumns,
+    toggleColumn: toggleHistColumn,
+    showAllColumns: showAllHistColumns,
+    resetColumns: resetHistColumns,
+    isColumnVisible: isHistColumnVisible,
+    columnWidths: histColumnWidths,
+    handleResize: handleHistResize,
+    filterAndSort: filterAndSortHist,
+  } = useTableGrid<LoanRepaymentHistoryRecord>({
+    tableId: 'reconcile_history_table',
+    columns: HIST_COLUMNS,
+    defaultSortField: 'repayment_date',
+    defaultSortDirection: 'desc',
+  });
+
   const sortedHistoryList = useMemo(() => {
     let list = historyList;
     if (searchTerm.trim()) {
@@ -120,10 +168,10 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
         (h.reconciled_by && h.reconciled_by.toLowerCase().includes(q))
       );
     }
-    return sortList(list, histSortField, histSortDirection, {
+    return filterAndSortHist(list, {
       contract: (hist) => `${hist.contract_number || ''} ${hist.bank_code || ''}`,
     });
-  }, [historyList, histSortField, histSortDirection, searchTerm]);
+  }, [historyList, filterAndSortHist, searchTerm]);
 
   // 1. Fetch initial data
   const fetchData = async () => {
@@ -833,34 +881,140 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
-                  <tr>
-                    <SortableTh field="transaction_date" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
-                      Thời Gian Giao Dịch
-                    </SortableTh>
-                    <SortableTh field="account" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
-                      Tài Khoản / Ngân Hàng
-                    </SortableTh>
-                    <SortableTh field="debit_amount" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} align="right" className="py-3 px-4">
-                      Số Tiền Chi Ra
-                    </SortableTh>
-                    <SortableTh field="suggested_principal_amount" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} align="right" className="py-3 px-4">
-                      Trả Gốc
-                    </SortableTh>
-                    <SortableTh field="suggested_interest_amount" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} align="right" className="py-3 px-4">
-                      Trả Lãi
-                    </SortableTh>
-                    <SortableTh field="description" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
-                      Nội Dung Sao Kê Ngân Hàng
-                    </SortableTh>
-                    <SortableTh field="suggested_contract_number" currentSortField={unrecSortField} currentSortDirection={unrecSortDirection} onSort={handleUnrecSort} className="py-3 px-4">
-                      Gợi Ý Khế Ước Tự Động
-                    </SortableTh>
-                    <th className="py-3 px-4 text-center">Thao Tác</th>
-                  </tr>
-                </thead>
+            <>
+              <TableGridToolbar
+                columns={UNREC_COLUMNS}
+                visibleColumns={visibleUnrecColumns}
+                onToggleColumn={toggleUnrecColumn}
+                onShowAllColumns={showAllUnrecColumns}
+                onResetColumns={resetUnrecColumns}
+                filteredCount={sortedUnreconciledList.length}
+                totalCount={unreconciledList.length}
+                activeFilterCount={activeUnrecFilterCount}
+                onClearAllFilters={clearAllUnrecFilters}
+              />
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                    <tr>
+                      {isUnrecColumnVisible('transaction_date') && (
+                        <SortableTh
+                          field="transaction_date"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          filterType="date"
+                          filterValue={unrecFilters['transaction_date']}
+                          onFilterChange={(v) => setUnrecFilter('transaction_date', v)}
+                          width={unrecColumnWidths['transaction_date']}
+                          onResize={(w) => handleUnrecResize('transaction_date', w)}
+                          className="py-3 px-4"
+                        >
+                          Thời Gian Giao Dịch
+                        </SortableTh>
+                      )}
+                      {isUnrecColumnVisible('account') && (
+                        <SortableTh
+                          field="account"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          filterType="text"
+                          filterValue={unrecFilters['account']}
+                          onFilterChange={(v) => setUnrecFilter('account', v)}
+                          width={unrecColumnWidths['account']}
+                          onResize={(w) => handleUnrecResize('account', w)}
+                          className="py-3 px-4"
+                        >
+                          Tài Khoản / Ngân Hàng
+                        </SortableTh>
+                      )}
+                      {isUnrecColumnVisible('debit_amount') && (
+                        <SortableTh
+                          field="debit_amount"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          align="right"
+                          filterType="number"
+                          filterValue={unrecFilters['debit_amount']}
+                          onFilterChange={(v) => setUnrecFilter('debit_amount', v)}
+                          width={unrecColumnWidths['debit_amount']}
+                          onResize={(w) => handleUnrecResize('debit_amount', w)}
+                          className="py-3 px-4"
+                        >
+                          Số Tiền Chi Ra
+                        </SortableTh>
+                      )}
+                      {isUnrecColumnVisible('suggested_principal_amount') && (
+                        <SortableTh
+                          field="suggested_principal_amount"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          align="right"
+                          filterType="number"
+                          filterValue={unrecFilters['suggested_principal_amount']}
+                          onFilterChange={(v) => setUnrecFilter('suggested_principal_amount', v)}
+                          width={unrecColumnWidths['suggested_principal_amount']}
+                          onResize={(w) => handleUnrecResize('suggested_principal_amount', w)}
+                          className="py-3 px-4"
+                        >
+                          Trả Gốc
+                        </SortableTh>
+                      )}
+                      {isUnrecColumnVisible('suggested_interest_amount') && (
+                        <SortableTh
+                          field="suggested_interest_amount"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          align="right"
+                          filterType="number"
+                          filterValue={unrecFilters['suggested_interest_amount']}
+                          onFilterChange={(v) => setUnrecFilter('suggested_interest_amount', v)}
+                          width={unrecColumnWidths['suggested_interest_amount']}
+                          onResize={(w) => handleUnrecResize('suggested_interest_amount', w)}
+                          className="py-3 px-4"
+                        >
+                          Trả Lãi
+                        </SortableTh>
+                      )}
+                      {isUnrecColumnVisible('description') && (
+                        <SortableTh
+                          field="description"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          filterType="text"
+                          filterValue={unrecFilters['description']}
+                          onFilterChange={(v) => setUnrecFilter('description', v)}
+                          width={unrecColumnWidths['description']}
+                          onResize={(w) => handleUnrecResize('description', w)}
+                          className="py-3 px-4"
+                        >
+                          Nội Dung Sao Kê Ngân Hàng
+                        </SortableTh>
+                      )}
+                      {isUnrecColumnVisible('suggested_contract_number') && (
+                        <SortableTh
+                          field="suggested_contract_number"
+                          currentSortField={unrecSortField}
+                          currentSortDirection={unrecSortDirection}
+                          onSort={handleUnrecSort}
+                          filterType="text"
+                          filterValue={unrecFilters['suggested_contract_number']}
+                          onFilterChange={(v) => setUnrecFilter('suggested_contract_number', v)}
+                          width={unrecColumnWidths['suggested_contract_number']}
+                          onResize={(w) => handleUnrecResize('suggested_contract_number', w)}
+                          className="py-3 px-4"
+                        >
+                          Gợi Ý Khế Ước Tự Động
+                        </SortableTh>
+                      )}
+                      <th className="py-3 px-4 text-center">Thao Tác</th>
+                    </tr>
+                  </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {sortedUnreconciledList.map((tx) => {
                     const matchedLoan = findMatchedLoan(tx);
@@ -871,116 +1025,130 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
                       <React.Fragment key={tx.transaction_id}>
                         <tr className={`hover:bg-slate-50/80 transition-colors ${isInlineOpen ? 'bg-indigo-50/50' : ''}`}>
                           {/* Thời gian */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <div className="font-bold text-slate-900">
-                              {new Date(tx.transaction_date).toLocaleDateString('vi-VN')}
-                            </div>
-                            <div className="text-[11px] text-slate-400">
-                              {new Date(tx.transaction_date).toLocaleTimeString('vi-VN', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })}
-                            </div>
-                          </td>
+                          {isUnrecColumnVisible('transaction_date') && (
+                            <td className="py-3.5 px-4 whitespace-nowrap">
+                              <div className="font-bold text-slate-900">
+                                {new Date(tx.transaction_date).toLocaleDateString('vi-VN')}
+                              </div>
+                              <div className="text-[11px] text-slate-400">
+                                {new Date(tx.transaction_date).toLocaleTimeString('vi-VN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </div>
+                            </td>
+                          )}
 
                           {/* Tài khoản & Ngân hàng */}
-                          <td className="py-3.5 px-4">
-                            <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 mr-1.5">
-                              {tx.bank_code}
-                            </span>
-                            <span className="font-mono text-slate-800 text-[11px]">
-                              {tx.account_number || 'N/A'}
-                            </span>
-                            {tx.account_holder && (
-                              <div className="text-[11px] text-slate-400 truncate max-w-[140px]">
-                                {tx.account_holder}
-                              </div>
-                            )}
-                          </td>
+                          {isUnrecColumnVisible('account') && (
+                            <td className="py-3.5 px-4">
+                              <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 mr-1.5">
+                                {tx.bank_code}
+                              </span>
+                              <span className="font-mono text-slate-800 text-[11px]">
+                                {tx.account_number || 'N/A'}
+                              </span>
+                              {tx.account_holder && (
+                                <div className="text-[11px] text-slate-400 truncate max-w-[140px]">
+                                  {tx.account_holder}
+                                </div>
+                              )}
+                            </td>
+                          )}
 
                           {/* Số tiền chi */}
-                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                            <div className="font-mono font-bold text-sm text-red-600">
-                              -{Number(tx.debit_amount).toLocaleString('vi-VN')} đ
-                            </div>
-                            <span className="text-[10px] text-slate-400 font-normal">
-                              {tx.category_name || 'Trả nợ'}
-                            </span>
-                          </td>
+                          {isUnrecColumnVisible('debit_amount') && (
+                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                              <div className="font-mono font-bold text-sm text-red-600">
+                                -{Number(tx.debit_amount).toLocaleString('vi-VN')} đ
+                              </div>
+                              <span className="text-[10px] text-slate-400 font-normal">
+                                {tx.category_name || 'Trả nợ'}
+                              </span>
+                            </td>
+                          )}
 
                           {/* Gợi ý Trả gốc từ nội dung giao dịch */}
-                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                            {tx.suggested_principal_amount !== undefined && tx.suggested_principal_amount !== null ? (
-                              <div className={`font-mono text-xs ${Number(tx.suggested_principal_amount) > 0 ? 'font-bold text-slate-900' : 'text-slate-400 font-medium'}`}>
-                                {Number(tx.suggested_principal_amount).toLocaleString('vi-VN')} đ
-                              </div>
-                            ) : (
-                              <span className="text-slate-300 text-xs">—</span>
-                            )}
-                          </td>
-
-                          {/* Gợi ý Trả lãi từ nội dung giao dịch */}
-                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                            {tx.suggested_interest_amount !== undefined && tx.suggested_interest_amount !== null ? (
-                              Number(tx.suggested_interest_amount) < 0 ? (
-                                <div
-                                  className="font-mono font-bold text-xs text-emerald-600"
-                                  title="Ngân hàng hoàn lãi / giảm trừ lãi khi tất toán"
-                                >
-                                  {Number(tx.suggested_interest_amount).toLocaleString('vi-VN')} đ
-                                </div>
-                              ) : Number(tx.suggested_interest_amount) > 0 ? (
-                                <div className="font-mono font-bold text-xs text-indigo-600">
-                                  {Number(tx.suggested_interest_amount).toLocaleString('vi-VN')} đ
+                          {isUnrecColumnVisible('suggested_principal_amount') && (
+                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                              {tx.suggested_principal_amount !== undefined && tx.suggested_principal_amount !== null ? (
+                                <div className={`font-mono text-xs ${Number(tx.suggested_principal_amount) > 0 ? 'font-bold text-slate-900' : 'text-slate-400 font-medium'}`}>
+                                  {Number(tx.suggested_principal_amount).toLocaleString('vi-VN')} đ
                                 </div>
                               ) : (
-                                <div className="font-mono text-xs text-slate-400 font-medium">0 đ</div>
-                              )
-                            ) : (
-                              <span className="text-slate-300 text-xs">—</span>
-                            )}
-                          </td>
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Gợi ý Trả lãi từ nội dung giao dịch */}
+                          {isUnrecColumnVisible('suggested_interest_amount') && (
+                            <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                              {tx.suggested_interest_amount !== undefined && tx.suggested_interest_amount !== null ? (
+                                Number(tx.suggested_interest_amount) < 0 ? (
+                                  <div
+                                    className="font-mono font-bold text-xs text-emerald-600"
+                                    title="Ngân hàng hoàn lãi / giảm trừ lãi khi tất toán"
+                                  >
+                                    {Number(tx.suggested_interest_amount).toLocaleString('vi-VN')} đ
+                                  </div>
+                                ) : Number(tx.suggested_interest_amount) > 0 ? (
+                                  <div className="font-mono font-bold text-xs text-indigo-600">
+                                    {Number(tx.suggested_interest_amount).toLocaleString('vi-VN')} đ
+                                  </div>
+                                ) : (
+                                  <div className="font-mono text-xs text-slate-400 font-medium">0 đ</div>
+                                )
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
+                          )}
 
                           {/* Diễn giải */}
-                          <td className="py-3.5 px-4 max-w-xs">
-                            <div className="text-slate-800 line-clamp-2 leading-relaxed" title={tx.description}>
-                              {tx.description}
-                            </div>
-                            {tx.reference_number && (
-                              <span className="text-[10px] text-slate-400 font-mono">
-                                Ref: {tx.reference_number}
-                              </span>
-                            )}
-                          </td>
+                          {isUnrecColumnVisible('description') && (
+                            <td className="py-3.5 px-4 max-w-xs">
+                              <div className="text-slate-800 line-clamp-2 leading-relaxed" title={tx.description}>
+                                {tx.description}
+                              </div>
+                              {tx.reference_number && (
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  Ref: {tx.reference_number}
+                                </span>
+                              )}
+                            </td>
+                          )}
 
                           {/* Gợi ý Khế ước tự động - Chỉ gợi ý những khế ước có trong danh mục đã nạp, không có thì để trống */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            {tx.suggested_contract_number && (tx.suggested_loan_id || findMatchedLoan(tx)) ? (
-                              <div className="space-y-1">
-                                <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                  <Landmark className="w-3.5 h-3.5" />
-                                  <span>{tx.suggested_contract_number}</span>
-                                </div>
-                                {tx.timing_prediction === 'PRE_SNAPSHOT' && (
-                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 ml-1.5" title="Giao dịch xảy ra trước ngày xuất file sao kê tín dụng (Hoàn nguyên gốc)">
-                                    Trước ngày xuất file
-                                  </span>
-                                )}
-                                {tx.timing_prediction === 'POST_SNAPSHOT' && (
-                                  <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 ml-1.5" title="Giao dịch xảy ra sau ngày xuất file sao kê tín dụng (Giảm trừ hiện tại)">
-                                    Sau ngày xuất file
-                                  </span>
-                                )}
-                                {tx.suggested_principal_balance !== undefined && tx.suggested_principal_balance !== null && (
-                                  <div className="text-[11px] text-slate-500">
-                                    Dư nợ: <span className="font-semibold text-slate-700">{Number(tx.suggested_principal_balance).toLocaleString('vi-VN')} đ</span>
+                          {isUnrecColumnVisible('suggested_contract_number') && (
+                            <td className="py-3.5 px-4 whitespace-nowrap">
+                              {tx.suggested_contract_number && (tx.suggested_loan_id || findMatchedLoan(tx)) ? (
+                                <div className="space-y-1">
+                                  <div className="inline-flex items-center space-x-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                    <Landmark className="w-3.5 h-3.5" />
+                                    <span>{tx.suggested_contract_number}</span>
                                   </div>
-                                )}
-                              </div>
-                            ) : (
-                              <span className="text-slate-300 text-xs">—</span>
-                            )}
-                          </td>
+                                  {tx.timing_prediction === 'PRE_SNAPSHOT' && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 ml-1.5" title="Giao dịch xảy ra trước ngày xuất file sao kê tín dụng (Hoàn nguyên gốc)">
+                                      Trước ngày xuất file
+                                    </span>
+                                  )}
+                                  {tx.timing_prediction === 'POST_SNAPSHOT' && (
+                                    <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 ml-1.5" title="Giao dịch xảy ra sau ngày xuất file sao kê tín dụng (Giảm trừ hiện tại)">
+                                      Sau ngày xuất file
+                                    </span>
+                                  )}
+                                  {tx.suggested_principal_balance !== undefined && tx.suggested_principal_balance !== null && (
+                                    <div className="text-[11px] text-slate-500">
+                                      Dư nợ: <span className="font-semibold text-slate-700">{Number(tx.suggested_principal_balance).toLocaleString('vi-VN')} đ</span>
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-300 text-xs">—</span>
+                              )}
+                            </td>
+                          )}
 
                           {/* Nút thao tác: Đối soát trực tiếp không mở cửa sổ phụ */}
                           <td className="py-3.5 px-4 text-center whitespace-nowrap">
@@ -1286,6 +1454,7 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       ) : (
@@ -1313,109 +1482,229 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
               Chưa có lịch sử đối soát nào được ghi nhận.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
-                  <tr>
-                    <SortableTh field="repayment_date" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
-                      Thời Điểm Trả Nợ (Sao kê)
-                    </SortableTh>
-                    <SortableTh field="contract" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
-                      Khế Ước / Ngân Hàng
-                    </SortableTh>
-                    <SortableTh field="principal_repaid" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} align="right" className="py-3 px-4">
-                      Số Tiền Trả Gốc
-                    </SortableTh>
-                    <SortableTh field="interest_repaid" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} align="right" className="py-3 px-4">
-                      Số Tiền Trả Lãi
-                    </SortableTh>
-                    <SortableTh field="remaining_principal_balance" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} align="right" className="py-3 px-4">
-                      Dư Nợ Còn Lại
-                    </SortableTh>
-                    <SortableTh field="notes" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
-                      Nội Dung Diễn Giải
-                    </SortableTh>
-                    <SortableTh field="created_by" currentSortField={histSortField} currentSortDirection={histSortDirection} onSort={handleHistSort} className="py-3 px-4">
-                      Người Thực Hiện
-                    </SortableTh>
-                    <th className="py-3 px-4 text-center">Hoàn Tác</th>
-                  </tr>
-                </thead>
+            <>
+              <TableGridToolbar
+                columns={HIST_COLUMNS}
+                visibleColumns={visibleHistColumns}
+                onToggleColumn={toggleHistColumn}
+                onShowAllColumns={showAllHistColumns}
+                onResetColumns={resetHistColumns}
+                filteredCount={sortedHistoryList.length}
+                totalCount={historyList.length}
+                activeFilterCount={activeHistFilterCount}
+                onClearAllFilters={clearAllHistFilters}
+              />
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200 uppercase tracking-wider text-[11px]">
+                    <tr>
+                      {isHistColumnVisible('repayment_date') && (
+                        <SortableTh
+                          field="repayment_date"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          filterType="date"
+                          filterValue={histFilters['repayment_date']}
+                          onFilterChange={(v) => setHistFilter('repayment_date', v)}
+                          width={histColumnWidths['repayment_date']}
+                          onResize={(w) => handleHistResize('repayment_date', w)}
+                          className="py-3 px-4"
+                        >
+                          Thời Điểm Trả Nợ (Sao kê)
+                        </SortableTh>
+                      )}
+                      {isHistColumnVisible('contract') && (
+                        <SortableTh
+                          field="contract"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          filterType="text"
+                          filterValue={histFilters['contract']}
+                          onFilterChange={(v) => setHistFilter('contract', v)}
+                          width={histColumnWidths['contract']}
+                          onResize={(w) => handleHistResize('contract', w)}
+                          className="py-3 px-4"
+                        >
+                          Khế Ước / Ngân Hàng
+                        </SortableTh>
+                      )}
+                      {isHistColumnVisible('principal_amount') && (
+                        <SortableTh
+                          field="principal_amount"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          align="right"
+                          filterType="number"
+                          filterValue={histFilters['principal_amount']}
+                          onFilterChange={(v) => setHistFilter('principal_amount', v)}
+                          width={histColumnWidths['principal_amount']}
+                          onResize={(w) => handleHistResize('principal_amount', w)}
+                          className="py-3 px-4"
+                        >
+                          Số Tiền Trả Gốc
+                        </SortableTh>
+                      )}
+                      {isHistColumnVisible('interest_amount') && (
+                        <SortableTh
+                          field="interest_amount"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          align="right"
+                          filterType="number"
+                          filterValue={histFilters['interest_amount']}
+                          onFilterChange={(v) => setHistFilter('interest_amount', v)}
+                          width={histColumnWidths['interest_amount']}
+                          onResize={(w) => handleHistResize('interest_amount', w)}
+                          className="py-3 px-4"
+                        >
+                          Số Tiền Trả Lãi
+                        </SortableTh>
+                      )}
+                      {isHistColumnVisible('remaining_principal_balance') && (
+                        <SortableTh
+                          field="remaining_principal_balance"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          align="right"
+                          filterType="number"
+                          filterValue={histFilters['remaining_principal_balance']}
+                          onFilterChange={(v) => setHistFilter('remaining_principal_balance', v)}
+                          width={histColumnWidths['remaining_principal_balance']}
+                          onResize={(w) => handleHistResize('remaining_principal_balance', w)}
+                          className="py-3 px-4"
+                        >
+                          Dư Nợ Còn Lại
+                        </SortableTh>
+                      )}
+                      {isHistColumnVisible('transaction_description') && (
+                        <SortableTh
+                          field="transaction_description"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          filterType="text"
+                          filterValue={histFilters['transaction_description']}
+                          onFilterChange={(v) => setHistFilter('transaction_description', v)}
+                          width={histColumnWidths['transaction_description']}
+                          onResize={(w) => handleHistResize('transaction_description', w)}
+                          className="py-3 px-4"
+                        >
+                          Nội Dung Diễn Giải
+                        </SortableTh>
+                      )}
+                      {isHistColumnVisible('reconciled_by') && (
+                        <SortableTh
+                          field="reconciled_by"
+                          currentSortField={histSortField}
+                          currentSortDirection={histSortDirection}
+                          onSort={handleHistSort}
+                          filterType="text"
+                          filterValue={histFilters['reconciled_by']}
+                          onFilterChange={(v) => setHistFilter('reconciled_by', v)}
+                          width={histColumnWidths['reconciled_by']}
+                          onResize={(w) => handleHistResize('reconciled_by', w)}
+                          className="py-3 px-4"
+                        >
+                          Người Thực Hiện
+                        </SortableTh>
+                      )}
+                      <th className="py-3 px-4 text-center">Hoàn Tác</th>
+                    </tr>
+                  </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
                   {sortedHistoryList.map((hist) => (
                     <tr key={hist.repayment_id} className="hover:bg-slate-50/80 transition-colors">
                       {/* Thời điểm trả nợ đúng bằng thời điểm giao dịch */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="font-bold text-slate-900">
-                          {new Date(hist.repayment_date).toLocaleDateString('vi-VN')}
-                        </div>
-                        <div className="text-[11px] text-emerald-600 font-semibold flex items-center space-x-1">
-                          <Calendar className="w-3 h-3" />
-                          <span>
-                            {new Date(hist.repayment_date).toLocaleTimeString('vi-VN', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </span>
-                        </div>
-                      </td>
+                      {isHistColumnVisible('repayment_date') && (
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="font-bold text-slate-900">
+                            {new Date(hist.repayment_date).toLocaleDateString('vi-VN')}
+                          </div>
+                          <div className="text-[11px] text-emerald-600 font-semibold flex items-center space-x-1">
+                            <Calendar className="w-3 h-3" />
+                            <span>
+                              {new Date(hist.repayment_date).toLocaleTimeString('vi-VN', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                          </div>
+                        </td>
+                      )}
 
                       {/* Khế ước */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
-                        <div className="font-bold text-slate-900 flex items-center space-x-1">
-                          <span>{hist.contract_number}</span>
-                        </div>
-                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 mt-0.5">
-                          {hist.bank_code}
-                        </span>
-                        {hist.repayment_timing === 'PRE_SNAPSHOT' && (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 ml-1 mt-0.5">
-                            Trước ngày xuất file
+                      {isHistColumnVisible('contract') && (
+                        <td className="py-3.5 px-4 whitespace-nowrap">
+                          <div className="font-bold text-slate-900 flex items-center space-x-1">
+                            <span>{hist.contract_number}</span>
+                          </div>
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200 mt-0.5">
+                            {hist.bank_code}
                           </span>
-                        )}
-                        {hist.repayment_timing === 'POST_SNAPSHOT' && (
-                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 ml-1 mt-0.5">
-                            Sau ngày xuất file
-                          </span>
-                        )}
-                      </td>
+                          {hist.repayment_timing === 'PRE_SNAPSHOT' && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-700 border border-blue-200 ml-1 mt-0.5">
+                              Trước ngày xuất file
+                            </span>
+                          )}
+                          {hist.repayment_timing === 'POST_SNAPSHOT' && (
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-200 ml-1 mt-0.5">
+                              Sau ngày xuất file
+                            </span>
+                          )}
+                        </td>
+                      )}
 
                       {/* Tiền gốc */}
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-600 whitespace-nowrap">
-                        {Number(hist.principal_amount).toLocaleString('vi-VN')} đ
-                      </td>
+                      {isHistColumnVisible('principal_amount') && (
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-blue-600 whitespace-nowrap">
+                          {Number(hist.principal_amount).toLocaleString('vi-VN')} đ
+                        </td>
+                      )}
 
                       {/* Tiền lãi */}
-                      <td className="py-3.5 px-4 text-right font-mono text-emerald-600 whitespace-nowrap">
-                        {Number(hist.interest_amount).toLocaleString('vi-VN')} đ
-                      </td>
+                      {isHistColumnVisible('interest_amount') && (
+                        <td className="py-3.5 px-4 text-right font-mono text-emerald-600 whitespace-nowrap">
+                          {Number(hist.interest_amount).toLocaleString('vi-VN')} đ
+                        </td>
+                      )}
 
                       {/* Dư nợ còn lại sau trừ */}
-                      <td className="py-3.5 px-4 text-right font-mono whitespace-nowrap">
-                        <div className="font-bold text-slate-800">
-                          {Number(hist.remaining_principal_balance).toLocaleString('vi-VN')} đ
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          Trước: {Number(hist.previous_principal_balance).toLocaleString('vi-VN')} đ
-                        </div>
-                      </td>
+                      {isHistColumnVisible('remaining_principal_balance') && (
+                        <td className="py-3.5 px-4 text-right font-mono whitespace-nowrap">
+                          <div className="font-bold text-slate-800">
+                            {Number(hist.remaining_principal_balance).toLocaleString('vi-VN')} đ
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            Trước: {Number(hist.previous_principal_balance).toLocaleString('vi-VN')} đ
+                          </div>
+                        </td>
+                      )}
 
                       {/* Diễn giải */}
-                      <td className="py-3.5 px-4 max-w-xs">
-                        <div className="text-slate-700 line-clamp-1" title={hist.transaction_description}>
-                          {hist.transaction_description || 'Không có mô tả'}
-                        </div>
-                        {hist.notes && (
-                          <div className="text-[11px] text-indigo-600 font-normal">
-                            Note: {hist.notes}
+                      {isHistColumnVisible('transaction_description') && (
+                        <td className="py-3.5 px-4 max-w-xs">
+                          <div className="text-slate-700 line-clamp-1" title={hist.transaction_description}>
+                            {hist.transaction_description || 'Không có mô tả'}
                           </div>
-                        )}
-                      </td>
+                          {hist.notes && (
+                            <div className="text-[11px] text-indigo-600 font-normal">
+                              Note: {hist.notes}
+                            </div>
+                          )}
+                        </td>
+                      )}
 
                       {/* Người thực hiện */}
-                      <td className="py-3.5 px-4 whitespace-nowrap text-slate-500">
-                        {hist.reconciled_by}
-                      </td>
+                      {isHistColumnVisible('reconciled_by') && (
+                        <td className="py-3.5 px-4 whitespace-nowrap text-slate-500">
+                          {hist.reconciled_by}
+                        </td>
+                      )}
 
                       {/* Rollback */}
                       <td className="py-3.5 px-4 text-center whitespace-nowrap">
@@ -1432,6 +1721,7 @@ export const LoanRepaymentReconcilePage: React.FC = () => {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       )}

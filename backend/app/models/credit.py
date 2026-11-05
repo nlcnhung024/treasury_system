@@ -9,6 +9,7 @@ from sqlalchemy.sql import func
 from app.core.database import Base
 
 if TYPE_CHECKING:
+    from app.models.bank import Bank
     from app.models.invoice import LoanInvoiceAllocation, Invoice
     from app.models.transaction import BankTransaction
 
@@ -18,6 +19,7 @@ class CreditStatementFile(Base):
 
     file_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     file_uuid: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), default=uuid.uuid4, unique=True, nullable=False)
+    bank_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("banks.bank_id", ondelete="SET NULL"), nullable=True, index=True)
     bank_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     template_code: Mapped[str] = mapped_column(String(50), nullable=False)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -53,6 +55,7 @@ class CreditFacility(Base):
     )
 
     loan_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    bank_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("banks.bank_id", ondelete="SET NULL"), nullable=True, index=True)
     bank_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False)
     contract_number: Mapped[str] = mapped_column(String(50), nullable=False)
@@ -94,6 +97,7 @@ class CreditFacility(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
+    bank: Mapped[Optional["Bank"]] = relationship("Bank", back_populates="credit_facilities")
     items: Mapped[List["CreditStatementItem"]] = relationship("CreditStatementItem", back_populates="loan")
     dossier_documents: Mapped[List["DisbursementDocument"]] = relationship("DisbursementDocument", back_populates="loan", cascade="all, delete-orphan")
     allocations: Mapped[List["LoanInvoiceAllocation"]] = relationship("LoanInvoiceAllocation", back_populates="loan", cascade="all, delete-orphan")

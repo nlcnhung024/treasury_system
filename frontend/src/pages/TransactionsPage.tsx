@@ -17,7 +17,22 @@ import {
 import api from '../services/api';
 import { Transaction, Category, BankAccount } from '../types';
 import { SortableTh } from '../components/common/SortableTh';
-import { SortDirection, sortList } from '../utils/sort';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
+
+const TRANSACTION_COLUMNS: ColumnConfig[] = [
+  { field: 'transaction_date', label: 'Ngày giờ GD', type: 'date', defaultWidth: 140 },
+  { field: 'bank_account', label: 'NH / Số TK', type: 'text', defaultWidth: 150 },
+  { field: 'counterparty_name', label: 'Đối tác (Thụ hưởng/Chuyển)', type: 'text', defaultWidth: 200 },
+  { field: 'description', label: 'Nội dung Diễn giải', type: 'text', defaultWidth: 280 },
+  { field: 'debit_amount', label: 'Phát sinh Nợ (-)', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'credit_amount', label: 'Phát sinh Có (+)', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'running_balance', label: 'Số dư Lũy kế', type: 'number', align: 'right', defaultWidth: 160 },
+  { field: 'category_name', label: 'Danh mục', type: 'text', defaultWidth: 190 },
+  { field: 'internal_note', label: 'Ghi chú Nội bộ', type: 'text', defaultWidth: 180 },
+  { field: 'is_locked', label: 'Khóa', type: 'text', align: 'center', defaultWidth: 80 },
+];
 
 export const TransactionsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -51,24 +66,38 @@ export const TransactionsPage: React.FC = () => {
   const [balanceDraft, setBalanceDraft] = useState<string>('');
   const [savingBalance, setSavingBalance] = useState<boolean>(false);
 
-  // Sorting State
-  const [sortField, setSortField] = useState<string>('transaction_date');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities (Sort, Filter, Visibility, Resizing)
+  const {
+    sortField,
+    sortDirection,
+    handleSort,
+    filters,
+    setFilter,
+    clearAllFilters,
+    activeFilterCount,
+    visibleColumns,
+    toggleColumn,
+    showAllColumns,
+    resetColumns,
+    isColumnVisible,
+    columnWidths,
+    handleResize,
+    filterAndSort,
+  } = useTableGrid<Transaction>({
+    tableId: 'transactions_table',
+    columns: TRANSACTION_COLUMNS,
+    defaultSortField: 'transaction_date',
+    defaultSortDirection: 'desc',
+  });
 
   const sortedTransactions = useMemo(() => {
-    return sortList(transactions, sortField, sortDirection, {
+    return filterAndSort(transactions, {
       bank_account: (tx) => `${tx.bank_code || ''} ${tx.account_number || ''}`,
+      counterparty_name: (tx) => tx.counter_party || '',
+      category_name: (tx) => tx.category_name || '',
+      is_locked: (tx) => (tx.is_manual_override ? 'locked' : 'unlocked'),
     });
-  }, [transactions, sortField, sortDirection]);
+  }, [transactions, filterAndSort]);
 
   useEffect(() => {
     fetchCategories();
@@ -415,12 +444,25 @@ export const TransactionsPage: React.FC = () => {
           )}
         </div>
 
+        {/* Table Grid Toolbar */}
+        <TableGridToolbar
+          columns={TRANSACTION_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onShowAllColumns={showAllColumns}
+          onResetColumns={resetColumns}
+          filteredCount={sortedTransactions.length}
+          totalCount={transactions.length}
+          activeFilterCount={activeFilterCount}
+          onClearAllFilters={clearAllFilters}
+        />
+
         {/* Bảng Giao dịch */}
         <div className="overflow-x-auto border border-slate-200 rounded-lg">
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-100 uppercase font-semibold text-slate-700 border-b border-slate-200">
               <tr>
-                <th className="px-3 py-3 text-center">
+                <th className="px-3 py-3 text-center w-10">
                   <input
                     type="checkbox"
                     checked={sortedTransactions.length > 0 && selectedIds.length === sortedTransactions.length}
@@ -428,42 +470,166 @@ export const TransactionsPage: React.FC = () => {
                     className="rounded border-slate-300"
                   />
                 </th>
-                <SortableTh field="transaction_date" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Ngày giờ GD
-                </SortableTh>
-                <SortableTh field="bank_account" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  NH / Số TK
-                </SortableTh>
-                <SortableTh field="counterparty_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} className="min-w-[180px]">
-                  Đối tác (Thụ hưởng/Chuyển)
-                </SortableTh>
-                <SortableTh field="description" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} className="min-w-[260px]">
-                  Nội dung Diễn giải
-                </SortableTh>
-                <SortableTh field="debit_amount" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Phát sinh Nợ (-)
-                </SortableTh>
-                <SortableTh field="credit_amount" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Phát sinh Có (+)
-                </SortableTh>
-                <SortableTh field="running_balance" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="right">
-                  Số dư Lũy kế
-                </SortableTh>
-                <SortableTh field="category_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Danh mục (Inline Tagging)
-                </SortableTh>
-                <SortableTh field="internal_note" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Ghi chú Nội bộ
-                </SortableTh>
-                <SortableTh field="is_locked" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
-                  Khóa
-                </SortableTh>
+                {isColumnVisible('transaction_date') && (
+                  <SortableTh
+                    field="transaction_date"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="date"
+                    filterValue={filters['transaction_date']}
+                    onFilterChange={(v) => setFilter('transaction_date', v)}
+                    width={columnWidths['transaction_date']}
+                    onResize={(w) => handleResize('transaction_date', w)}
+                  >
+                    Ngày giờ GD
+                  </SortableTh>
+                )}
+                {isColumnVisible('bank_account') && (
+                  <SortableTh
+                    field="bank_account"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['bank_account']}
+                    onFilterChange={(v) => setFilter('bank_account', v)}
+                    width={columnWidths['bank_account']}
+                    onResize={(w) => handleResize('bank_account', w)}
+                  >
+                    NH / Số TK
+                  </SortableTh>
+                )}
+                {isColumnVisible('counterparty_name') && (
+                  <SortableTh
+                    field="counterparty_name"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['counterparty_name']}
+                    onFilterChange={(v) => setFilter('counterparty_name', v)}
+                    width={columnWidths['counterparty_name']}
+                    onResize={(w) => handleResize('counterparty_name', w)}
+                  >
+                    Đối tác
+                  </SortableTh>
+                )}
+                {isColumnVisible('description') && (
+                  <SortableTh
+                    field="description"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['description']}
+                    onFilterChange={(v) => setFilter('description', v)}
+                    width={columnWidths['description']}
+                    onResize={(w) => handleResize('description', w)}
+                  >
+                    Diễn giải
+                  </SortableTh>
+                )}
+                {isColumnVisible('debit_amount') && (
+                  <SortableTh
+                    field="debit_amount"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['debit_amount']}
+                    onFilterChange={(v) => setFilter('debit_amount', v)}
+                    width={columnWidths['debit_amount']}
+                    onResize={(w) => handleResize('debit_amount', w)}
+                  >
+                    Phát sinh Nợ (-)
+                  </SortableTh>
+                )}
+                {isColumnVisible('credit_amount') && (
+                  <SortableTh
+                    field="credit_amount"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['credit_amount']}
+                    onFilterChange={(v) => setFilter('credit_amount', v)}
+                    width={columnWidths['credit_amount']}
+                    onResize={(w) => handleResize('credit_amount', w)}
+                  >
+                    Phát sinh Có (+)
+                  </SortableTh>
+                )}
+                {isColumnVisible('running_balance') && (
+                  <SortableTh
+                    field="running_balance"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="right"
+                    filterType="number"
+                    filterValue={filters['running_balance']}
+                    onFilterChange={(v) => setFilter('running_balance', v)}
+                    width={columnWidths['running_balance']}
+                    onResize={(w) => handleResize('running_balance', w)}
+                  >
+                    Số dư Lũy kế
+                  </SortableTh>
+                )}
+                {isColumnVisible('category_name') && (
+                  <SortableTh
+                    field="category_name"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['category_name']}
+                    onFilterChange={(v) => setFilter('category_name', v)}
+                    width={columnWidths['category_name']}
+                    onResize={(w) => handleResize('category_name', w)}
+                  >
+                    Danh mục
+                  </SortableTh>
+                )}
+                {isColumnVisible('internal_note') && (
+                  <SortableTh
+                    field="internal_note"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['internal_note']}
+                    onFilterChange={(v) => setFilter('internal_note', v)}
+                    width={columnWidths['internal_note']}
+                    onResize={(w) => handleResize('internal_note', w)}
+                  >
+                    Ghi chú
+                  </SortableTh>
+                )}
+                {isColumnVisible('is_locked') && (
+                  <SortableTh
+                    field="is_locked"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={filters['is_locked']}
+                    onFilterChange={(v) => setFilter('is_locked', v)}
+                    width={columnWidths['is_locked']}
+                    onResize={(w) => handleResize('is_locked', w)}
+                  >
+                    Khóa
+                  </SortableTh>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {sortedTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-4 py-8 text-center text-slate-400 text-sm">
+                  <td colSpan={TRANSACTION_COLUMNS.filter((c) => isColumnVisible(c.field)).length + 1} className="px-4 py-8 text-center text-slate-400 text-sm">
                     {loading ? 'Đang tải dữ liệu...' : 'Không có giao dịch nào khớp điều kiện lọc.'}
                   </td>
                 </tr>
@@ -478,14 +644,19 @@ export const TransactionsPage: React.FC = () => {
                         className="rounded border-slate-300"
                       />
                     </td>
+{isColumnVisible('transaction_date') && (
                     <td className="px-3 py-2.5 whitespace-nowrap font-mono text-[11px]">
                       <div>{tx.transaction_date.slice(0, 10)}</div>
                       <div className="text-slate-400">{tx.transaction_date.slice(11, 19)}</div>
                     </td>
+                  )}
+{isColumnVisible('bank_account') && (
                     <td className="px-3 py-2.5 whitespace-nowrap">
                       <div className="font-bold text-slate-800">{tx.bank_code || 'MBB'}</div>
                       <div className="font-mono text-[11px] text-slate-400">{tx.account_number}</div>
                     </td>
+                  )}
+{isColumnVisible('counterparty_name') && (
                     <td className="px-3 py-2.5 min-w-[180px] max-w-xs">
                       {tx.counter_party ? (
                         <div className="font-semibold text-slate-900 break-words leading-snug">
@@ -495,6 +666,8 @@ export const TransactionsPage: React.FC = () => {
                         <span className="text-slate-300 italic">—</span>
                       )}
                     </td>
+                  )}
+{isColumnVisible('description') && (
                     <td className="px-3 py-2.5 min-w-[260px] max-w-lg">
                       <div className="text-slate-800 whitespace-normal break-words leading-relaxed" title={tx.description}>
                         {tx.description}
@@ -505,12 +678,18 @@ export const TransactionsPage: React.FC = () => {
                         </div>
                       )}
                     </td>
+                  )}
+{isColumnVisible('debit_amount') && (
                     <td className="px-3 py-2.5 text-right font-mono text-red-600 font-medium whitespace-nowrap">
                       {Number(tx.debit_amount) > 0 ? Number(tx.debit_amount).toLocaleString('vi-VN') : '—'}
                     </td>
+                  )}
+{isColumnVisible('credit_amount') && (
                     <td className="px-3 py-2.5 text-right font-mono text-emerald-600 font-medium whitespace-nowrap">
                       {Number(tx.credit_amount) > 0 ? Number(tx.credit_amount).toLocaleString('vi-VN') : '—'}
                     </td>
+                  )}
+{isColumnVisible('running_balance') && (
                     <td className="px-3 py-2.5 text-right font-mono font-bold text-slate-800 whitespace-nowrap min-w-[155px]">
                       {editingBalanceId === tx.transaction_id ? (
                         <div className="flex items-center justify-end gap-1">
@@ -565,6 +744,8 @@ export const TransactionsPage: React.FC = () => {
                         </div>
                       )}
                     </td>
+                  )}
+                  {isColumnVisible('category_name') && (
                     <td className="px-3 py-2.5 min-w-[180px]">
                       <div className="flex items-center gap-1.5">
                         <Tag
@@ -599,6 +780,8 @@ export const TransactionsPage: React.FC = () => {
                         </a>
                       )}
                     </td>
+                  )}
+                  {isColumnVisible('internal_note') && (
                     <td className="px-3 py-2.5 min-w-[170px]">
                       {editingNoteId === tx.transaction_id ? (
                         <div className="flex items-center gap-1">
@@ -638,6 +821,8 @@ export const TransactionsPage: React.FC = () => {
                         </div>
                       )}
                     </td>
+                  )}
+                  {isColumnVisible('is_locked') && (
                     <td className="px-3 py-2.5 text-center">
                       <button
                         onClick={() => handleToggleLock(tx)}
@@ -655,6 +840,7 @@ export const TransactionsPage: React.FC = () => {
                         )}
                       </button>
                     </td>
+                  )}
                   </tr>
                 ))
               )}

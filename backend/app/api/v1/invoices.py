@@ -285,6 +285,36 @@ async def get_loan_allocated_invoices(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
 
 
+@router.post("/loans/{loan_id}/auto-sync-dossier-invoices", response_model=LoanAllocatedInvoicesResponse)
+async def auto_sync_loan_dossier_invoices(
+    loan_id: int,
+    force_recalculate: bool = Query(False, description="Tái tính toán cuốn chiếu lại từ đầu"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Tự động đồng bộ các hóa đơn trong Hồ sơ giải ngân sang tab Hóa đơn nhận nợ.
+    Thuật toán gợi ý điền số tiền nhận nợ cuốn chiếu:
+    Lấy giá trị còn được giải ngân của hóa đơn ấy trong bảng hóa đơn tổng,
+    cuốn chiếu đến khi đủ số lượng dư nợ gốc của khoản vay.
+    """
+    try:
+        user_name = current_user.get("sub", "SYSTEM") if isinstance(current_user, dict) else "SYSTEM"
+        return await invoice_service.auto_sync_dossier_invoices_rolling(
+            db=db,
+            loan_id=loan_id,
+            user=user_name,
+            force_recalculate=force_recalculate,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Lỗi khi đồng bộ hóa đơn cuốn chiếu từ hồ sơ: {e}",
+        )
+
+
 @router.delete("/loans/{loan_id}/allocated-invoices/{allocation_id}")
 async def remove_loan_allocation(
     loan_id: int,

@@ -10,8 +10,21 @@ export interface CorporateEntity {
   updated_at?: string;
 }
 
+export interface Bank {
+  bank_id: number;
+  bank_code: string;
+  bank_name: string;
+  branch_name?: string | null;
+  tax_code?: string | null;
+  short_name: string;
+  is_active: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
 export interface BankAccount {
   account_id: number;
+  bank_id?: number | null;
   entity_id?: number | null;
   bank_code: string;
   bank_name: string;

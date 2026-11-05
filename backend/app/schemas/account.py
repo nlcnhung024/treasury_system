@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 class BankAccountItem(BaseModel):
     account_id: int
+    bank_id: Optional[int] = None
     bank_code: str
     bank_name: str
     account_number: str
@@ -19,6 +20,7 @@ class BankAccountItem(BaseModel):
         from_attributes = True
 
 class CreateAccountPayload(BaseModel):
+    bank_id: Optional[int] = None
     bank_code: str = Field(..., example="MBB")
     bank_name: str = Field(..., example="Ngân hàng TMCP Quân Đội")
     account_number: str = Field(..., example="111386888")

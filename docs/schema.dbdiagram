@@ -70,8 +70,8 @@
       {
         "name": "credit_facilities",
         "schemaName": "public",
-        "x": 904.486328125,
-        "y": 2222
+        "x": 892.21630859375,
+        "y": 2210.3366336633662
       },
       {
         "name": "credit_statement_items",
@@ -92,16 +92,28 @@
         "y": 3259
       },
       {
-        "name": "loan_repayment_plans",
+        "name": "invoices",
         "schemaName": "public",
-        "x": 904.486328125,
-        "y": 3356
+        "x": 893.8100534085756,
+        "y": 3377.4802613430256
       },
       {
-        "name": "loan_repayment_plan_items",
+        "name": "invoice_items",
         "schemaName": "public",
-        "x": 1575.9150390625,
-        "y": 3785
+        "x": 1533.177734375,
+        "y": 4340
+      },
+      {
+        "name": "loan_invoice_allocations",
+        "schemaName": "public",
+        "x": 1594.09598918445,
+        "y": 3767.7050773141273
+      },
+      {
+        "name": "banks",
+        "schemaName": "public",
+        "x": 12,
+        "y": 4774
       }
     ],
     "tableGroupCollapseStates": [],
@@ -478,6 +490,126 @@
           "loan_id"
         ],
         "secondTableName": "credit_facilities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "invoice_id"
+        ],
+        "firstTableName": "disbursement_documents",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "invoice_id"
+        ],
+        "secondTableName": "invoices",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "entity_id"
+        ],
+        "firstTableName": "invoices",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "entity_id"
+        ],
+        "secondTableName": "corporate_entities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "invoice_id"
+        ],
+        "firstTableName": "invoice_items",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "invoice_id"
+        ],
+        "secondTableName": "invoices",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "loan_id"
+        ],
+        "firstTableName": "loan_invoice_allocations",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "loan_id"
+        ],
+        "secondTableName": "credit_facilities",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "invoice_id"
+        ],
+        "firstTableName": "loan_invoice_allocations",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "invoice_id"
+        ],
+        "secondTableName": "invoices",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "bank_id"
+        ],
+        "firstTableName": "bank_accounts",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "bank_id"
+        ],
+        "secondTableName": "banks",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "bank_id"
+        ],
+        "firstTableName": "credit_facilities",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "bank_id"
+        ],
+        "secondTableName": "banks",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "bank_id"
+        ],
+        "firstTableName": "credit_statement_files",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "bank_id"
+        ],
+        "secondTableName": "banks",
         "secondSchemaName": "public",
         "secondRelation": "1",
         "checkPoints": []

@@ -100,3 +100,28 @@ Khi xử lý các tệp hóa đơn điện tử định dạng XML (theo Nghị 
   - Khi người dùng điều chỉnh tiền gốc: `interest = total - principal` (cho phép ra số âm).
   - Khi `interest < 0`, giao diện tự động hiển thị nhãn trạng thái nhận diện (badge màu xanh "Hoàn / Giảm trừ lãi").
   - Cung cấp nút 1-chạm **[Tất toán gốc (Dư nợ)]** để gán trực tiếp `principal = current_principal_balance` và `interest = total - current_principal_balance`.
+
+## 14. Tiêu chuẩn Kỹ thuật Thiết kế Bảng Dữ liệu Đa năng (Universal Interactive Data Grid Standard)
+Mọi bảng dữ liệu / lưới danh sách (Data Grid / Table) trên toàn bộ hệ thống giao diện Frontend bắt buộc tuân thủ 4 nguyên tắc kỹ thuật cốt lõi sau:
+- **1. Header Luôn Tích Hợp Sắp Xếp (Sort) và Bộ Lọc (Filter):**
+  - **Sắp xếp 2 chiều linh hoạt:** Click vào tiêu đề cột để thay đổi chiều sắp xếp (Không sắp xếp $\rightarrow$ Tăng dần `asc` $\rightarrow$ Giảm dần `desc` $\rightarrow$ Không sắp xếp, hoặc toggle `asc`/`desc`).
+    - Biểu tượng trực quan rõ nét: `ArrowUp` (tăng dần), `ArrowDown` (giảm dần), `ArrowUpDown` (trạng thái chờ).
+    - Chuẩn so sánh: Sử dụng thuật toán so sánh tiếng Việt chuẩn `localeCompare('vi', { numeric: true })` cho chuỗi văn bản, so sánh số học cho Number/Currency/Decimal, và epoch timestamp cho Date/DateTime.
+  - **Bộ lọc trực tiếp tại Header:** Mỗi cột dữ liệu bắt buộc có nút kích hoạt popover/dropdown bộ lọc hoặc hàng ô lọc (filter row) ngay dưới tiêu đề. Icon Filter phải đổi màu nhận diện hoặc hiển thị badge khi cột đó đang áp dụng điều kiện lọc.
+- **2. Quy Tắc Phân Loại Bộ Lọc Theo Kiểu Dữ Liệu (Data-Type-Driven Filtering Logic):**
+  - **Dữ liệu dạng Chữ (Text / String / Mã / Danh mục): Lọc bằng điều kiện (Condition-based Filter)**
+    - Cung cấp các toán tử lọc chuỗi: `Chứa (contains)` (mặc định, không phân biệt hoa thường, hỗ trợ tiếng Việt có dấu và không dấu), `Bằng chính xác (equals)`, `Bắt đầu bằng (startsWith)`, `Kết thúc bằng (endsWith)`, `Không chứa (doesNotContain)`, `Rỗng (isEmpty)`, `Không rỗng (isNotEmpty)`.
+  - **Dữ liệu dạng Số hoặc Ngày (Number, Currency, Decimal, Date, DateTime): Lọc bằng điều kiện khoảng (Range-based Filter)**
+    - **Dữ liệu dạng Số / Tiền tệ:** Cung cấp 2 ô nhập khoảng giá trị `[Từ số tiền / Min, Đến số tiền / Max]`, hoặc toán tử so sánh (`>=`, `<=`, `=`, `Khoảng [Min - Max]`).
+    - **Dữ liệu dạng Ngày tháng:** Cung cấp bộ chọn khoảng ngày `[Từ ngày / Start Date, Đến ngày / End Date]`, kiểm tra bao gồm cả ngày biên (inclusive: từ `00:00:00` ngày bắt đầu đến `23:59:59` ngày kết thúc).
+- **3. Chức Năng Quản Lý Ẩn / Hiện Cột (Column Visibility Toggle / Column Picker):**
+  - Khi khởi tạo bất kỳ bảng nào, bắt buộc phải trang bị menu/dropdown công cụ "Tùy chỉnh cột" (Column Visibility Manager) đặt tại thanh công cụ (toolbar) phía trên bảng.
+  - Cho phép người dùng bật/tắt (checkbox) từng cột để ẩn hoặc hiện linh hoạt theo nhu cầu quan sát.
+  - Cung cấp các nút tiện ích: "Hiện tất cả" (Show All), "Khôi phục mặc định" (Reset Default).
+  - Các cột định danh trọng yếu (như STT, Mã số/Số HĐ, Cột Thao tác) có thể cấu hình cố định không cho phép ẩn (`disableHide = true`).
+  - Trạng thái ẩn/hiện cột bắt buộc được ghi nhớ vào `localStorage` theo khóa định danh bảng (`table_id`) để duy trì giao diện khi người dùng tải lại trang.
+- **4. Chức Năng Thay Đổi Độ Rộng Cột (Resizable Columns & Layout Stability):**
+  - Tiêu đề cột phải có mép kéo dãn (Resize Handle / Resizer divider) cho phép người dùng bấm giữ và kéo chuột (drag & drop) để thay đổi độ rộng cột tùy ý.
+  - Ràng buộc kích thước an toàn: Bắt buộc cấu hình độ rộng tối thiểu (`minWidth: 80px` hoặc tùy đặc thù cột) và độ rộng tối đa (`maxWidth`) để chống co rúm gây mất nội dung hoặc vỡ layout bảng.
+  - Tránh tràn viền xấu: Cột text dài phải áp dụng `truncate` / `text-ellipsis` và có tooltip hiển thị đầy đủ nội dung khi hover.
+  - Ghi nhớ độ rộng cột đã tùy chỉnh vào state và `localStorage` theo `table_id`.

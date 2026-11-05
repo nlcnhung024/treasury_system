@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from sqlalchemy import BigInteger, String, Boolean, DateTime, Numeric
+from sqlalchemy import BigInteger, String, Boolean, DateTime, Numeric, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -9,6 +9,7 @@ class BankAccount(Base):
     __tablename__ = "bank_accounts"
 
     account_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    bank_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("banks.bank_id", ondelete="SET NULL"), nullable=True, index=True)
     bank_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False)
     account_number: Mapped[str] = mapped_column(String(50), nullable=False, unique=True, index=True)
@@ -23,6 +24,6 @@ class BankAccount(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
+    bank = relationship("Bank", back_populates="accounts")
     statement_files = relationship("BankStatementFile", back_populates="account")
     transactions = relationship("BankTransaction", back_populates="account")
-

@@ -6,6 +6,8 @@ from app.models.cash_ledger import CashLedger
 from app.models.audit_log import AuditLog
 from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument, LoanRepaymentHistory
 from app.models.invoice import Invoice, InvoiceItem, LoanInvoiceAllocation
+from app.models.corporate_entity import CorporateEntity
+from app.models.bank import Bank
 
 __all__ = [
     "BankAccount",
@@ -23,5 +25,6 @@ __all__ = [
     "Invoice",
     "InvoiceItem",
     "LoanInvoiceAllocation",
+    "CorporateEntity",
+    "Bank",
 ]
-

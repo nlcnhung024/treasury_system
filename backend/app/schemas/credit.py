@@ -66,6 +66,7 @@ class CreditStatementFileDetail(CreditStatementFileItem):
 
 class CreditFacilityItem(BaseModel):
     loan_id: int
+    bank_id: Optional[int] = None
     bank_code: str
     bank_name: str
     contract_number: str
@@ -157,6 +158,7 @@ class LoanInvoiceReconciliationResponse(BaseModel):
 
 
 class CreditFacilityCreate(BaseModel):
+    bank_id: Optional[int] = None
     bank_code: str
     bank_name: str
     institution_type: str = "BANK"  # 'BANK', 'FINANCE_COMPANY', 'LEASING_COMPANY', 'OTHER'
@@ -185,6 +187,7 @@ class CreditFacilityCreate(BaseModel):
 
 
 class CreditFacilityUpdate(BaseModel):
+    bank_id: Optional[int] = None
     bank_code: Optional[str] = None
     bank_name: Optional[str] = None
     institution_type: Optional[str] = None

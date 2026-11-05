@@ -35,12 +35,30 @@ Table corporate_entities {
   }
 }
 
+Table banks {
+  bank_id bigserial [pk, increment, note: 'Khóa chính ngân hàng']
+  bank_code varchar(20) [not null, unique, note: 'Mã định danh: MBB, CTG, VPB, TPB, SHB, MBV, EVF...']
+  bank_name varchar(150) [not null, note: 'Tên đầy đủ của ngân hàng']
+  branch_name varchar(150) [note: 'Tên chi nhánh giao dịch']
+  tax_code varchar(50) [note: 'Mã số thuế ngân hàng/chi nhánh']
+  short_name varchar(50) [not null, note: 'Tên viết tắt hiển thị: MB, VietinBank, VPBank...']
+  is_active boolean [not null, default: true, note: 'Trạng thái hoạt động']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    bank_code [name: 'idx_banks_code']
+    short_name [name: 'idx_banks_short_name']
+  }
+}
+
 // =============================================================================
 // 2. PHÂN HỆ TÀI KHOẢN THANH TOÁN (CASA) & DÒNG TIỀN
 // =============================================================================
 
 Table bank_accounts {
   account_id bigserial [pk, increment, note: 'Khóa chính định danh tài khoản ngân hàng']
+  bank_id bigint [note: 'Khóa ngoại trỏ tới banks(bank_id)']
   entity_id bigint [note: 'Pháp nhân sở hữu tài khoản']
   bank_code varchar(20) [not null, note: 'Mã ngân hàng: MBB, MBV, VPB, TPB, CTG, SHB, VCB, TCB...']
   bank_name varchar(100) [not null, note: 'Tên đầy đủ ngân hàng']
@@ -247,6 +265,7 @@ Table credit_statement_files {
   file_id bigserial [pk, increment, note: 'Khóa chính file sao kê tín dụng']
   file_uuid uuid [not null, unique, note: 'UUID định danh file']
   entity_id bigint [note: 'Pháp nhân vay vốn']
+  bank_id bigint [note: 'Khóa ngoại trỏ tới banks(bank_id)']
   bank_code varchar(20) [not null, note: 'CTG, MBB...']
   template_code varchar(50) [not null, note: 'CTG_LOAN_XLS, MBB_LOAN_LD_XLSX']
   original_filename varchar(255) [not null, note: 'Tên file gốc']
@@ -279,6 +298,7 @@ Table credit_statement_files {
 
 Table credit_facilities {
   loan_id bigserial [pk, increment, note: 'Khóa chính khoản vay']
+  bank_id bigint [note: 'Khóa ngoại trỏ tới banks(bank_id)']
   entity_id bigint [note: 'Pháp nhân vay vốn']
   bank_code varchar(20) [not null, note: 'Mã ngân hàng cấp tín dụng']
   bank_name varchar(100) [not null, note: 'Tên đầy đủ ngân hàng']
@@ -543,12 +563,18 @@ Ref: loan_invoice_allocations.invoice_id > invoices.invoice_id [delete: restrict
 Ref: loan_repayment_history.loan_id > credit_facilities.loan_id [delete: restrict]
 Ref: loan_repayment_history.transaction_id - bank_transactions.transaction_id [delete: restrict]
 
+// Quan hệ Danh mục Ngân hàng (Banks Master Data)
+Ref: bank_accounts.bank_id > banks.bank_id [delete: set null]
+Ref: credit_facilities.bank_id > banks.bank_id [delete: set null]
+Ref: credit_statement_files.bank_id > banks.bank_id [delete: set null]
+
 // =============================================================================
 // 5. NHÓM BẢNG THEO PHÂN HỆ NGHIỆP VỤ (TABLE GROUPS)
 // =============================================================================
 
 TableGroup entity_organization {
   corporate_entities
+  banks
 }
 
 TableGroup payment_cashflow {

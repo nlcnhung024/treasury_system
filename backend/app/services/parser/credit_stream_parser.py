@@ -219,7 +219,7 @@ def parse_credit_statement_file(
     # 1. Bóc tách Metadata hoàn toàn theo Declarative Config
     meta_cfg = t_cfg.get("metadata_extractors", {})
 
-    borrower_name = "Doanh nghiệp vay vốn"
+    borrower_name = "CONG TY CO PHAN XI MANG SUNRISE"
     if "borrower_name" in meta_cfg:
         b_cfg = meta_cfg["borrower_name"]
         if "cell" in b_cfg:

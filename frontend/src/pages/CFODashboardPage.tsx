@@ -30,7 +30,21 @@ import {
   CreditFacilitySummary,
 } from '../types';
 import { SortableTh } from '../components/common/SortableTh';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
 import { SortDirection, sortList } from '../utils/sort';
+
+const CFO_ACCOUNT_COLUMNS: ColumnConfig[] = [
+  { field: 'account', label: 'Tài khoản Ngân hàng', type: 'text', defaultWidth: 240 },
+  { field: 'opening_balance', label: 'Số dư Đầu kỳ', type: 'number', align: 'right', defaultWidth: 130 },
+  { field: 'total_inflow', label: 'Tổng Thu (Tiền vào)', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'total_outflow', label: 'Tổng Chi (Tiền ra)', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'closing_balance', label: 'Số dư Cuối kỳ', type: 'number', align: 'right', defaultWidth: 140 },
+  { field: 'net_change', label: 'Biến động (+/-)', type: 'number', align: 'right', defaultWidth: 130 },
+  { field: 'share_pct', label: 'Tỷ trọng', type: 'number', align: 'right', defaultWidth: 100 },
+  { field: 'reconciliation_status', label: 'Đối soát & Cập nhật', type: 'text', align: 'right', defaultWidth: 160 },
+];
 
 type TimeframeType = 'TODAY' | 'YESTERDAY' | 'WTD' | 'MTD' | 'ALL' | 'CUSTOM';
 
@@ -298,30 +312,47 @@ export const CFODashboardPage: React.FC = () => {
     });
   }, [filteredBankItems, summarySortField, summarySortDirection]);
 
-  // Sắp xếp Bảng Chi tiết Tồn quỹ Các Tài khoản (Table 3)
-  const [cfoTableSortField, setCfoTableSortField] = useState<string>('closing_balance');
-  const [cfoTableSortDirection, setCfoTableSortDirection] = useState<SortDirection>('desc');
-  const handleCfoTableSort = (field: string) => {
-    if (cfoTableSortField === field) {
-      setCfoTableSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setCfoTableSortField(field);
-      setCfoTableSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities for CFO Table 3 (Sort, Filter, Visibility, Resizing)
+  const {
+    sortField: cfoTableSortField,
+    sortDirection: cfoTableSortDirection,
+    handleSort: handleCfoTableSort,
+    filters: cfoFilters,
+    setFilter: setCfoFilter,
+    clearAllFilters: clearAllCfoFilters,
+    activeFilterCount: cfoActiveFilterCount,
+    visibleColumns: cfoVisibleColumns,
+    toggleColumn: toggleCfoColumn,
+    showAllColumns: showAllCfoColumns,
+    resetColumns: resetCfoColumns,
+    isColumnVisible: isCfoColumnVisible,
+    columnWidths: cfoColumnWidths,
+    handleResize: handleCfoResize,
+    filterAndSort: filterAndSortCfo,
+  } = useTableGrid<CFOBankBreakdownItem>({
+    tableId: 'cfo_accounts_table',
+    columns: CFO_ACCOUNT_COLUMNS,
+    defaultSortField: 'closing_balance',
+    defaultSortDirection: 'desc',
+  });
+
   const sortedCorporateAccounts = useMemo(() => {
-    return sortList(corporateAccounts, cfoTableSortField, cfoTableSortDirection, {
-      account: (b) => `${b.bank_code || ''} ${b.account_number || ''}`,
+    return filterAndSortCfo(corporateAccounts, {
+      account: (b) => `${b.bank_code || ''} ${b.account_number || ''} ${b.account_holder || ''}`,
       closing_balance: (b) => b.closing_balance ?? b.balance ?? 0,
+      net_change: (b) => Number(b.net_change || 0),
+      share_pct: (b) => Number(b.share_pct || 0),
     });
-  }, [corporateAccounts, cfoTableSortField, cfoTableSortDirection]);
+  }, [corporateAccounts, filterAndSortCfo]);
 
   const sortedSpecialCashAccounts = useMemo(() => {
-    return sortList(specialCashAccounts, cfoTableSortField, cfoTableSortDirection, {
-      account: (b) => `${b.bank_code || ''} ${b.account_number || ''}`,
+    return filterAndSortCfo(specialCashAccounts, {
+      account: (b) => `${b.bank_code || ''} ${b.account_number || ''} ${b.account_holder || ''}`,
       closing_balance: (b) => b.closing_balance ?? b.balance ?? 0,
+      net_change: (b) => Number(b.net_change || 0),
+      share_pct: (b) => Number(b.share_pct || 0),
     });
-  }, [specialCashAccounts, cfoTableSortField, cfoTableSortDirection]);
+  }, [specialCashAccounts, filterAndSortCfo]);
 
   const formatMoney = (val?: number | null) => {
     const num = Number(val || 0);
@@ -422,135 +453,151 @@ export const CFODashboardPage: React.FC = () => {
           }`}
         >
           {/* Cột 1: Ngân hàng & Tài khoản */}
-          <td className="px-4 py-3">
-            <div className="flex items-start gap-2">
-              <button
-                type="button"
-                className="mt-0.5 p-0.5 rounded hover:bg-slate-200 text-slate-500"
-                title="Bấm để xem chi tiết giao dịch trong kỳ"
-              >
-                {isExpanded ? (
-                  <ChevronDown className="w-4 h-4 text-blue-600" />
-                ) : (
-                  <ChevronRight className="w-4 h-4" />
-                )}
-              </button>
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[11px]">
-                    {b.bank_code}
-                  </span>
-                  <span className="font-mono font-bold text-slate-900 text-xs">
-                    {b.account_number}
-                  </span>
-                  {b.has_data_gap && (
-                    <span
-                      title={b.data_gap_desc || 'Lệch số dư giữa số dư cuối kỳ trước và đầu kỳ sau'}
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold border border-amber-300"
-                    >
-                      <AlertTriangle className="w-3 h-3 text-amber-600" />
-                      Lệch số dư ĐK/CK
-                    </span>
+          {isCfoColumnVisible('account') && (
+            <td className="px-4 py-3">
+              <div className="flex items-start gap-2">
+                <button
+                  type="button"
+                  className="mt-0.5 p-0.5 rounded hover:bg-slate-200 text-slate-500"
+                  title="Bấm để xem chi tiết giao dịch trong kỳ"
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="w-4 h-4 text-blue-600" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4" />
                   )}
+                </button>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 font-bold text-[11px]">
+                      {b.bank_code}
+                    </span>
+                    <span className="font-mono font-bold text-slate-900 text-xs">
+                      {b.account_number}
+                    </span>
+                    {b.has_data_gap && (
+                      <span
+                        title={b.data_gap_desc || 'Lệch số dư giữa số dư cuối kỳ trước và đầu kỳ sau'}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold border border-amber-300"
+                      >
+                        <AlertTriangle className="w-3 h-3 text-amber-600" />
+                        Lệch số dư ĐK/CK
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-slate-600 font-medium mt-0.5 truncate max-w-[230px]" title={b.account_holder}>
+                    {b.account_holder}
+                  </div>
+                  <div className="text-[10px] text-slate-400">{b.bank_name}</div>
                 </div>
-                <div className="text-[11px] text-slate-600 font-medium mt-0.5 truncate max-w-[230px]" title={b.account_holder}>
-                  {b.account_holder}
-                </div>
-                <div className="text-[10px] text-slate-400">{b.bank_name}</div>
               </div>
-            </div>
-          </td>
+            </td>
+          )}
 
           {/* Cột 2: Số dư Đầu kỳ */}
-          <td className="px-3 py-3 text-right font-mono text-slate-700">
-            {formatMoney(b.opening_balance)}
-          </td>
+          {isCfoColumnVisible('opening_balance') && (
+            <td className="px-3 py-3 text-right font-mono text-slate-700">
+              {formatMoney(b.opening_balance)}
+            </td>
+          )}
 
           {/* Cột 3: Tổng Thu trong kỳ */}
-          <td className="px-3 py-3 text-right font-mono">
-            <div className="text-emerald-700 font-semibold">
-              +{formatMoney(b.total_inflow)}
-            </div>
-            {Number(b.internal_inflow) > 0 && (
-              <div className="text-[10px] text-slate-400" title="Trong đó thu luân chuyển nội bộ">
-                (Nội bộ: {formatMoney(b.internal_inflow)})
+          {isCfoColumnVisible('total_inflow') && (
+            <td className="px-3 py-3 text-right font-mono">
+              <div className="text-emerald-700 font-semibold">
+                +{formatMoney(b.total_inflow)}
               </div>
-            )}
-          </td>
+              {Number(b.internal_inflow) > 0 && (
+                <div className="text-[10px] text-slate-400" title="Trong đó thu luân chuyển nội bộ">
+                  (Nội bộ: {formatMoney(b.internal_inflow)})
+                </div>
+              )}
+            </td>
+          )}
 
           {/* Cột 4: Tổng Chi trong kỳ */}
-          <td className="px-3 py-3 text-right font-mono">
-            <div className="text-rose-600 font-semibold">
-              -{formatMoney(b.total_outflow)}
-            </div>
-            {Number(b.internal_outflow) > 0 && (
-              <div className="text-[10px] text-slate-400" title="Trong đó chi luân chuyển nội bộ / rút TM">
-                (Nội bộ: {formatMoney(b.internal_outflow)})
+          {isCfoColumnVisible('total_outflow') && (
+            <td className="px-3 py-3 text-right font-mono">
+              <div className="text-rose-600 font-semibold">
+                -{formatMoney(b.total_outflow)}
               </div>
-            )}
-          </td>
+              {Number(b.internal_outflow) > 0 && (
+                <div className="text-[10px] text-slate-400" title="Trong đó chi luân chuyển nội bộ / rút TM">
+                  (Nội bộ: {formatMoney(b.internal_outflow)})
+                </div>
+              )}
+            </td>
+          )}
 
           {/* Cột 5: Số dư Cuối kỳ */}
-          <td
-            className={`px-3 py-3 text-right font-mono font-bold text-xs ${
-              closeVal < 0 ? 'text-amber-700' : 'text-slate-900'
-            }`}
-          >
-            {formatMoney(closeVal)}
-          </td>
-
-          {/* Cột 6: Biến động ròng (+/- và %) */}
-          <td className="px-3 py-3 text-right font-mono">
-            <div
-              className={`font-semibold ${
-                netVal > 0
-                  ? 'text-emerald-700'
-                  : netVal < 0
-                  ? 'text-rose-600'
-                  : 'text-slate-500'
+          {isCfoColumnVisible('closing_balance') && (
+            <td
+              className={`px-3 py-3 text-right font-mono font-bold text-xs ${
+                closeVal < 0 ? 'text-amber-700' : 'text-slate-900'
               }`}
             >
-              {formatSignedMoney(netVal)}
-            </div>
-            {b.net_change_pct !== null && b.net_change_pct !== undefined && (
-              <div className="text-[10px] text-slate-400">
-                ({Number(b.net_change_pct) > 0 ? '+' : ''}
-                {Number(b.net_change_pct).toFixed(1)}%)
+              {formatMoney(closeVal)}
+            </td>
+          )}
+
+          {/* Cột 6: Biến động ròng (+/- và %) */}
+          {isCfoColumnVisible('net_change') && (
+            <td className="px-3 py-3 text-right font-mono">
+              <div
+                className={`font-semibold ${
+                  netVal > 0
+                    ? 'text-emerald-700'
+                    : netVal < 0
+                    ? 'text-rose-600'
+                    : 'text-slate-500'
+                }`}
+              >
+                {formatSignedMoney(netVal)}
               </div>
-            )}
-          </td>
+              {b.net_change_pct !== null && b.net_change_pct !== undefined && (
+                <div className="text-[10px] text-slate-400">
+                  ({Number(b.net_change_pct) > 0 ? '+' : ''}
+                  {Number(b.net_change_pct).toFixed(1)}%)
+                </div>
+              )}
+            </td>
+          )}
 
           {/* Cột 7: Tỷ trọng % */}
-          <td className="px-3 py-3 w-28">
-            <div className="flex items-center justify-end gap-1.5 font-mono text-xs font-semibold text-slate-700">
-              <span>{Number(b.share_pct || 0).toFixed(1)}%</span>
-            </div>
-            <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
-              <div
-                className="h-full bg-blue-600 rounded-full transition-all"
-                style={{ width: `${shareVal}%` }}
-              />
-            </div>
-          </td>
+          {isCfoColumnVisible('share_pct') && (
+            <td className="px-3 py-3 w-28">
+              <div className="flex items-center justify-end gap-1.5 font-mono text-xs font-semibold text-slate-700">
+                <span>{Number(b.share_pct || 0).toFixed(1)}%</span>
+              </div>
+              <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mt-1">
+                <div
+                  className="h-full bg-blue-600 rounded-full transition-all"
+                  style={{ width: `${shareVal}%` }}
+                />
+              </div>
+            </td>
+          )}
 
           {/* Cột 8: Đối soát & Độ tươi dữ liệu */}
-          <td className="px-4 py-3">
-            <div className="flex flex-col items-end gap-1">
-              {renderReconciliationBadge(b)}
-              <div className="flex items-center gap-1 text-[10px] text-slate-400">
-                <Clock className="w-3 h-3" />
-                <span>
-                  {formatDateTime(b.latest_tx_date)} ({b.period_tx_count} GD)
-                </span>
+          {isCfoColumnVisible('reconciliation_status') && (
+            <td className="px-4 py-3">
+              <div className="flex flex-col items-end gap-1">
+                {renderReconciliationBadge(b)}
+                <div className="flex items-center gap-1 text-[10px] text-slate-400">
+                  <Clock className="w-3 h-3" />
+                  <span>
+                    {formatDateTime(b.latest_tx_date)} ({b.period_tx_count} GD)
+                  </span>
+                </div>
               </div>
-            </div>
-          </td>
+            </td>
+          )}
         </tr>
 
         {/* Panel mở rộng Drill-down ngay dưới dòng tài khoản */}
         {isExpanded && (
           <tr className="bg-slate-50/90 border-b border-blue-200">
-            <td colSpan={8} className="px-6 py-4">
+            <td colSpan={CFO_ACCOUNT_COLUMNS.filter(c => isCfoColumnVisible(c.field)).length} className="px-6 py-4">
               <div className="bg-white rounded-lg border border-blue-200 shadow-sm p-4 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
                   <div>
@@ -1334,48 +1381,188 @@ export const CFODashboardPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Table Grid Toolbar */}
+        <div className="px-6 py-2.5">
+          <TableGridToolbar
+            columns={CFO_ACCOUNT_COLUMNS}
+            visibleColumns={cfoVisibleColumns}
+            onToggleColumn={toggleCfoColumn}
+            onShowAllColumns={showAllCfoColumns}
+            onResetColumns={resetCfoColumns}
+            filteredCount={sortedCorporateAccounts.length + sortedSpecialCashAccounts.length}
+            totalCount={corporateAccounts.length + specialCashAccounts.length}
+            activeFilterCount={cfoActiveFilterCount}
+            onClearAllFilters={clearAllCfoFilters}
+          />
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-800 text-white uppercase text-[11px] font-semibold">
               <tr>
-                <SortableTh field="account" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" className="px-4 py-3">
-                  Tài khoản Ngân hàng
-                </SortableTh>
-                <SortableTh field="opening_balance" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
-                  Số dư Đầu kỳ
-                </SortableTh>
-                <SortableTh field="total_inflow" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
-                  Tổng Thu (Tiền vào)
-                </SortableTh>
-                <SortableTh field="total_outflow" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
-                  Tổng Chi (Tiền ra)
-                </SortableTh>
-                <SortableTh field="closing_balance" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
-                  Số dư Cuối kỳ
-                </SortableTh>
-                <SortableTh field="net_change" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
-                  Biến động (+/-)
-                </SortableTh>
-                <SortableTh field="share_pct" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-3 py-3">
-                  Tỷ trọng
-                </SortableTh>
-                <SortableTh field="reconciliation_status" currentSortField={cfoTableSortField} currentSortDirection={cfoTableSortDirection} onSort={handleCfoTableSort} theme="dark" align="right" className="px-4 py-3">
-                  Đối soát & Cập nhật
-                </SortableTh>
+                {isCfoColumnVisible('account') && (
+                  <SortableTh
+                    field="account"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    filterType="text"
+                    filterValue={cfoFilters['account']}
+                    onFilterChange={(v) => setCfoFilter('account', v)}
+                    width={cfoColumnWidths['account']}
+                    onResize={(w) => handleCfoResize('account', w)}
+                    className="px-4 py-3"
+                  >
+                    Tài khoản Ngân hàng
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('opening_balance') && (
+                  <SortableTh
+                    field="opening_balance"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="number"
+                    filterValue={cfoFilters['opening_balance']}
+                    onFilterChange={(v) => setCfoFilter('opening_balance', v)}
+                    width={cfoColumnWidths['opening_balance']}
+                    onResize={(w) => handleCfoResize('opening_balance', w)}
+                    className="px-3 py-3"
+                  >
+                    Số dư Đầu kỳ
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('total_inflow') && (
+                  <SortableTh
+                    field="total_inflow"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="number"
+                    filterValue={cfoFilters['total_inflow']}
+                    onFilterChange={(v) => setCfoFilter('total_inflow', v)}
+                    width={cfoColumnWidths['total_inflow']}
+                    onResize={(w) => handleCfoResize('total_inflow', w)}
+                    className="px-3 py-3"
+                  >
+                    Tổng Thu (Tiền vào)
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('total_outflow') && (
+                  <SortableTh
+                    field="total_outflow"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="number"
+                    filterValue={cfoFilters['total_outflow']}
+                    onFilterChange={(v) => setCfoFilter('total_outflow', v)}
+                    width={cfoColumnWidths['total_outflow']}
+                    onResize={(w) => handleCfoResize('total_outflow', w)}
+                    className="px-3 py-3"
+                  >
+                    Tổng Chi (Tiền ra)
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('closing_balance') && (
+                  <SortableTh
+                    field="closing_balance"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="number"
+                    filterValue={cfoFilters['closing_balance']}
+                    onFilterChange={(v) => setCfoFilter('closing_balance', v)}
+                    width={cfoColumnWidths['closing_balance']}
+                    onResize={(w) => handleCfoResize('closing_balance', w)}
+                    className="px-3 py-3"
+                  >
+                    Số dư Cuối kỳ
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('net_change') && (
+                  <SortableTh
+                    field="net_change"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="number"
+                    filterValue={cfoFilters['net_change']}
+                    onFilterChange={(v) => setCfoFilter('net_change', v)}
+                    width={cfoColumnWidths['net_change']}
+                    onResize={(w) => handleCfoResize('net_change', w)}
+                    className="px-3 py-3"
+                  >
+                    Biến động (+/-)
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('share_pct') && (
+                  <SortableTh
+                    field="share_pct"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="number"
+                    filterValue={cfoFilters['share_pct']}
+                    onFilterChange={(v) => setCfoFilter('share_pct', v)}
+                    width={cfoColumnWidths['share_pct']}
+                    onResize={(w) => handleCfoResize('share_pct', w)}
+                    className="px-3 py-3"
+                  >
+                    Tỷ trọng
+                  </SortableTh>
+                )}
+                {isCfoColumnVisible('reconciliation_status') && (
+                  <SortableTh
+                    field="reconciliation_status"
+                    currentSortField={cfoTableSortField}
+                    currentSortDirection={cfoTableSortDirection}
+                    onSort={handleCfoTableSort}
+                    theme="dark"
+                    align="right"
+                    filterType="text"
+                    filterValue={cfoFilters['reconciliation_status']}
+                    onFilterChange={(v) => setCfoFilter('reconciliation_status', v)}
+                    width={cfoColumnWidths['reconciliation_status']}
+                    onResize={(w) => handleCfoResize('reconciliation_status', w)}
+                    className="px-4 py-3"
+                  >
+                    Đối soát & Cập nhật
+                  </SortableTh>
+                )}
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-200">
               {/* ================= KHỐI 1: TÀI KHOẢN DOANH NGHIỆP ================= */}
               <tr className="bg-blue-50/80 border-y border-blue-200">
-                <td colSpan={8} className="px-4 py-2 font-bold text-blue-900 text-xs uppercase tracking-wider">
+                <td
+                  colSpan={CFO_ACCOUNT_COLUMNS.filter((c) => isCfoColumnVisible(c.field)).length}
+                  className="px-4 py-2 font-bold text-blue-900 text-xs uppercase tracking-wider"
+                >
                   Khối 1: Tài khoản Thanh toán Doanh nghiệp ({corporateAccounts.length} tài khoản)
                 </td>
               </tr>
 
               {sortedCorporateAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-4 text-center text-slate-400 italic">
+                  <td
+                    colSpan={CFO_ACCOUNT_COLUMNS.filter((c) => isCfoColumnVisible(c.field)).length}
+                    className="px-4 py-4 text-center text-slate-400 italic"
+                  >
                     Không có tài khoản doanh nghiệp nào khớp điều kiện lọc.
                   </td>
                 </tr>
@@ -1385,44 +1572,66 @@ export const CFODashboardPage: React.FC = () => {
 
               {/* Dòng Tiểu tổng Khối 1 */}
               <tr className="bg-slate-100/90 font-bold text-slate-900 border-t border-slate-300">
-                <td className="px-4 py-2.5 text-slate-800">
-                  Tiểu tổng Khối 1 (Tài khoản Doanh nghiệp)
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono">{formatMoney(corpSub.open)}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
-                  +{formatMoney(corpSub.inflow)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-rose-600">
-                  -{formatMoney(corpSub.outflow)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-blue-900">
-                  {formatMoney(corpSub.close)}
-                </td>
-                <td
-                  className={`px-3 py-2.5 text-right font-mono ${
-                    corpSub.net >= 0 ? 'text-emerald-700' : 'text-rose-600'
-                  }`}
-                >
-                  {formatSignedMoney(corpSub.net)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono">
-                  {corpSub.share.toFixed(1)}%
-                </td>
-                <td className="px-4 py-2.5 text-right text-[11px] font-normal text-slate-500">
-                  {corpSub.txCount} GD trong kỳ
-                </td>
+                {isCfoColumnVisible('account') && (
+                  <td className="px-4 py-2.5 text-slate-800">
+                    Tiểu tổng Khối 1 (Tài khoản Doanh nghiệp)
+                  </td>
+                )}
+                {isCfoColumnVisible('opening_balance') && (
+                  <td className="px-3 py-2.5 text-right font-mono">{formatMoney(corpSub.open)}</td>
+                )}
+                {isCfoColumnVisible('total_inflow') && (
+                  <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
+                    +{formatMoney(corpSub.inflow)}
+                  </td>
+                )}
+                {isCfoColumnVisible('total_outflow') && (
+                  <td className="px-3 py-2.5 text-right font-mono text-rose-600">
+                    -{formatMoney(corpSub.outflow)}
+                  </td>
+                )}
+                {isCfoColumnVisible('closing_balance') && (
+                  <td className="px-3 py-2.5 text-right font-mono text-blue-900">
+                    {formatMoney(corpSub.close)}
+                  </td>
+                )}
+                {isCfoColumnVisible('net_change') && (
+                  <td
+                    className={`px-3 py-2.5 text-right font-mono ${
+                      corpSub.net >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                    }`}
+                  >
+                    {formatSignedMoney(corpSub.net)}
+                  </td>
+                )}
+                {isCfoColumnVisible('share_pct') && (
+                  <td className="px-3 py-2.5 text-right font-mono">
+                    {corpSub.share.toFixed(1)}%
+                  </td>
+                )}
+                {isCfoColumnVisible('reconciliation_status') && (
+                  <td className="px-4 py-2.5 text-right text-[11px] font-normal text-slate-500">
+                    {corpSub.txCount} GD trong kỳ
+                  </td>
+                )}
               </tr>
 
               {/* ================= KHỐI 2: TÀI KHOẢN ỦY QUYỀN CEO ================= */}
               <tr className="bg-amber-50/80 border-y border-amber-200">
-                <td colSpan={8} className="px-4 py-2 font-bold text-amber-900 text-xs uppercase tracking-wider">
+                <td
+                  colSpan={CFO_ACCOUNT_COLUMNS.filter((c) => isCfoColumnVisible(c.field)).length}
+                  className="px-4 py-2 font-bold text-amber-900 text-xs uppercase tracking-wider"
+                >
                   Khối 2: Tài khoản Ủy quyền CEO — Bà Nguyễn Thị Lan Anh ({specialCashAccounts.length} tài khoản)
                 </td>
               </tr>
 
               {sortedSpecialCashAccounts.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-4 py-4 text-center text-slate-400 italic">
+                  <td
+                    colSpan={CFO_ACCOUNT_COLUMNS.filter((c) => isCfoColumnVisible(c.field)).length}
+                    className="px-4 py-4 text-center text-slate-400 italic"
+                  >
                     Chưa có tài khoản ủy quyền CEO.
                   </td>
                 </tr>
@@ -1432,69 +1641,101 @@ export const CFODashboardPage: React.FC = () => {
 
               {/* Dòng Tiểu tổng Khối 2 */}
               <tr className="bg-slate-100/90 font-bold text-slate-900 border-t border-slate-300">
-                <td className="px-4 py-2.5 text-slate-800">
-                  Tiểu tổng Khối 2 (TK Ủy quyền CEO)
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono">{formatMoney(specSub.open)}</td>
-                <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
-                  +{formatMoney(specSub.inflow)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-rose-600">
-                  -{formatMoney(specSub.outflow)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono text-amber-900">
-                  {formatMoney(specSub.close)}
-                </td>
-                <td
-                  className={`px-3 py-2.5 text-right font-mono ${
-                    specSub.net >= 0 ? 'text-emerald-700' : 'text-rose-600'
-                  }`}
-                >
-                  {formatSignedMoney(specSub.net)}
-                </td>
-                <td className="px-3 py-2.5 text-right font-mono">
-                  {specSub.share.toFixed(1)}%
-                </td>
-                <td className="px-4 py-2.5 text-right text-[11px] font-normal text-slate-500">
-                  {specSub.txCount} GD trong kỳ
-                </td>
+                {isCfoColumnVisible('account') && (
+                  <td className="px-4 py-2.5 text-slate-800">
+                    Tiểu tổng Khối 2 (TK Ủy quyền CEO)
+                  </td>
+                )}
+                {isCfoColumnVisible('opening_balance') && (
+                  <td className="px-3 py-2.5 text-right font-mono">{formatMoney(specSub.open)}</td>
+                )}
+                {isCfoColumnVisible('total_inflow') && (
+                  <td className="px-3 py-2.5 text-right font-mono text-emerald-700">
+                    +{formatMoney(specSub.inflow)}
+                  </td>
+                )}
+                {isCfoColumnVisible('total_outflow') && (
+                  <td className="px-3 py-2.5 text-right font-mono text-rose-600">
+                    -{formatMoney(specSub.outflow)}
+                  </td>
+                )}
+                {isCfoColumnVisible('closing_balance') && (
+                  <td className="px-3 py-2.5 text-right font-mono text-amber-900">
+                    {formatMoney(specSub.close)}
+                  </td>
+                )}
+                {isCfoColumnVisible('net_change') && (
+                  <td
+                    className={`px-3 py-2.5 text-right font-mono ${
+                      specSub.net >= 0 ? 'text-emerald-700' : 'text-rose-600'
+                    }`}
+                  >
+                    {formatSignedMoney(specSub.net)}
+                  </td>
+                )}
+                {isCfoColumnVisible('share_pct') && (
+                  <td className="px-3 py-2.5 text-right font-mono">
+                    {specSub.share.toFixed(1)}%
+                  </td>
+                )}
+                {isCfoColumnVisible('reconciliation_status') && (
+                  <td className="px-4 py-2.5 text-right text-[11px] font-normal text-slate-500">
+                    {specSub.txCount} GD trong kỳ
+                  </td>
+                )}
               </tr>
 
               {/* ================= DÒNG TỔNG CỘNG TỒN QUỸ HỢP NHẤT TOÀN HỆ THỐNG ================= */}
               <tr className="bg-slate-900 text-white font-bold text-xs">
-                <td className="px-4 py-4">
-                  <div>TỔNG CỘNG TỒN QUỸ HỢP NHẤT (KHỐI 1 + KHỐI 2)</div>
-                  <div className="text-[11px] font-normal text-slate-300 mt-0.5">
-                    {excludeInternal
-                      ? 'Cột Thu/Chi hợp nhất đã loại trừ giao dịch luân chuyển nội bộ'
-                      : 'Cột Thu/Chi hợp nhất đang cộng ngang toàn bộ phát sinh sổ sách'}
-                  </div>
-                </td>
-                <td className="px-3 py-4 text-right font-mono text-slate-200">
-                  {formatMoney(data?.opening_consolidated_liquidity)}
-                </td>
-                <td className="px-3 py-4 text-right font-mono text-emerald-400">
-                  +{formatMoney(data?.total_inflow_consolidated)}
-                </td>
-                <td className="px-3 py-4 text-right font-mono text-rose-400">
-                  -{formatMoney(data?.total_outflow_consolidated)}
-                </td>
-                <td className="px-3 py-4 text-right font-mono text-sm text-amber-300">
-                  {formatMoney(data?.total_consolidated_liquidity)}
-                </td>
-                <td
-                  className={`px-3 py-4 text-right font-mono ${
-                    Number(data?.net_change_consolidated || 0) >= 0
-                      ? 'text-emerald-400'
-                      : 'text-rose-400'
-                  }`}
-                >
-                  {formatSignedMoney(data?.net_change_consolidated)}
-                </td>
-                <td className="px-3 py-4 text-right font-mono text-slate-200">100.0%</td>
-                <td className="px-4 py-4 text-right text-[11px] font-normal text-emerald-300">
-                  ĐK + Thu - Chi = CK
-                </td>
+                {isCfoColumnVisible('account') && (
+                  <td className="px-4 py-4">
+                    <div>TỔNG CỘNG TỒN QUỸ HỢP NHẤT (KHỐI 1 + KHỐI 2)</div>
+                    <div className="text-[11px] font-normal text-slate-300 mt-0.5">
+                      {excludeInternal
+                        ? 'Cột Thu/Chi hợp nhất đã loại trừ giao dịch luân chuyển nội bộ'
+                        : 'Cột Thu/Chi hợp nhất đang cộng ngang toàn bộ phát sinh sổ sách'}
+                    </div>
+                  </td>
+                )}
+                {isCfoColumnVisible('opening_balance') && (
+                  <td className="px-3 py-4 text-right font-mono text-slate-200">
+                    {formatMoney(data?.opening_consolidated_liquidity)}
+                  </td>
+                )}
+                {isCfoColumnVisible('total_inflow') && (
+                  <td className="px-3 py-4 text-right font-mono text-emerald-400">
+                    +{formatMoney(data?.total_inflow_consolidated)}
+                  </td>
+                )}
+                {isCfoColumnVisible('total_outflow') && (
+                  <td className="px-3 py-4 text-right font-mono text-rose-400">
+                    -{formatMoney(data?.total_outflow_consolidated)}
+                  </td>
+                )}
+                {isCfoColumnVisible('closing_balance') && (
+                  <td className="px-3 py-4 text-right font-mono text-sm text-amber-300">
+                    {formatMoney(data?.total_consolidated_liquidity)}
+                  </td>
+                )}
+                {isCfoColumnVisible('net_change') && (
+                  <td
+                    className={`px-3 py-4 text-right font-mono ${
+                      Number(data?.net_change_consolidated || 0) >= 0
+                        ? 'text-emerald-400'
+                        : 'text-rose-400'
+                    }`}
+                  >
+                    {formatSignedMoney(data?.net_change_consolidated)}
+                  </td>
+                )}
+                {isCfoColumnVisible('share_pct') && (
+                  <td className="px-3 py-4 text-right font-mono text-slate-200">100.0%</td>
+                )}
+                {isCfoColumnVisible('reconciliation_status') && (
+                  <td className="px-4 py-4 text-right text-[11px] font-normal text-emerald-300">
+                    ĐK + Thu - Chi = CK
+                  </td>
+                )}
               </tr>
             </tbody>
           </table>

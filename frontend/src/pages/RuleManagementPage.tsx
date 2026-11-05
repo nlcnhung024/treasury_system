@@ -3,7 +3,18 @@ import { Plus, Play, CheckCircle2, Trash2, Edit2, Tag, Sliders } from 'lucide-re
 import api from '../services/api';
 import { ClassificationRule, Category } from '../types';
 import { SortableTh } from '../components/common/SortableTh';
-import { SortDirection, sortList } from '../utils/sort';
+import { TableGridToolbar } from '../components/common/TableGridToolbar';
+import { useTableGrid } from '../hooks/useTableGrid';
+import { ColumnConfig } from '../types/grid';
+
+const RULE_COLUMNS: ColumnConfig[] = [
+  { field: 'priority', label: 'Ưu tiên', type: 'number', align: 'center', defaultWidth: 90 },
+  { field: 'rule_name', label: 'Tên Quy Tắc', type: 'text', defaultWidth: 180 },
+  { field: 'category_name', label: 'Danh Mục Đích', type: 'text', defaultWidth: 160 },
+  { field: 'keyword_patterns', label: 'Từ Khóa Nhận Diện', type: 'text', defaultWidth: 200 },
+  { field: 'conditions', label: 'Điều kiện NH / TK / Số tiền', type: 'text', defaultWidth: 220 },
+  { field: 'flow_type', label: 'Luồng', type: 'text', align: 'center', defaultWidth: 100 },
+];
 
 export const RuleManagementPage: React.FC = () => {
   const [rules, setRules] = useState<ClassificationRule[]>([]);
@@ -11,25 +22,36 @@ export const RuleManagementPage: React.FC = () => {
   const [reapplyMsg, setReapplyMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
 
-  // Sorting State
-  const [sortField, setSortField] = useState<string>('priority');
-  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
-
-  const handleSort = (field: string) => {
-    if (sortField === field) {
-      setSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortField(field);
-      setSortDirection('asc');
-    }
-  };
+  // Table Grid Capabilities (Sort, Filter, Visibility, Resizing)
+  const {
+    sortField,
+    sortDirection,
+    handleSort,
+    filters,
+    setFilter,
+    clearAllFilters,
+    activeFilterCount,
+    visibleColumns,
+    toggleColumn,
+    showAllColumns,
+    resetColumns,
+    isColumnVisible,
+    columnWidths,
+    handleResize,
+    filterAndSort,
+  } = useTableGrid<ClassificationRule>({
+    tableId: 'rules_management_table',
+    columns: RULE_COLUMNS,
+    defaultSortField: 'priority',
+    defaultSortDirection: 'asc',
+  });
 
   const sortedRules = useMemo(() => {
-    return sortList(rules, sortField, sortDirection, {
+    return filterAndSort(rules, {
       conditions: (r) => `${r.target_bank_code || ''} ${r.target_account_number || ''} ${r.min_amount || ''}`,
       flow_type: (r) => r.applies_to_flow || '',
     });
-  }, [rules, sortField, sortDirection]);
+  }, [rules, filterAndSort]);
 
   // State quản lý Form Danh mục (Categories)
   const [editingCatId, setEditingCatId] = useState<number | null>(null);
@@ -543,64 +565,163 @@ export const RuleManagementPage: React.FC = () => {
         </form>
 
         {/* Bảng Danh sách Quy tắc */}
+        <TableGridToolbar
+          columns={RULE_COLUMNS}
+          visibleColumns={visibleColumns}
+          onToggleColumn={toggleColumn}
+          onShowAllColumns={showAllColumns}
+          onResetColumns={resetColumns}
+          filteredCount={sortedRules.length}
+          totalCount={rules.length}
+          activeFilterCount={activeFilterCount}
+          onClearAllFilters={clearAllFilters}
+        />
+
         <div className="overflow-x-auto border border-slate-200 rounded-lg">
           <table className="w-full text-left text-xs text-slate-600">
             <thead className="bg-slate-50 uppercase font-semibold text-slate-700 border-b border-slate-200">
               <tr>
-                <SortableTh field="priority" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Ưu tiên
-                </SortableTh>
-                <SortableTh field="rule_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Tên Quy Tắc
-                </SortableTh>
-                <SortableTh field="category_name" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Danh Mục Đích
-                </SortableTh>
-                <SortableTh field="keyword_patterns" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Từ Khóa Nhận Diện
-                </SortableTh>
-                <SortableTh field="conditions" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort}>
-                  Điều kiện NH / TK / Số tiền
-                </SortableTh>
-                <SortableTh field="flow_type" currentSortField={sortField} currentSortDirection={sortDirection} onSort={handleSort} align="center">
-                  Luồng
-                </SortableTh>
+                {isColumnVisible('priority') && (
+                  <SortableTh
+                    field="priority"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="number"
+                    filterValue={filters['priority']}
+                    onFilterChange={(v) => setFilter('priority', v)}
+                    width={columnWidths['priority']}
+                    onResize={(w) => handleResize('priority', w)}
+                  >
+                    Ưu tiên
+                  </SortableTh>
+                )}
+                {isColumnVisible('rule_name') && (
+                  <SortableTh
+                    field="rule_name"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['rule_name']}
+                    onFilterChange={(v) => setFilter('rule_name', v)}
+                    width={columnWidths['rule_name']}
+                    onResize={(w) => handleResize('rule_name', w)}
+                  >
+                    Tên Quy Tắc
+                  </SortableTh>
+                )}
+                {isColumnVisible('category_name') && (
+                  <SortableTh
+                    field="category_name"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['category_name']}
+                    onFilterChange={(v) => setFilter('category_name', v)}
+                    width={columnWidths['category_name']}
+                    onResize={(w) => handleResize('category_name', w)}
+                  >
+                    Danh Mục Đích
+                  </SortableTh>
+                )}
+                {isColumnVisible('keyword_patterns') && (
+                  <SortableTh
+                    field="keyword_patterns"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['keyword_patterns']}
+                    onFilterChange={(v) => setFilter('keyword_patterns', v)}
+                    width={columnWidths['keyword_patterns']}
+                    onResize={(w) => handleResize('keyword_patterns', w)}
+                  >
+                    Từ Khóa Nhận Diện
+                  </SortableTh>
+                )}
+                {isColumnVisible('conditions') && (
+                  <SortableTh
+                    field="conditions"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    filterType="text"
+                    filterValue={filters['conditions']}
+                    onFilterChange={(v) => setFilter('conditions', v)}
+                    width={columnWidths['conditions']}
+                    onResize={(w) => handleResize('conditions', w)}
+                  >
+                    Điều kiện NH / TK / Số tiền
+                  </SortableTh>
+                )}
+                {isColumnVisible('flow_type') && (
+                  <SortableTh
+                    field="flow_type"
+                    currentSortField={sortField}
+                    currentSortDirection={sortDirection}
+                    onSort={handleSort}
+                    align="center"
+                    filterType="text"
+                    filterValue={filters['flow_type']}
+                    onFilterChange={(v) => setFilter('flow_type', v)}
+                    width={columnWidths['flow_type']}
+                    onResize={(w) => handleResize('flow_type', w)}
+                  >
+                    Luồng
+                  </SortableTh>
+                )}
                 <th className="px-3 py-3 text-center">Thao tác</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {sortedRules.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-6 text-center text-slate-400">
-                    Chưa có quy tắc phân loại nào. Hãy tạo Danh mục ở Bước 1, sau đó thêm Quy tắc tại Bước 2.
+                  <td colSpan={RULE_COLUMNS.filter((c) => isColumnVisible(c.field)).length + 1} className="px-4 py-6 text-center text-slate-400">
+                    {rules.length === 0
+                      ? 'Chưa có quy tắc phân loại nào. Hãy tạo Danh mục ở Bước 1, sau đó thêm Quy tắc tại Bước 2.'
+                      : 'Không có quy tắc nào khớp với điều kiện lọc trên bảng.'}
                   </td>
                 </tr>
               ) : (
                 sortedRules.map((r) => (
                   <tr key={r.rule_id} className="hover:bg-slate-50">
-                    <td className="px-3 py-3 font-mono font-bold text-blue-600">#{r.priority}</td>
-                    <td className="px-3 py-3 font-semibold text-slate-900">{r.rule_name}</td>
-                    <td className="px-3 py-3">
-                      <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-semibold">
-                        {r.category_name || `ID #${r.category_id}`}
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      <code className="px-2 py-0.5 bg-slate-100 rounded text-slate-800 font-mono">
-                        {r.keyword_patterns}
-                      </code>
-                      <span className="ml-1.5 text-[10px] text-slate-400">({r.match_type})</span>
-                    </td>
-                    <td className="px-3 py-3 text-[11px] text-slate-500">
-                      <div>NH: {r.target_bank_code || 'Tất cả'} • TK: {r.target_account_number || 'Tất cả'}</div>
-                      {(r.min_amount || r.max_amount) && (
-                        <div className="font-mono">
-                          Số tiền: {r.min_amount ? `≥ ${Number(r.min_amount).toLocaleString('vi-VN')}` : ''}{' '}
-                          {r.max_amount ? `≤ ${Number(r.max_amount).toLocaleString('vi-VN')}` : ''}
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-center">
+                    {isColumnVisible('priority') && (
+                      <td className="px-3 py-3 font-mono font-bold text-blue-600">#{r.priority}</td>
+                    )}
+                    {isColumnVisible('rule_name') && (
+                      <td className="px-3 py-3 font-semibold text-slate-900">{r.rule_name}</td>
+                    )}
+                    {isColumnVisible('category_name') && (
+                      <td className="px-3 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded bg-blue-50 text-blue-800 font-semibold">
+                          {r.category_name || `ID #${r.category_id}`}
+                        </span>
+                      </td>
+                    )}
+                    {isColumnVisible('keyword_patterns') && (
+                      <td className="px-3 py-3">
+                        <code className="px-2 py-0.5 bg-slate-100 rounded text-slate-800 font-mono">
+                          {r.keyword_patterns}
+                        </code>
+                        <span className="ml-1.5 text-[10px] text-slate-400">({r.match_type})</span>
+                      </td>
+                    )}
+                    {isColumnVisible('conditions') && (
+                      <td className="px-3 py-3 text-[11px] text-slate-500">
+                        <div>NH: {r.target_bank_code || 'Tất cả'} • TK: {r.target_account_number || 'Tất cả'}</div>
+                        {(r.min_amount || r.max_amount) && (
+                          <div className="font-mono">
+                            Số tiền: {r.min_amount ? `≥ ${Number(r.min_amount).toLocaleString('vi-VN')}` : ''}{' '}
+                            {r.max_amount ? `≤ ${Number(r.max_amount).toLocaleString('vi-VN')}` : ''}
+                          </div>
+                        )}
+                      </td>
+                    )}
+                    {isColumnVisible('flow_type') && (
+                      <td className="px-3 py-3 text-center">
                       <span
                         className={`px-2 py-0.5 rounded text-[11px] font-semibold ${
                           r.applies_to_flow === 'DEBIT'
@@ -612,7 +733,8 @@ export const RuleManagementPage: React.FC = () => {
                       >
                         {r.applies_to_flow}
                       </span>
-                    </td>
+                      </td>
+                    )}
                     <td className="px-3 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <button

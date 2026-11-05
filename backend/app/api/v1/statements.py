@@ -73,6 +73,7 @@ async def upload_statement(
     file: UploadFile = File(...),
     bank_code: Optional[str] = Form(None),
     template_code: Optional[str] = Form(None),
+    account_holder: Optional[str] = Form(None),
     async_mode: bool = Query(False, description="Đẩy sang hàng đợi ngầm nếu bật"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -172,7 +173,7 @@ async def upload_statement(
             "message": "File đã được tiếp nhận và đưa vào hàng đợi bóc tách ngầm.",
         }
     else:
-        result = await process_statement_file(new_file.file_id, db)
+        result = await process_statement_file(new_file.file_id, db, account_holder=account_holder)
         msg = (
             f"Đã bóc tách thành công {result['processed_rows']} dòng giao dịch "
             f"(Mẫu {detected_template_code} • Đối soát: {result['reconciliation_status']})."

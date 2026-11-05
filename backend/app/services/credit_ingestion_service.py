@@ -8,6 +8,7 @@ from sqlalchemy import select, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, LoanRepaymentHistory
+from app.models.bank import Bank
 from app.models.audit_log import AuditLog
 from app.services.storage_service import save_statement_bytes
 from app.services.parser.credit_stream_parser import parse_credit_statement_file, ParsedCreditPackage
@@ -20,6 +21,7 @@ async def ingest_credit_statement(
     file_bytes: bytes,
     filename: str,
     uploaded_by: str = "SYSTEM",
+    borrower_name: Optional[str] = None,
     db: Optional[AsyncSession] = None,
 ) -> Dict[str, Any]:
     if db is None:
@@ -37,6 +39,16 @@ async def ingest_credit_statement(
     # 2. Bóc tách dữ liệu
     pkg: ParsedCreditPackage = parse_credit_statement_file(file_bytes, filename=filename)
 
+    # Nếu người dùng đã chọn thực thể doanh nghiệp trên thanh Header, ưu tiên dùng tên doanh nghiệp đó
+    if borrower_name and borrower_name.strip():
+        pkg.borrower_name = borrower_name.strip()
+
+    # Tra cứu thông tin ngân hàng chuẩn từ bảng banks
+    bank_stmt = select(Bank).where(Bank.bank_code == pkg.bank_code)
+    bank_record = (await db.execute(bank_stmt)).scalar_one_or_none()
+    bank_id = bank_record.bank_id if bank_record else None
+    bank_display_name = bank_record.short_name if bank_record else pkg.bank_name
+
     # 3. Lưu file vào Object Storage
     file_uuid = uuid.uuid4()
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "xlsx"
@@ -48,6 +60,7 @@ async def ingest_credit_statement(
     # 4. Ghi nhận `CreditStatementFile`
     file_record = CreditStatementFile(
         file_uuid=file_uuid,
+        bank_id=bank_id,
         bank_code=pkg.bank_code,
         template_code=pkg.template_code,
         original_filename=filename,
@@ -91,6 +104,10 @@ async def ingest_credit_statement(
         rate = item.get("interest_rate", Decimal("0.0000"))
 
         if facility:
+            if bank_id and not facility.bank_id:
+                facility.bank_id = bank_id
+            if bank_display_name:
+                facility.bank_name = bank_display_name
             # Truy vấn các lần trả nợ đã đối soát trước đó của khế ước này (nếu có)
             stmt_repay = select(LoanRepaymentHistory).where(LoanRepaymentHistory.loan_id == facility.loan_id)
             past_repays = (await db.execute(stmt_repay)).scalars().all()
@@ -169,8 +186,9 @@ async def ingest_credit_statement(
                 maturity_date=mat_date,
             )
             facility = CreditFacility(
+                bank_id=bank_id,
                 bank_code=pkg.bank_code,
-                bank_name=pkg.bank_name,
+                bank_name=bank_display_name,
                 contract_number=contract_number,
                 borrower_name=pkg.borrower_name,
                 cif_number=pkg.cif_number,

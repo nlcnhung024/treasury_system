@@ -64,3 +64,12 @@
   - Phải phân tách rõ 2 tầng dữ liệu:
     1. **Tầng Cấu hình Mẫu (Global Shared Layer):** Dùng chung một mẫu bóc tách cho $N$ doanh nghiệp khác nhau.
     2. **Tầng Định danh & Cô lập Pháp nhân (Entity Resolution & Scoped Data Layer):** Trích xuất động `(account_number, account_holder, tax_code)` từ Header tài liệu để định tuyến và cô lập dữ liệu giao dịch, quy tắc phân loại và báo cáo theo từng doanh nghiệp (`company_id` / `entity_code`).
+
+## 9. Tiêu chuẩn Đặc tả Bảng Dữ liệu & Lưới Tương tác (Interactive Data Grid Specification Standard)
+Khi BA lập tài liệu đặc tả (BRD, SRS, Use Case) cho bất kỳ phân hệ nào có giao diện dạng bảng dữ liệu hoặc lưới danh sách (Data Grid / Table):
+- **Bắt buộc đặc tả Sắp xếp (Sort) 2 chiều trên Header:** Mọi cột nghiệp vụ phải được quy định rõ thuộc tính sắp xếp tăng/giảm và cơ chế sắp xếp tiếng Việt/số học/thời gian.
+- **Bắt buộc phân loại kiểu dữ liệu để đặc tả Bộ lọc (Header Filter):**
+  - Cột dữ liệu dạng Chữ (Text, Code, Trạng thái): Đặc tả bộ lọc bằng điều kiện (chứa, bằng chính xác, bắt đầu bằng, không chứa, rỗng/không rỗng).
+  - Cột dữ liệu dạng Số hoặc Ngày (Tiền tệ, Dư nợ, Lãi suất, Ngày giải ngân, Đáo hạn...): Bắt buộc đặc tả bộ lọc theo điều kiện khoảng (Khoảng giá trị Từ - Đến / Min - Max, Từ ngày - Đến ngày).
+- **Bắt buộc đặc tả Tính năng Ẩn / Hiện Cột (Column Visibility):** Cung cấp công cụ chọn cột hiển thị trên thanh công cụ, cho phép người dùng tùy chọn ẩn/hiện các cột theo nhu cầu quan sát và lưu nhớ cấu hình.
+- **Bắt buộc đặc tả Khả năng Thay đổi Độ rộng Cột (Column Resizing):** Cho phép kéo dãn độ rộng từng cột trực tiếp trên header với độ rộng tối thiểu an toàn (`minWidth`) chống vỡ layout.

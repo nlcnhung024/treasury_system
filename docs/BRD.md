@@ -31,6 +31,9 @@
 | **1.14.0** | 2026-11-04 | `@BusinessAnalyst` | Bãi bỏ và xóa bỏ hoàn toàn `US-07.8` (Phân Hệ Kế Hoạch Trả Nợ & Điều Phối Thanh Khoản Tín Dụng Tuần Hoàn) theo yêu cầu tái cơ cấu phân hệ tín dụng; chỉ giữ nguyên Sao Kê Tín Dụng, Đối Soát Trả Nợ (US-07.9) và Chi Tiết Khế Ước (US-07.12). |
 | **1.15.0** | 2026-11-04 | `@BusinessAnalyst` | Tái cấu trúc phân hệ Hóa đơn & Hồ sơ giải ngân (US-07.10): Tách biệt CSDL Hóa đơn thành Kho chứng từ độc lập của doanh nghiệp (`invoices`, `invoice_items`), Bảng thống kê hóa đơn tiếp nhận thông tin từ XML tự động ghép cặp file PDF tương ứng (`Sample_hoa_don`), thiết lập quy tắc bảo đảm khoản vay bằng hóa đơn: Một khoản vay bảo đảm bởi một hoặc nhiều hóa đơn, tổng số tiền nhận nợ trên các hóa đơn phải BẰNG CHÍNH XÁC giá trị gốc vay ban đầu, phần còn lại của hóa đơn chỉ được phép bảo đảm cho khoản vay sau nếu CÙNG DÙNG CHUNG CHO MỘT TỔ CHỨC TÍN DỤNG. |
 | **1.16.0** | 2026-11-04 | `@BusinessAnalyst` | Nâng cấp `US-07.10`: Bổ sung cơ chế Tự động đồng bộ hóa đơn từ hồ sơ giải ngân khoản vay (`disbursement_documents`) vào Kho Hóa Đơn độc lập. Khi các khoản vay đã có file hóa đơn (XML/PDF) mà kho hóa đơn chưa có, hệ thống tự động bóc tách và nạp bổ sung vào kho, đồng thời tự động ghép cặp file XML & PDF và duy trì liên kết 2 chiều qua `disbursement_documents.invoice_id`. |
+| **1.17.0** | 2026-11-04 | `@BusinessAnalyst` | Phân tách màn hình Sao Kê Tín Dụng (`/credit-statements` - tinh gọn tối giản chỉ gồm vùng nạp file & bảng lịch sử file đã nạp) và bổ sung Trung tâm Thống Kê Dư Nợ Tín Dụng (`/loan-reports` - gồm 2 Tab: Báo cáo Insight & Dòng tiền đáo hạn theo chủ thể vay và TCTD, Danh mục khế ước read-only không sửa trực tiếp & Bàn làm việc Pivot Grid hỗ trợ lưu mẫu tùy chỉnh vào localStorage và tự động lưu trạng thái khi reload). |
+| **1.18.0** | 2026-11-04 | `@BusinessAnalyst` | Nâng cấp toàn diện Màn hình Chi tiết Khế ước (`/contract-details`): Bổ sung tính năng Chỉnh sửa Trực tiếp Thông tin Khế ước (In-place Contract Edit Modal) và Không gian Đối soát Số tiền Nhận nợ với Hóa đơn Tương ứng (Invoice Reconciliation Workspace & Allocation Engine) với 2 Sub-tabs: Dòng tiền trả nợ đã đối soát & Bảng so khớp gốc nhận nợ vs hóa đơn bảo đảm, gán thêm hóa đơn cùng TCTD, hủy gán giải phóng hạn mức và hiển thị trực quan badge trạng thái bảo đảm. |
+| **1.19.0** | 2026-11-04 | `@BusinessAnalyst` | Chuẩn hóa Nguyên tắc Thiết kế Bảng Dữ liệu Đa năng (Universal Interactive Data Grid Standard - US-06.5 & NFR-06): Bắt buộc toàn bộ các bảng trên hệ thống trang bị Header luôn có Sort & Filter theo kiểu dữ liệu (Text: lọc điều kiện chuỗi; Số/Ngày: lọc khoảng Min-Max/Từ-Đến), tính năng Ẩn/Hiện cột (Column Visibility Picker) và Thay đổi độ rộng cột (Column Resizing) có min-width chống vỡ giao diện. |
 
 ---
 
@@ -428,6 +431,29 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
   - **Cột Ghi chú Nội bộ:** Đính kèm đầy đủ nội dung cột Ghi chú (`internal_note`) và Danh mục phân loại đã gán.
   - **An toàn Bảo mật:** Sanitize và escape ký tự mở đầu (`=`, `+`, `-`, `@`) đối với dữ liệu văn bản để triệt tiêu lỗ hổng Formula/CSV Injection.
 
+#### US-06.5: Bảng Dữ Liệu Tương Tác Đa Năng Toàn Hệ Thống (Universal Interactive Data Grid)
+* **User Story:** Là một *Người dùng hệ thống (Kế toán viên, CFO, Quản trị viên)*, tôi muốn *mọi bảng dữ liệu trên toàn bộ giao diện đều hỗ trợ sắp xếp và lọc trực tiếp trên Header, lọc theo điều kiện cho dạng chữ, lọc theo khoảng cho dạng số và ngày, đồng thời có thể ẩn/hiện cột và kéo thay đổi độ rộng cột*, để *tôi có thể tùy biến không gian hiển thị, tra cứu dữ liệu kế toán - tài chính nhanh chóng và tiện lợi nhất*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Tiêu chí chấp nhận (AC - Gherkin):**
+  ```gherkin
+  Scenario: [REQ-GRID-001] Sắp xếp và Lọc trực tiếp trên Header bảng dữ liệu
+    Given Người dùng truy cập bất kỳ màn hình danh sách dữ liệu nào (Giao dịch, Khoản vay, Hóa đơn, Đối soát)
+    When Người dùng click vào tiêu đề cột
+    Then Hệ thống thực hiện sắp xếp 2 chiều (Tăng dần / Giảm dần) với icon trực quan và hỗ trợ tiếng Việt chuẩn
+    When Người dùng mở bộ lọc trên Header
+    Then Nếu cột là dạng chữ (Text/String), hệ thống cung cấp bộ lọc theo điều kiện (Chứa, Bằng, Bắt đầu bằng, Kết thúc bằng, Không chứa, Rỗng, Không rỗng)
+    And Nếu cột là dạng số hoặc ngày (Number/Currency/Date), hệ thống cung cấp bộ lọc theo điều kiện khoảng (Từ - Đến / Min - Max)
+
+  Scenario: [REQ-GRID-002] Tùy chỉnh Ẩn/Hiện cột và Kéo dãn độ rộng cột
+    Given Người dùng đang xem bảng dữ liệu trên giao diện Web
+    When Người dùng bấm vào nút "Tùy chỉnh cột" trên thanh công cụ
+    Then Hệ thống hiển thị danh sách tất cả các cột kèm checkbox bật/tắt để ẩn hoặc hiện từng cột
+    And Tự động lưu nhớ trạng thái ẩn/hiện cột vào localStorage theo từng màn hình
+    When Người dùng bấm giữ và kéo mép phân tách giữa hai cột trên Header
+    Then Độ rộng của cột thay đổi linh hoạt theo thao tác kéo thả chuột
+    And Đảm bảo độ rộng cột không co nhỏ hơn giới hạn tối thiểu (min-width >= 80px) để không làm vỡ giao diện
+  ```
+
 ---
 
 ## 7. Yêu cầu Phi Chức năng (Non-Functional Requirements - NFRs)
@@ -439,6 +465,7 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
 | **NFR-03** | **Security (Bảo mật)** | Chống SQL Injection, XSS và Formula Injection khi xuất Excel | $100\%$ Parameterized Query, Escape ký tự nhạy cảm |
 | **NFR-04** | **Availability (Độ sẵn sàng)** | Xử lý file qua Background Worker; người dùng không bị treo trình duyệt khi file nặng | Thời gian phản hồi API Upload $\le 2$ giây |
 | **NFR-05** | **Integrity (Toàn vẹn)** | Tính nguyên tử (ACID Transaction): nếu lỗi giữa chừng, tự động rollback toàn bộ dữ liệu của file đó | Không để sót bản ghi mồ côi (Zero Orphan Records) |
+| **NFR-06** | **Usability (Tương tác Bảng Dữ liệu Đa năng)** | Bắt buộc 100% các bảng dữ liệu có Header tích hợp Sort & Filter (Text: lọc điều kiện; Số/Ngày: lọc khoảng Min-Max/Từ-Đến), tính năng Ẩn/Hiện cột và Thay đổi độ rộng cột | 100% Data Tables tuân thủ chuẩn tương tác 4 thành phần |
 
 ---
 
@@ -613,6 +640,16 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
      - Hỗ trợ tìm kiếm theo số khế ước, diễn giải sao kê ngân hàng, mã ngân hàng, số tham chiếu giao dịch và ghi chú đối soát.
   8. **Bộ lọc Ngân hàng Tự động Toàn diện (Dynamic Bank Filter):**
      - Dropdown lọc ngân hàng được tổng hợp động từ tất cả tài khoản ngân hàng thực tế, khế ước khoản vay và các giao dịch phát sinh (VietinBank CTG, MBBank MBB, TPBank TPB, VPBank VPB, MBV, SHB, BIDV, EVF, VCB,...), đảm bảo không bao giờ bị thiếu lựa chọn ngân hàng có dữ liệu trong hệ thống.
+   7. **Thuật toán Tự Động Đồng Bộ Cuốn Chiếu Hóa Đơn từ Hồ Sơ Giải Ngân (Rolling Waterfall Debt Acknowledgment Algorithm):**
+      - Khi trong bộ hồ sơ khế ước (`disbursement_documents`) đã có chứng từ hóa đơn (XML/PDF), hệ thống tự động đồng bộ sang tab "Hóa đơn nhận nợ".
+      - Thuật toán cuốn chiếu thực hiện:
+        + **Bước 1:** Quét và đối chiếu toàn bộ hóa đơn thuộc bộ hồ sơ giải ngân của khoản vay.
+        + **Bước 2:** Với mỗi hóa đơn, lấy giá trị còn được giải ngân của hóa đơn ấy trong bảng hóa đơn tổng (`invoices.remaining_amount`).
+        + **Bước 3:** Sắp xếp danh sách hóa đơn theo trình tự thời gian phát hành (`invoice_date ASC, invoice_id ASC`).
+        + **Bước 4:** Cuốn chiếu điền số tiền nhận nợ: $\text{allocated\_amount} = \min(\text{invoice.remaining\_amount}, \text{remaining\_principal\_needed})$ cho từng hóa đơn đến khi lũy kế số tiền nhận nợ đạt đủ 100% số lượng dư nợ gốc của khoản vay (`original_principal_balance`).
+        + **Bước 5:** Hóa đơn cuối cùng chạm mốc chỉ trích đúng phần còn thiếu để đạt chính xác 100% dư nợ gốc, phần dư còn lại của hóa đơn tiếp tục ở trạng thái khả dụng cho các khoản vay khác cùng TCTD.
+        + **Bước 6 (Chỉnh sửa thủ công & Lưu thay đổi):** Cho phép kế toán tùy biến chỉnh sửa trực tiếp số tiền nhận nợ trên từng dòng hóa đơn ngay trong bảng (bỏ cột ngày gán để tối ưu không gian hiển thị). Hệ thống cung cấp nút **Lưu** để cập nhật đồng loạt các số tiền nhận nợ đã sửa và tính toán lại chênh lệch bảo đảm.
+
 * **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
   ```gherkin
   Scenario: Đối soát giao dịch chi trả nợ và giảm trừ nợ gốc thành công với nút 100% Gốc
@@ -770,27 +807,94 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
 
 ---
 
-### US-07.12: Chi Tiết Khế Ước & Bộ Lọc Đa Chiều Từng Cột (Contract Details & Column Filtering)
-* **Mô tả:** Là Kế toán theo dõi vay & CFO, tôi muốn có màn hình tra cứu danh mục toàn bộ khế ước tín dụng với bộ lọc riêng biệt cho từng cột và bảng dòng tiền đối soát chi tiết, để tôi có thể nhanh chóng tra cứu, đối chiếu dư nợ, sao chép số khế ước và nắm rõ lịch sử trả nợ của từng khoản vay.
+### US-07.12: Chi Tiết Khế Ước, Chỉnh Sửa Trực Tiếp & Đối Soát Nhận Nợ Với Hóa Đơn (Contract Details, In-Place Editing & Invoice Reconciliation)
+* **Mô tả:** Là Kế toán theo dõi vay & CFO, tôi muốn có màn hình tra cứu danh mục toàn bộ khế ước tín dụng với bộ lọc riêng biệt cho từng cột, chức năng chỉnh sửa trực tiếp thông tin khế ước, cùng không gian phân tích 2 chiều: bảng dòng tiền trả nợ đã đối soát và phân hệ đối soát số tiền nhận nợ với hóa đơn tương ứng, để tôi có thể chủ động kiểm soát tính đầy đủ của hồ sơ chứng từ bảo đảm nhận nợ và cập nhật kịp thời dữ liệu khoản vay.
 * **Quy tắc Nghiệp vụ (Business Rules):**
-  1. **Bảng tổng hợp khế ước 10 cột dữ liệu:** Ngân hàng, Số khế ước, Dư nợ gốc ban đầu, Tổng nợ gốc đã trả, Dư nợ gốc hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn.
-  2. **1-chạm sao chép nhanh số khế ước:** Mỗi hàng có nút sao chép (kèm thông báo "Đã sao chép!"), tiện lợi cho việc tra cứu chéo trên các hệ thống core ngân hàng.
-  3. **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hàng lọc chuyên dụng nằm ngay dưới header, cho phép kết hợp đồng thời:
-     - *Ngân hàng:* Dropdown các ngân hàng phát sinh thực tế.
-     - *Số khế ước:* Lọc theo chuỗi ký tự khế ước.
-     - *Dư nợ gốc / Đã trả gốc / Lãi ước tính / Tổng lãi đã trả:* Lọc theo số tiền (hỗ trợ nhập có hoặc không dấu chấm).
-     - *Dư nợ gốc hiện tại:* Dropdown lọc nhanh theo trạng thái (`Tất cả nợ`, `Còn nợ (> 0)`, `Tất toán (= 0)`).
-     - *Lãi suất:* Lọc theo tỷ lệ phần trăm (vd: 8.5).
-     - *Ngày giải ngân / Ngày đáo hạn:* Lọc linh hoạt theo ngày/tháng/năm (vd: 10/3, 2026).
-  4. **Điều khiển bộ lọc:** Nút bật/tắt hiển thị dòng lọc, huy hiệu đếm số lượng bộ lọc đang áp dụng và nút "Xóa lọc" 1-chạm để đặt lại tất cả.
+  1. **Bảng tổng hợp khế ước đa thông tin:** Ngân hàng, Số khế ước, Chủ thể vay (bên đứng tên), Dư nợ gốc ban đầu, Tổng nợ gốc đã trả, Dư nợ gốc hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn, Huy hiệu Bảo đảm HĐ và Cột Thao tác.
+  2. **Chức năng Chỉnh sửa Trực tiếp Thông tin Khế ước (In-place Contract Edit Modal):**
+     - Nút "Sửa" (`Edit2`) trên mỗi dòng cho phép mở modal cập nhật trực tiếp: Số khế ước, TCTD/Ngân hàng (`bank_name`, `bank_code`), Chủ thể vay (`borrower_name`), Dư nợ gốc ban đầu, Dư nợ gốc hiện tại, Lãi suất (%/năm), Ngày giải ngân, Ngày đáo hạn, Kỳ hạn, Mục đích vay, Nhóm nợ CIC (Nhóm 1 đến 5), Trạng thái (ACTIVE, SETTLED, OVERDUE) và Ghi chú nội bộ.
+     - Dữ liệu được lưu thông qua API `PUT /loans/{loan_id}`, tự động tính toán lại lãi dự trả và cập nhật tức thời trên bảng.
+  3. **Không gian Đối soát Số tiền Nhận nợ với Hóa đơn Tương ứng (Invoice Reconciliation Workspace & Allocation Engine):**
+     - Vùng mở rộng khế ước phân chia thành 3 Sub-tabs chuyên biệt:
+       - *Tab 1: Dòng tiền trả nợ đã đối soát:* Bảng hoàn nguyên nợ gốc/lãi theo thời gian giao dịch thực tế, phân định trả nợ quá hạn (tô nền hồng) và hoàn lãi tất toán, tích hợp dòng tổng cộng cuối bảng (tổng số giao dịch, tổng giá trị thanh toán, tổng gốc đã trả, tổng lãi đã trả, dư nợ gốc còn lại cuối kỳ).
+       - *Tab 2: Đối soát hóa đơn & nhận nợ:* Thẻ KPI so khớp gốc nhận nợ vs tổng tiền HĐ đã gán, tỷ lệ & chênh lệch bảo đảm (Khớp 100%, Chưa đủ HĐ, Vượt mức), bảng hóa đơn đã gán kèm tính năng gán mới và hủy gán giải phóng hạn mức.
+       - *Tab 3: Bộ hồ sơ giải ngân:* Quản lý toàn diện chứng từ lưu trữ trên Object Storage. Mặc định phân loại hiển thị 2 loại chính: Khế ước nhận nợ và Hóa đơn, kèm nút dấu "+" để người nhập mở rộng thêm các loại chứng từ khác khi phát sinh nhu cầu. Tích hợp khu vực kéo thả tệp tin trực tiếp (inline drag-and-drop zone) hỗ trợ nhiều file đồng thời, không cần nút hay cửa sổ phụ modal.
+         - Thẻ KPI tóm tắt so khớp: Gốc nhận nợ khế ước vs Tổng giá trị hóa đơn đã gán vs Chênh lệch bảo đảm (Khớp 100%, Chưa đủ hóa đơn, Vượt mức nhận nợ, Chưa có HĐ).
+         - Bảng danh sách hóa đơn đã gán: Số HĐ, Ký hiệu, Đơn vị bán (NCC), Tổng tiền HĐ, Số tiền bảo đảm nhận nợ đã gán, Ngày gán, Ghi chú và Nút "Hủy gán" giải phóng hạn mức (`DELETE /loans/{loan_id}/allocated-invoices/{allocation_id}`).
+         - Modal Gán Hóa Đơn Mới: Lọc danh sách hóa đơn khả dụng cùng ngân hàng/TCTD, cho phép tìm kiếm theo số HĐ/NCC/MST, tự động gợi ý số tiền phân bổ theo số thiếu hoặc hạn mức còn lại của HĐ, gọi `POST /loans/{loan_id}/allocate-invoices`.
+  4. **1-chạm sao chép nhanh số khế ước:** Mỗi hàng có nút sao chép (kèm thông báo "Đã sao chép!"), tiện lợi cho việc tra cứu chéo trên các hệ thống core ngân hàng.
+  5. **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hàng lọc chuyên dụng nằm ngay dưới header, cho phép kết hợp đồng thời: Ngân hàng, Số khế ước, Chủ thể vay, Dư nợ gốc, Đã trả gốc, Dư nợ hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn và Trạng thái bảo đảm HĐ (`FULLY_SECURED`, `UNDER_SECURED`, `NO_INVOICE`).
 * **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
   ```gherkin
-  Scenario: Lọc danh sách khế ước theo trạng thái nợ và ngân hàng
-    Given Danh mục có 81 khế ước từ 6 ngân hàng khác nhau
-    When Kế toán chọn Ngân hàng là "Ngân hàng TMCP Quân Đội (MB)"
-    And Chọn Dư nợ gốc hiện tại là "Còn nợ (> 0)"
-    Then Hệ thống hiển thị đúng các khế ước thỏa mãn cả hai điều kiện
-    And Thanh công cụ hiển thị "Hiển thị X / 81 khế ước" kèm huy hiệu "2" bộ lọc đang bật
+  Scenario: Chỉnh sửa thông tin khế ước và đối soát số tiền nhận nợ với hóa đơn
+    Given Kế toán đang ở màn hình Chi tiết khế ước (`/contract-details`)
+    When Kế toán nhấn nút "Sửa" tại khế ước "801007561976"
+    And Điều chỉnh chủ thể vay thành "Công ty Cổ phần Tập đoàn Sơn Hà" và lưu thay đổi
+    Then Hệ thống gọi PUT /loans/{loan_id} thành công và hiển thị chủ thể vay mới trên bảng
+    When Kế toán nhấn nút "Đối soát HĐ" hoặc mở vùng chi tiết Tab "Đối soát hóa đơn & nhận nợ"
+    And Nhấn "Gán Hóa Đơn Mới", chọn hóa đơn XML số 0001234 với số tiền 1,020,027,397 VND
+    Then Hệ thống ghi nhận liên kết phân bổ bảo đảm nhận nợ
+    And Badge trạng thái chuyển thành "Khớp 100% Bảo Đảm" màu xanh lá
+  ```
+
+---
+
+
+### US-07.13: Bộ Chọn & Mở Rộng Thực Thể Doanh Nghiệp Trên Thanh Header (Corporate Entity Switcher & Ecosystem Expansion)
+* **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)* và *Giám đốc Tài chính (CFO)*, tôi muốn:
+  1. *Có một dropdown lựa chọn thực thể doanh nghiệp ngay trên thanh Header trên cùng của toàn bộ ứng dụng*, để *tôi có thể linh hoạt chuyển đổi giữa việc xem số liệu hợp nhất toàn hệ thống hoặc xem riêng từng pháp nhân thành viên*;
+  2. *Có một nút '+' dưới cùng menu dropdown để tạo thêm người hoặc công ty mới thuộc hệ sinh thái*, để *khi tập đoàn mở thêm công ty con hoặc phát sinh thêm cá nhân ủy quyền quản lý dòng tiền, tôi có thể tự mở rộng danh mục ngay lập tức mà không cần can thiệp kỹ thuật code*;
+  3. *Khi nạp file sao kê tín dụng (đặc biệt mẫu MBBank không có ô ghi tên doanh nghiệp trên file Excel) hoặc sao kê tài khoản ngân hàng, hệ thống tự động gán dữ liệu đó vào đúng thực thể doanh nghiệp đang chọn trên Header*,
+  để *dữ liệu khoản vay, khế ước và dòng tiền luôn được phân định chính xác theo chủ thể pháp lý, không bị lẫn lộn giữa các công ty trong tập đoàn hay với tài khoản cá nhân của CEO*.
+* **User Story:** Là một *Chuyên viên Tài chính - Kế toán (Chị Cẩm Nhung)* và *Giám đốc Tài chính (CFO)*, tôi muốn:
+  1. *Có một dropdown lựa chọn thực thể doanh nghiệp ngay trên thanh Header trên cùng của toàn bộ ứng dụng*, để *tôi có thể linh hoạt chuyển đổi giữa việc xem số liệu hợp nhất toàn hệ thống hoặc xem riêng từng pháp nhân thành viên*;
+  2. *Khi nạp file sao kê tín dụng (đặc biệt mẫu MBBank không có ô ghi tên doanh nghiệp trên file Excel) hoặc sao kê tài khoản ngân hàng, hệ thống tự động gán dữ liệu đó vào đúng thực thể doanh nghiệp đang chọn trên Header*,
+  để *dữ liệu khoản vay, khế ước và dòng tiền luôn được phân định chính xác theo chủ thể pháp lý, không bị lẫn lộn giữa các công ty trong tập đoàn hay với tài khoản cá nhân của CEO*.
+* **Độ ưu tiên:** Must Have (`P0`)
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Bộ chọn Thực thể Doanh nghiệp trên Header (`TopHeader.tsx`):**
+     - Đặt tại góc phải thanh Header, hỗ trợ hiển thị tên rút gọn, MST và huy hiệu pháp nhân.
+     - Danh sách các thực thể:
+       + `ALL`: Tất cả doanh nghiệp (Xem dữ liệu Hợp nhất).
+       + `SUNRISE`: `CÔNG TY CỔ PHẦN XI MĂNG SUNRISE` (MST: `0109730501`).
+       + `HUONG_DUONG`: `CÔNG TY CỔ PHẦN THƯƠNG MẠI VÀ PHÁT TRIỂN HƯỚNG DƯƠNG` (MST: `0110176990`).
+       + `LAN_ANH`: `BÀ NGUYỄN THỊ LAN ANH (CEO)` (MST: `0109730501` - Kênh rút tiền mặt cá nhân).
+     - Lưu trữ trạng thái vào `localStorage` (`bsp_selected_corporate_entity_id`) để không bị mất khi reload trình duyệt.
+  2. **Gán Tự Động Chủ Thể khi Nạp File (Multi-Entity Ingestion Binding):**
+     - Khi nạp sao kê tín dụng (`POST /credit-statements/upload`), tham số `borrower_name` nhận giá trị từ thực thể đang chọn (nếu khác `ALL`). Backend tự động override tên mặc định chung chung của MB bằng tên pháp nhân được chọn.
+     - Khi nạp sao kê tài khoản CASA (`POST /statements/upload`), tham số `account_holder` nhận giá trị từ thực thể đang chọn và đồng bộ vào `bank_accounts.account_holder`.
+     - Cả hai giao diện nạp sao kê (`/` và `/credit-statements`) đều hiển thị Banner thông báo rõ thực thể đang tiếp nhận dữ liệu ngay phía trên khung thả file.
+* **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
+  ```gherkin
+  Scenario: Chuyển đổi thực thể doanh nghiệp và nạp sao kê MBBank
+    Given Kế toán đang ở thanh Header và chọn thực thể "CÔNG TY CỔ PHẦN XI MĂNG SUNRISE"
+    When Kế toán chuyển sang trang "Sao Kê Tín Dụng" (/credit-statements)
+    Then Banner hiển thị: "Doanh nghiệp nạp sao kê: CÔNG TY CỔ PHẦN XI MĂNG SUNRISE (0109730501)"
+    When Kế toán kéo thả file sao kê tín dụng MBBank vào vùng upload
+    Then Hệ thống tự động truyền borrower_name là "CONG TY CO PHAN XI MANG SUNRISE"
+    And 47 khoản vay khế ước được tạo/cập nhật với chủ thể vay là "CONG TY CO PHAN XI MANG SUNRISE" thay vì "Doanh nghiệp vay vốn MB"
+  ```
+
+---
+
+### US-07.14: Bảng Phụ Danh Mục Ngân Hàng & Hiển Thị Tên Viết Tắt (Banks Master Directory & Short Name Display)
+* **Mô tả:** Là Kế toán theo dõi vay & CFO, tôi muốn hệ thống có một bảng phụ danh mục các ngân hàng/tổ chức tín dụng (`banks`) lưu trữ thông tin chuẩn hóa: Tên ngân hàng đầy đủ, Tên chi nhánh, Mã số thuế và Tên viết tắt. Các bảng liên quan đến ngân hàng (`bank_accounts`, `credit_facilities`, `credit_statement_files`) phải liên kết với bảng này và toàn bộ giao diện phải hiển thị bằng Tên viết tắt, để thông tin khoản vay và tài khoản được hiển thị gọn gàng, trực quan và dễ nhận biết.
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Bảng Phụ Danh Mục Ngân Hàng (`banks`):**
+     - Lưu trữ: `bank_id`, `bank_code` (Mã định danh duy nhất: CTG, MBB, VPB, TPB, MBV, SHB, EVF, VCB, TCB, BID...), `bank_name` (Tên đầy đủ), `branch_name` (Chi nhánh), `tax_code` (Mã số thuế), `short_name` (Tên viết tắt chuẩn hiển thị), `is_active`.
+  2. **Liên kết Khóa Ngoại (Foreign Key References):**
+     - Bảng `bank_accounts`, `credit_facilities` và `credit_statement_files` liên kết qua trường `bank_id REFERENCES banks(bank_id) ON DELETE SET NULL`.
+  3. **Hiển thị Bằng Tên Viết Tắt (Short Name Display):**
+     - Mọi danh sách, bảng dữ liệu khế ước, sao kê tín dụng, dropdown bộ lọc và báo cáo phân tích hiển thị tên ngân hàng dưới dạng tên viết tắt (vd: `VietinBank`, `MB`, `VPBank`, `TPBank`, `EVNFinance`, `SHB`...) thay cho tên dài đầy đủ.
+     - Modal chỉnh sửa khế ước tích hợp dropdown lựa chọn trực quan từ danh mục ngân hàng chuẩn, tự động điền mã ngân hàng và tên viết tắt.
+* **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
+  ```gherkin
+  Scenario: Hiển thị tên viết tắt và liên kết danh mục ngân hàng
+    Given Kế toán truy cập màn hình Chi tiết khế ước (/contract-details)
+    Then Cột "Ngân hàng" hiển thị huy hiệu tên viết tắt ngắn gọn (vd: "VietinBank", "MB", "VPBank", "TPBank")
+    When Kế toán bấm "Sửa" thông tin một khế ước
+    Then Modal hiển thị dropdown danh mục ngân hàng từ bảng banks master
+    And Khi chọn ngân hàng, hệ thống tự động điền mã ngân hàng và tên viết tắt
   ```
 
 ---

@@ -58,7 +58,7 @@ templates:
         cell: "N3"
         regex: "Dữ liệu đến ngày\\s*(\\d{2}/\\d{2}/\\d{4})"
       borrower_name:
-        default: "Doanh nghiệp vay vốn MB"
+        default: "CONG TY CO PHAN XI MANG SUNRISE"
       summary_row:
         match_col: "C"
         match_val: "Tổng"

@@ -143,3 +143,25 @@ async def test_reconciliation_endpoint():
             assert "total_invoice_amount" in rec_data
             assert "is_sufficient" in rec_data
             assert "shortage_amount" in rec_data
+
+
+@pytest.mark.asyncio
+async def test_auto_sync_dossier_invoices_endpoint():
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # Lấy danh sách hợp đồng khế ước
+        res = await client.get("/api/v1/loans?limit=10")
+        assert res.status_code == 200
+        loans = res.json()["data"]
+        # Tìm khoản vay có dossier_count > 0 nếu có
+        dossier_loan = next((l for l in loans if l.get("dossier_count", 0) > 0), None)
+        if dossier_loan:
+            loan_id = dossier_loan["loan_id"]
+            sync_res = await client.post(f"/api/v1/loans/{loan_id}/auto-sync-dossier-invoices?force_recalculate=false")
+            assert sync_res.status_code == 200
+            data = sync_res.json()
+            assert data["loan_id"] == loan_id
+            assert "total_allocated_amount" in data
+            assert "is_fully_secured" in data
+            assert isinstance(data["allocations"], list)
+

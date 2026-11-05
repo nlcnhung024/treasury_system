@@ -66,6 +66,13 @@
     `const list = res.data?.data || res.data?.items || [];`
     nhằm triệt tiêu vĩnh viễn lỗi giao diện nhận mảng rỗng do lệch tên khóa.
 
+- **Tiêu chuẩn Thiết kế Bảng Dữ liệu Đa năng (Universal Interactive Data Grid Standard):**
+  - Mọi bảng dữ liệu / lưới danh sách (Data Grid) trên toàn hệ thống bắt buộc phải trang bị:
+    1. **Header luôn có Sort và Filter:** Hỗ trợ sắp xếp 2 chiều và bộ lọc trực tiếp trên Header.
+    2. **Bộ lọc phân loại theo kiểu dữ liệu:** Dạng chữ (Text) lọc bằng điều kiện chuỗi (chứa, bằng, bắt đầu bằng...); Dạng số hoặc ngày (Number/Date) lọc theo điều kiện khoảng (Min - Max, Từ ngày - Đến ngày).
+    3. **Quản trị Ẩn / Hiện Cột (Column Visibility Toggle):** Cung cấp công cụ bật/tắt hiển thị từng cột và lưu nhớ trạng thái vào localStorage.
+    4. **Thay đổi Độ rộng Cột (Column Resizing):** Cho phép kéo thả chuột để tùy chỉnh kích thước cột kèm ràng buộc độ rộng tối thiểu (minWidth) an toàn chống vỡ giao diện.
+
 ## 7. Tiêu chuẩn Đồng bộ Hóa Tài liệu & Kiểm soát Lan truyền Thay đổi (Cross-Artifact Synchronization Standard)
 Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thuật/nghiệp vụ nào (`docs/*.md`, `docs/*.yaml`, `database/*.sql`) BẮT BUỘC thực thi quy trình 3 bước để đảm bảo tính nhất quán tuyệt đối 100%:
 - **Bước 1 — Đối chiếu Ma trận Tác động Chéo (Ripple-Effect Impact Check):**
@@ -83,8 +90,18 @@ Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thu
   Cập nhật bảng Lịch sử Phiên bản (Version History) tại các tài liệu vừa chỉnh sửa, ghi rõ phiên bản mới và danh sách các tệp đã được đồng bộ chéo.
 
 ## 8. Tiêu chuẩn Cô lập & Thu dọn Dữ liệu Kiểm thử (Test Isolation & Mandatory Teardown)
-- **Dọn dẹp triệt để (Mandatory Cleanup):** Khi viết hoặc chạy các kịch bản kiểm thử (test suite, pytest fixture, integration tests), mọi dữ liệu giả lập (mock/test accounts, test statement files, test loans, test transactions) BẮT BUỘC phải được dọn dẹp sạch sẽ (teardown/delete) ngay sau khi test hoàn tất hoặc sử dụng transaction rollback riêng biệt.
-- **Bảo vệ môi trường phát triển & UI:** TUYỆT ĐỐI KHÔNG để sót lại tài khoản test (như `9999TESTACC`, `CONG TY TEST`), file test (`Test Accountant`) hoặc bản ghi rác trong cơ sở dữ liệu làm hiển thị sai lệch trên giao diện người dùng thực tế.
+- **Quy ước Định danh Dữ liệu Kiểm thử (Deterministic Test Prefixing):**
+  - Mọi thực thể/bản ghi tạo ra trong quá trình kiểm thử tự động hoặc chạy kịch bản thử nghiệm (tài khoản, hợp đồng vay, khế ước, mã hóa đơn, file upload) BẮT BUỘC phải mang tiền tố nhận diện chuẩn hóa rõ ràng: `TEST_...` hoặc `TEST-...` (ví dụ: `TEST-LOAN-...`, `TEST-ACC-...`, `TEST-INV-...`).
+  - TUYỆT ĐỐI CẤM sinh mã hoặc ký hiệu ngẫu nhiên không có tiền tố kiểm thử (như mã ngân hàng thật `CTG-...` thiếu tiền tố `TEST-`) khiến hệ thống quét dọn không nhận diện được để xóa tự động.
+- **Cơ chế Thu dọn Kép Hai Đầu (Pre-Clean & Post-Teardown):**
+  - Mọi test suite tương tác trực tiếp với cơ sở dữ liệu dùng chung BẮT BUỘC phải thực hiện cơ chế dọn dẹp hai đầu:
+    1. *Pre-clean (Đầu vào):* Truy vấn xóa sạch toàn bộ các bản ghi rác mang tiền tố `TEST%` còn sót lại từ lần chạy trước trước khi bắt đầu kịch bản.
+    2. *Post-teardown (Đầu ra):* Toàn bộ thao tác xóa phải nằm trong khối `finally:` hoặc pytest fixture `yield` teardown đảm bảo thực thi 100% kể cả khi test case bị `AssertionError`, ngoại lệ đột ngột hay bị ngắt ngang.
+- **Thu dọn Đồng bộ Tệp Vật lý trên Storage (Physical Storage Cleanup):**
+  - Khi kịch bản test có phát sinh lưu trữ file nhị phân vào thư mục hệ thống (`backend/storage/...`), kịch bản kiểm thử BẮT BUỘC phải xóa cả file vật lý trên đĩa (disk/storage) song song với việc xóa bản ghi trong CSDL. Tuyệt đối không để tồn đọng các tệp mồ côi (orphan files) làm phình to dung lượng và rác storage.
+- **Xử lý Dữ liệu Mẫu In-Memory (In-Memory Processing for Test Samples):**
+  - Tuyệt đối không giải nén (extract) các file zip mẫu vào thư mục tĩnh của dự án khi chạy test. Mọi thao tác đọc file mẫu kiểm thử phải được xử lý trực tiếp trên bộ nhớ (In-memory via `zipfile.ZipFile`, `io.BytesIO`) và tự động giải phóng khi hoàn tất.
+- **Bảo vệ môi trường phát triển & UI:** TUYỆT ĐỐI KHÔNG để sót lại tài khoản test (như `9999TESTACC`, `CONG TY TEST`), hợp đồng test (`TEST-LOAN-...`), file test (`Test Accountant`) hoặc bản ghi rác trong cơ sở dữ liệu làm hiển thị sai lệch trên giao diện người dùng thực tế.
 
 
 

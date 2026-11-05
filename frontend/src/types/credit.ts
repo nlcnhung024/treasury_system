@@ -90,6 +90,7 @@ export interface LoanInvoiceReconciliation {
 
 export interface CreditFacility {
   loan_id: number;
+  bank_id?: number | null;
   bank_code: string;
   bank_name: string;
   contract_number: string;
