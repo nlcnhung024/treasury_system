@@ -1,5 +1,6 @@
 import io
 import re
+import json
 import uuid
 import hashlib
 import logging
@@ -9,13 +10,22 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, and_, or_, case
+from sqlalchemy import select, desc, func, and_, or_, case, text
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.security import verify_file_magic_bytes
 from app.core.config import settings
-from app.models.credit import CreditStatementFile, CreditFacility, CreditStatementItem, DisbursementDocument, LoanRepaymentHistory
+from app.models.credit import (
+    CreditStatementFile,
+    CreditFacility,
+    CreditStatementItem,
+    DisbursementDocument,
+    LoanRepaymentHistory,
+    DebtRolloverPlanConfig,
+)
+from app.models.credit_limit import CreditAgreement
+from app.api.v1.credit_limits import ensure_credit_limit_seed_data, sync_facilities_to_agreements
 from app.models.invoice import LoanInvoiceAllocation
 from app.models.audit_log import AuditLog
 from app.schemas.credit import (
@@ -37,6 +47,8 @@ from app.schemas.credit import (
     LoanRepaymentHistoryItem,
     RepaymentRollbackResponse,
     LoanInvoiceReconciliationResponse,
+    DebtRolloverPlanConfigSchema,
+    DebtRolloverPlanConfigUpdate,
 )
 from app.schemas.common import PaginationMeta
 from app.services.credit_ingestion_service import ingest_credit_statement
@@ -192,6 +204,7 @@ async def list_loans(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
+    await ensure_credit_limit_seed_data(db)
     filters = [CreditFacility.is_active == True]
 
     if status_filter:
@@ -279,9 +292,14 @@ async def list_loans(
     )
     rows = (await db.execute(stmt)).all()
 
+    agreements_rows = (await db.execute(select(CreditAgreement.agreement_id, CreditAgreement.agreement_number))).all()
+    agreement_num_map = {r[0]: r[1] for r in agreements_rows}
+
     data_items = []
     for loan, dossier_count, total_invoices, xml_inv_count, total_repaid in rows:
         item = CreditFacilityItem.model_validate(loan)
+        if loan.agreement_id:
+            item.agreement_number = agreement_num_map.get(loan.agreement_id)
         item.dossier_files_count = dossier_count
         item.total_invoices_amount = total_invoices
         # Tính số tiền đã trả nợ gốc (từ subquery hoặc hiệu số giữa gốc ban đầu và gốc hiện tại)
@@ -406,6 +424,7 @@ async def create_manual_loan(
 
     db.add(loan)
     await db.flush()
+    await sync_facilities_to_agreements(db, target_bank_code=loan.bank_code)
 
     # 4. Ghi nhận Audit Log
     audit = AuditLog(
@@ -558,6 +577,199 @@ async def get_loan_organizations(
                 )
             )
     return result
+
+
+async def _ensure_rollover_config_table(db: AsyncSession) -> None:
+    """Đảm bảo bảng debt_rollover_plan_configs đã tồn tại trong CSDL trước khi truy vấn."""
+    await db.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS debt_rollover_plan_configs (
+                config_id BIGSERIAL PRIMARY KEY,
+                borrower_name VARCHAR(255) NOT NULL DEFAULT 'DEFAULT' UNIQUE,
+                horizon_months INTEGER NOT NULL DEFAULT 12,
+                default_monthly_ocf DECIMAL(18, 2) NOT NULL DEFAULT 10000000000.00,
+                default_rollover_term_months INTEGER NOT NULL DEFAULT 6,
+                monthly_ocf_overrides TEXT NOT NULL DEFAULT '{}',
+                bank_term_overrides TEXT NOT NULL DEFAULT '{}',
+                payoff_contract_numbers TEXT NOT NULL DEFAULT '[]',
+                locked_rollover_actions TEXT NOT NULL DEFAULT '[]',
+                priority_rules TEXT NOT NULL DEFAULT '[]',
+                custom_bank_order TEXT NOT NULL DEFAULT '[]',
+                updated_by VARCHAR(100) DEFAULT 'System',
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+            """
+        )
+    )
+    await db.execute(
+        text("ALTER TABLE debt_rollover_plan_configs ADD COLUMN IF NOT EXISTS priority_rules TEXT NOT NULL DEFAULT '[]';")
+    )
+    await db.execute(
+        text("ALTER TABLE debt_rollover_plan_configs ADD COLUMN IF NOT EXISTS custom_bank_order TEXT NOT NULL DEFAULT '[]';")
+    )
+    await db.commit()
+
+
+@router.get("/loans/rollover-plan-config", response_model=DebtRolloverPlanConfigSchema)
+async def get_rollover_plan_config(
+    borrower_name: str = Query("DEFAULT"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy cấu hình kế hoạch tất toán & đảo nợ hằng tháng (OCF, kỳ hạn ngân hàng, lệnh khóa, tháp ưu tiên)
+    """
+    await _ensure_rollover_config_table(db)
+    stmt = select(DebtRolloverPlanConfig).where(DebtRolloverPlanConfig.borrower_name == borrower_name)
+    result = await db.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    if not config and borrower_name != "DEFAULT":
+        stmt_default = select(DebtRolloverPlanConfig).where(DebtRolloverPlanConfig.borrower_name == "DEFAULT")
+        result_default = await db.execute(stmt_default)
+        config = result_default.scalar_one_or_none()
+
+    default_rules = [
+        {"field": "interest_rate", "direction": "DESC", "enabled": True},
+        {"field": "disbursement_date", "direction": "ASC", "enabled": True},
+        {"field": "principal", "direction": "DESC", "enabled": True},
+        {"field": "maturity_date", "direction": "ASC", "enabled": True},
+    ]
+
+    if not config:
+        return DebtRolloverPlanConfigSchema(
+            borrower_name=borrower_name,
+            horizon_months=12,
+            default_monthly_ocf=Decimal("10000000000.00"),
+            default_rollover_term_months=6,
+            monthly_ocf_overrides={},
+            bank_term_overrides={},
+            payoff_contract_numbers=[],
+            locked_rollover_actions=[],
+            priority_rules=default_rules,
+            custom_bank_order=[],
+            updated_by="System",
+        )
+
+    try:
+        monthly_ocf = json.loads(config.monthly_ocf_overrides) if isinstance(config.monthly_ocf_overrides, str) else config.monthly_ocf_overrides
+    except Exception:
+        monthly_ocf = {}
+    try:
+        bank_terms = json.loads(config.bank_term_overrides) if isinstance(config.bank_term_overrides, str) else config.bank_term_overrides
+    except Exception:
+        bank_terms = {}
+    try:
+        payoff = json.loads(config.payoff_contract_numbers) if isinstance(config.payoff_contract_numbers, str) else config.payoff_contract_numbers
+    except Exception:
+        payoff = []
+    try:
+        locked = json.loads(config.locked_rollover_actions) if isinstance(config.locked_rollover_actions, str) else config.locked_rollover_actions
+    except Exception:
+        locked = []
+    try:
+        p_rules = json.loads(config.priority_rules) if isinstance(config.priority_rules, str) else config.priority_rules
+    except Exception:
+        p_rules = []
+    try:
+        c_banks = json.loads(config.custom_bank_order) if isinstance(config.custom_bank_order, str) else config.custom_bank_order
+    except Exception:
+        c_banks = []
+
+    return DebtRolloverPlanConfigSchema(
+        config_id=config.config_id,
+        borrower_name=config.borrower_name,
+        horizon_months=config.horizon_months,
+        default_monthly_ocf=config.default_monthly_ocf,
+        default_rollover_term_months=config.default_rollover_term_months,
+        monthly_ocf_overrides=monthly_ocf or {},
+        bank_term_overrides=bank_terms or {},
+        payoff_contract_numbers=payoff or [],
+        locked_rollover_actions=locked or [],
+        priority_rules=p_rules if p_rules else default_rules,
+        custom_bank_order=c_banks or [],
+        updated_by=config.updated_by,
+        updated_at=config.updated_at,
+    )
+
+
+@router.put("/loans/rollover-plan-config", response_model=DebtRolloverPlanConfigSchema)
+async def update_rollover_plan_config(
+    payload: DebtRolloverPlanConfigUpdate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Cập nhật hoặc khởi tạo cấu hình kế hoạch tất toán & đảo nợ hằng tháng
+    """
+    await _ensure_rollover_config_table(db)
+    borrower = payload.borrower_name or "DEFAULT"
+    stmt = select(DebtRolloverPlanConfig).where(DebtRolloverPlanConfig.borrower_name == borrower)
+    result = await db.execute(stmt)
+    config = result.scalar_one_or_none()
+
+    monthly_ocf_str = json.dumps(payload.monthly_ocf_overrides or {})
+    bank_terms_str = json.dumps(payload.bank_term_overrides or {})
+    payoff_str = json.dumps(payload.payoff_contract_numbers or [])
+    locked_str = json.dumps(payload.locked_rollover_actions or [])
+    priority_rules_str = json.dumps(payload.priority_rules or [])
+    custom_bank_order_str = json.dumps(payload.custom_bank_order or [])
+
+    if not config:
+        config = DebtRolloverPlanConfig(
+            borrower_name=borrower,
+            horizon_months=payload.horizon_months or 12,
+            default_monthly_ocf=payload.default_monthly_ocf or Decimal("10000000000.00"),
+            default_rollover_term_months=payload.default_rollover_term_months or 6,
+            monthly_ocf_overrides=monthly_ocf_str,
+            bank_term_overrides=bank_terms_str,
+            payoff_contract_numbers=payoff_str,
+            locked_rollover_actions=locked_str,
+            priority_rules=priority_rules_str,
+            custom_bank_order=custom_bank_order_str,
+            updated_by=payload.updated_by or "System",
+        )
+        db.add(config)
+    else:
+        if payload.horizon_months is not None:
+            config.horizon_months = payload.horizon_months
+        if payload.default_monthly_ocf is not None:
+            config.default_monthly_ocf = payload.default_monthly_ocf
+        if payload.default_rollover_term_months is not None:
+            config.default_rollover_term_months = payload.default_rollover_term_months
+        if payload.monthly_ocf_overrides is not None:
+            config.monthly_ocf_overrides = monthly_ocf_str
+        if payload.bank_term_overrides is not None:
+            config.bank_term_overrides = bank_terms_str
+        if payload.payoff_contract_numbers is not None:
+            config.payoff_contract_numbers = payoff_str
+        if payload.locked_rollover_actions is not None:
+            config.locked_rollover_actions = locked_str
+        if payload.priority_rules is not None:
+            config.priority_rules = priority_rules_str
+        if payload.custom_bank_order is not None:
+            config.custom_bank_order = custom_bank_order_str
+        if payload.updated_by:
+            config.updated_by = payload.updated_by
+
+    await db.commit()
+    await db.refresh(config)
+
+    return DebtRolloverPlanConfigSchema(
+        config_id=config.config_id,
+        borrower_name=config.borrower_name,
+        horizon_months=config.horizon_months,
+        default_monthly_ocf=config.default_monthly_ocf,
+        default_rollover_term_months=config.default_rollover_term_months,
+        monthly_ocf_overrides=payload.monthly_ocf_overrides or {},
+        bank_term_overrides=payload.bank_term_overrides or {},
+        payoff_contract_numbers=payload.payoff_contract_numbers or [],
+        locked_rollover_actions=payload.locked_rollover_actions or [],
+        priority_rules=payload.priority_rules or [],
+        custom_bank_order=payload.custom_bank_order or [],
+        updated_by=config.updated_by,
+        updated_at=config.updated_at,
+    )
 
 
 def _estimate_contract_interest(principal: Decimal, rate_pct: Decimal, start: Optional[date], end: Optional[date]) -> Decimal:
@@ -1102,6 +1314,23 @@ async def get_loan_invoice_reconciliation(
     return calculate_loan_invoice_reconciliation(loan, list(documents))
 
 
+@router.get("/loans/dossier/document-types", response_model=List[str])
+async def list_disbursement_document_types(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Lấy danh sách tất cả các loại chứng từ/hồ sơ đã từng được lưu/sử dụng trong hệ thống.
+    """
+    stmt = (
+        select(DisbursementDocument.document_type)
+        .where(DisbursementDocument.document_type.isnot(None))
+        .distinct()
+    )
+    records = (await db.execute(stmt)).scalars().all()
+    types = [r.strip() for r in records if r and r.strip()]
+    return sorted(list(set(types)))
+
+
 @router.get("/loans/{loan_id}/dossier", response_model=List[DisbursementDocumentItem])
 async def list_disbursement_documents(
     loan_id: int,
@@ -1281,8 +1510,4 @@ async def get_loan_repayments(
         limit=limit,
         offset=offset,
     )
-
-
-
-
 

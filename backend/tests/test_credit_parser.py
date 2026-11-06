@@ -311,4 +311,16 @@ async def test_vietinbank_interest_payment_monthly_day_5():
                 await session.commit()
 
 
+@pytest.mark.asyncio
+async def test_get_disbursement_document_types():
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        res = await ac.get("/api/v1/loans/dossier/document-types")
+        assert res.status_code == 200
+        data = res.json()
+        assert isinstance(data, list)
+
+
 

@@ -181,7 +181,7 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   - Mỗi khoản vay tín dụng bắt buộc liên kết với một bộ hồ sơ giải ngân lưu tại Object Storage (MinIO On-Premise kết hợp Local Disk).
   - Đường dẫn lưu trữ chuẩn: `disbursement_dossiers/{bank_code}/{contract_number}/{uuid}_{sanitized_filename}`.
   - Bảng quản lý siêu dữ liệu: `disbursement_documents` (`document_id`, `document_uuid`, `loan_id`, `file_name`, `storage_path`, `file_size_bytes`, `file_sha256`, `mime_type`, `document_type`, `description`, `uploaded_by`).
-  - Hỗ trợ đa dạng loại tài liệu phân tách rành mạch: mặc định gồm `CONTRACT` (Hợp đồng tín dụng / Thỏa thuận vay), `DEBT_NOTE` / `DISBURSEMENT_RECORD` (Khế ước nhận nợ / Giấy đề nghị giải ngân LD), `INVOICE` (Chứng từ sử dụng vốn: Hóa đơn GTGT / UNC thanh toán), `COLLATERAL` (Hồ sơ tài sản bảo đảm & Thế chấp), `OTHER` / `APPROVAL` (Thông báo phê duyệt / Chứng từ khác) cùng **khả năng bổ sung loại hồ sơ tùy biến động** (như Thư bảo lãnh, Biên bản nghiệm thu, Hồ sơ pháp lý, Bảo hiểm công trình, v.v.), tự động lưu trữ và ghi nhớ đồng bộ trên client & database với dung lượng tối đa 50MB/file.
+  - Hỗ trợ đa dạng loại tài liệu phân tách rành mạch: mặc định gồm `CONTRACT` (Hợp đồng tín dụng / Thỏa thuận vay), `DEBT_NOTE` / `DISBURSEMENT_RECORD` (Khế ước nhận nợ / Giấy đề nghị giải ngân LD), `INVOICE` (Chứng từ sử dụng vốn: Hóa đơn GTGT / UNC thanh toán), `COLLATERAL` (Hồ sơ tài sản bảo đảm & Thế chấp), `OTHER` / `APPROVAL` (Thông báo phê duyệt / Chứng từ khác) cùng **khả năng bổ sung loại hồ sơ tùy biến động** (như Ủy nhiệm chi, Báo cáo thuế, Thư bảo lãnh, Biên bản nghiệm thu, Hồ sơ pháp lý, Bảo hiểm công trình, v.v.). Khi người dùng tự nhập loại chứng từ mới, hệ thống tự động lưu trữ vĩnh viễn (lưu vào Storage và đồng bộ hóa chéo qua API `/loans/dossier/document-types`) để xuất hiện ngay trong danh mục "Loại đã lưu (dùng lại)" ở các lần thao tác sau trên mọi khế ước/khoản vay mà không phải nhập lại.
   - Phân chia khu vực nhập và quản lý bộ hồ sơ giải ngân theo từng danh mục loại chứng từ độc lập (bao gồm các loại hồ sơ mặc định và các loại hồ sơ do người dùng tự bổ sung), tuyệt đối không gom chung toàn bộ hồ sơ vào một phân vùng duy nhất. Giao diện cung cấp điều hướng Tab/Section theo từng loại chứng từ, nút "+ Thêm loại hồ sơ" với gợi ý nhanh các nhóm hồ sơ thông dụng, tự động gán phân loại khi tải lên, hiển thị số lượng file theo từng loại, xem/tải xuống an toàn từ Object Storage và Audit Log chi tiết.
   - Giao diện bảng danh mục khoản vay tối giản, tinh gọn và đa năng:
     - **Phân tách rành mạch 3 cột Số dư Gốc & Cơ chế Tính Lãi:**
@@ -237,9 +237,9 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
     - Vùng mở rộng khế ước tổ chức 3 Sub-tabs chuyên biệt:
       - *Tab 1: Dòng tiền trả nợ đã đối soát:* Bảng dòng tiền gốc/lãi hoàn nguyên theo thời gian giao dịch, tô nền hồng cảnh báo trả gốc quá hạn, hoàn lãi tất toán, tích hợp dòng tổng cộng cuối bảng (tổng số giao dịch, tổng giá trị thanh toán, tổng gốc đã trả, tổng lãi đã trả, dư nợ gốc còn lại cuối kỳ).
       - *Tab 2: Đối soát nhận nợ & Hóa đơn tương ứng:* Thẻ KPI so khớp gốc nhận nợ vs tổng tiền HĐ đã gán, tỷ lệ & chênh lệch bảo đảm, bảng danh sách HĐ đã gán kèm modal gán HĐ mới và hủy gán.
-      - *Tab 3: Bộ hồ sơ giải ngân:* Quản lý toàn diện chứng từ lưu trữ trên Object Storage. Mặc định phân loại hiển thị 2 loại chính: Khế ước nhận nợ và Hóa đơn, kèm nút dấu "+" để mở rộng thêm loại chứng từ khác khi có nhu cầu. Tích hợp khu vực kéo thả tệp tin trực tiếp (inline drag-and-drop zone) hỗ trợ tải nhiều file cùng lúc, loại bỏ cửa sổ phụ modal.
+      - *Tab 3: Bộ hồ sơ giải ngân:* Quản lý toàn diện chứng từ lưu trữ trên Object Storage. Mặc định phân loại hiển thị 2 loại chính: Khế ước nhận nợ và Hóa đơn, kèm nút dấu "+" cho phép chọn từ danh mục hoặc gõ trực tiếp tên loại hồ sơ mới tùy chỉnh (Custom Document Type), hỗ trợ đóng (x) tab khi chưa có dữ liệu. Tích hợp khu vực kéo thả tệp tin trực tiếp (inline drag-and-drop zone) hỗ trợ tải nhiều file cùng lúc, loại bỏ cửa sổ phụ modal.
         - 4 Thẻ KPI: Gốc nhận nợ khế ước, Hóa đơn đã gán bảo đảm, Chênh lệch bảo đảm (Khớp 100%, Thiếu X đ, Thừa X đ), Badge trạng thái bảo đảm (Khớp 100%, Chưa đủ hóa đơn, Chưa có hóa đơn).
-        - Bảng danh sách hóa đơn đã gán: Số HĐ, Ký hiệu, Nhà cung cấp (NCC), Tổng tiền HĐ, Số tiền bảo đảm nhận nợ đã gán, Ngày gán, Ghi chú và Nút "Hủy gán" giải phóng hạn mức (`DELETE /loans/{loan_id}/allocated-invoices/{allocation_id}`).
+        - Bảng danh sách hóa đơn nhận nợ: Hiển thị toàn bộ hóa đơn đã gán bảo đảm (Số HĐ, Ký hiệu, Nhà cung cấp, Tổng tiền HĐ, Số tiền khả dụng, Số tiền bảo đảm nhận nợ đã gán, Ghi chú và Nút "Hủy gán" `DELETE /loans/{loan_id}/allocated-invoices/{allocation_id}`), đồng thời hiển thị minh bạch các hóa đơn có trong Bộ hồ sơ giải ngân nhưng chưa/không thể phân bổ nhận nợ (`dossier_unallocated_invoices`) kèm cảnh báo trực quan nguyên nhân (ví dụ: đã dùng hết hạn mức hoặc bị khóa tại ngân hàng/khế ước khác theo Single Bank Rule).
         - Nút và Modal "Gán Hóa Đơn Mới": Lọc hóa đơn cùng TCTD còn hạn mức chưa phân bổ (`remaining_amount > 0`), tìm kiếm theo số HĐ/NCC/MST, tự động gợi ý số tiền phân bổ theo số thiếu hoặc hạn mức HĐ, gọi `POST /loans/{loan_id}/allocate-invoices`.
   - **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hỗ trợ thanh lọc chuyên sâu bên dưới từng tiêu đề cột (bật/tắt bằng nút *Lọc cột*, hiển thị số lượng bộ lọc đang kích hoạt và nút *Xóa lọc* 1-chạm):
     - *Ngân hàng, Số khế ước, Chủ thể vay, Dư nợ gốc, Đã trả gốc, Dư nợ hiện tại, Lãi suất, Lãi tính, Lãi trả, Ngày giải ngân, Ngày đáo hạn, Trạng thái bảo đảm HĐ.*
@@ -281,6 +281,10 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
       - Khi một hóa đơn được gán lần đầu cho khoản vay tại Ngân hàng A (`bank_code`), hóa đơn đó bị khóa cho Ngân hàng A (`locked_bank_code = A`).
       - Tuyệt đối cấm gán phần tiền còn lại của hóa đơn đó cho khoản vay tại Ngân hàng B khác (`locked_bank_code != B`), ngăn chặn 100% rủi ro đúp tài sản bảo đảm giữa các ngân hàng.
       - Khi toàn bộ phân bổ của hóa đơn được giải phóng, `locked_bank_code` tự động trả về `NULL` (hóa đơn tự do).
+    - **Tách Tab theo Đơn vị bán & Cơ chế Ưu tiên Bản sửa thủ công (Manual Override Invariant):**
+      - Màn hình đối soát hóa đơn nhận nợ hỗ trợ tách tab theo từng Đơn vị bán (Nhà cung cấp), kèm tab "Tất cả" và thẻ thống kê tổng tiền/số lượng HĐ theo từng nhà cung cấp.
+      - Chuyển đổi giữa các tab bảo toàn 100% dữ liệu đang nhập dở của người dùng.
+      - **Nguyên tắc Bảo vệ Bản sửa thủ công:** Các phân bổ do người dùng chỉnh sửa/gán thủ công (`is_manual = True`) được ưu tiên tuyệt đối. Khi người dùng thực hiện "Đồng Bộ Cuốn Chiếu", hệ thống giữ nguyên các phân bổ thủ công này và chỉ tự động cuốn chiếu phần dư nợ còn thiếu trên các hóa đơn còn lại.
 
 - **Phân hệ 7.14: Bảng Phụ Danh Mục Ngân Hàng & Chuẩn Hóa Hiển Thị Tên Viết Tắt (Banks Master Directory & Short Name Display):**
   - **Bảng Danh Mục Ngân Hàng Chuẩn Hóa (`banks`):**
@@ -351,6 +355,37 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
   5. Hóa đơn chạm ngưỡng dư nợ gốc được trích một phần, phần còn lại lưu trữ tiếp trong kho để bảo đảm cho các khế ước cùng ngân hàng sau đó.
   6. Cho phép chỉnh sửa thủ công số tiền nhận nợ trực tiếp trên từng hóa đơn trong bảng (loại bỏ cột ngày gán để bảng tinh gọn, tập trung vào số liệu tài chính) và bấm nút **Lưu** để đồng bộ vào CSDL.
 
+### Phân hệ 7.3: Kế Hoạch Tất Toán & Đảo Nợ Hằng Tháng (/debt-rollover-plan)
+- Cung cấp màn hình lập kế hoạch đảo nợ và cân đối dòng tiền kinh doanh (OCF):
+  1. **Trần Dòng tiền HĐKD (OCF Cap):** Đảm bảo tổng nợ gốc tất toán tại mỗi tháng không vượt quá OCF của tháng đó.
+  2. **Thuật toán Đảo Nợ Đa Chu Kỳ & Bộ Kéo Thả Xếp Chồng Tháp Ưu Tiên (`priority_rules`, `custom_bank_order`):** Tự động phát hiện các tháng vượt trần OCF và ưu tiên kéo về đảo nợ sớm tại các tháng trước đó còn dư địa OCF theo tháp điều kiện xếp chồng do người dùng kéo thả:
+     - **3 Tiêu chí cấp Ngân hàng:** Tổng dư nợ của Ngân hàng toàn danh mục (`bank_total_principal` - cho phép ưu tiên ngân hàng có tổng dư nợ lớn nhất trước), Dư nợ đến hạn trong tháng của Ngân hàng (`bank_monthly_principal`), Thứ tự Ngân hàng chỉ định (`bank_custom_order`).
+     - **9 Tiêu chí cấp Khế ước:** Lãi suất vay (`interest_rate`), Ngày giải ngân (`disbursement_date`), Dư nợ gốc đến hạn (`principal`), Ngày đáo hạn (`maturity_date`), Kỳ hạn giải ngân (`term_months`), Số tiền giải ngân ban đầu (`original_principal`), Tiền lãi dự kiến (`calculated_interest`), Phương thức trả lãi (`interest_payment_method`), Nguồn gốc khoản vay (`loan_source`).
+     - Luôn cho phép cắt nhỏ khế ước (Partial Rollover) để khớp chính xác 100% phần dư OCF của các tháng trước.
+  3. **Tái giải ngân & Tái đáo hạn:** 100% nợ tất toán trong tháng được tái giải ngân sang chu kỳ mới (M + kỳ hạn), tự động cộng dồn vào nợ đến hạn của các tháng tương lai để thuật toán tiếp tục cân đối.
+  4. **Tùy chọn Tất toán đứt:** Cho phép người dùng đánh dấu các khế ước trả đứt bằng OCF mà không vay lại.
+  5. **Biểu đồ Waterfall Hằng Tháng 4 Cấu phần:** Hiển thị rõ (1) Gốc đến hạn hiện tại, (2) (-) Gốc đã đáo nợ sớm, (3) (+) Gốc đến hạn các khoản đảo nợ mới, và (4) (+) Đảo nợ sớm, kèm đường trần OCF.
+  6. **Xuất Kế Hoạch Excel:** Xuất báo cáo chi tiết từng tháng/khế ước phục vụ trình ký CFO/CEO.
+
+### Phân hệ 7.4: Quản Lý Hạn Mức Tín Dụng & Tài Sản Đảm Bảo (Menu "Quản lý hạn mức")
+Bao gồm 4 màn hình chuyên biệt trên thanh điều hướng:
+1. **Hợp đồng tín dụng (`/credit-agreements`):**
+   - Quản lý Hợp đồng tín dụng khung (Credit Agreement) tại từng Tổ chức tín dụng (Tổng hạn mức, Hạn mức cho vay, Bảo lãnh, L/C, Thời gian hiệu lực từ `effective_from` đến `effective_to`).
+   - **Liên kết tự động 1 HĐTD - Nhiều Khế ước:** Mỗi Khế ước (`credit_facilities`) có Ngày giải ngân (`disbursement_date`) nằm trong khoảng thời gian hiệu lực `[effective_from, effective_to]` của Hợp đồng tín dụng cùng ngân hàng sẽ tự động được gắn vào HĐTD đó.
+   - Tự động tổng hợp Dư nợ đã giải ngân từ các Khế ước ACTIVE và tính Hạn mức còn lại khả dụng.
+   - Hỗ trợ tái cấp hạn mức và chuyển tiếp Tài sản đảm bảo từ HĐTD hết hạn sang HĐTD mới.
+2. **Hồ sơ hạn mức (`/credit-limit-dossiers`):**
+   - Quản lý các đợt cấp mới / tái cấp / nâng hạn mức tín dụng kèm tiến độ thẩm định (`PREPARING`, `SUBMITTED`, `NEED_SUPPLEMENT`, `APPROVED`, `REJECTED`).
+   - Tích hợp Checklist 6 nhóm hồ sơ bắt buộc (Pháp lý, BCTC, Phương án kinh doanh, Nghị quyết HĐQT, Hồ sơ TSĐB, HĐTD đã ký) và kho lưu trữ tệp chứng từ.
+3. **Tài sản đảm bảo (`/collateral-assets`):**
+   - Quản lý Tài sản đảm bảo tại các ngân hàng gồm: Tên chủ sở hữu, Giá trị thẩm định hiện hành, Tỷ lệ cho vay tối đa LTV (%), Tình trạng (`UNVALUED` - Chưa định giá / `VALUED` - Đã định giá / `MORTGAGED` - Thế chấp / `RELEASED` - Giải chấp), Thời điểm định giá gần nhất.
+   - **Lịch sử định giá độc lập:** Gồm Tổ chức định giá, Giá trị định giá, Thời điểm định giá, File Biên bản định giá (nhập độc lập, không tự động ghi đè Giá trị thẩm định và LTV hiện hành trên Tài sản).
+   - **Cảnh báo quá hạn định giá (> 6 tháng):** Nếu lần định giá gần nhất cách thời điểm hiện tại quá hơn 6 tháng (> 180 ngày), hệ thống tự động hiển thị cảnh báo **"Yêu cầu định giá lại"**.
+   - **Bộ hồ sơ tài sản:** Gồm File Sổ đỏ/Sổ hồng, Ảnh chụp thực tế, Hợp đồng thế chấp và Định vị Google Map (Link & Bản đồ nhúng tọa độ).
+   - **Ràng buộc thế chấp & Chuyển tiếp HĐTD:** Mỗi tài sản chỉ được thế chấp tại 1 ngân hàng gắn liền với 1 Hợp đồng tín dụng; khi HĐTD hết hạn sẽ được gán tiếp sang cho Hợp đồng tín dụng mới kèm lưu vết lịch sử.
+4. **Cam kết sau vay (`/post-loan-covenants`):**
+   - Theo dõi 4 nhóm nghĩa vụ sau giải ngân gắn với HĐTD/Khế ước: Cam kết doanh số chuyển tiền CASA (tự động đối chiếu với thực tế giao dịch ghi Có trên sao kê tài khoản ngân hàng), Cam kết báo cáo định kỳ, Cam kết chỉ số tài chính (DSCR, Nợ/VCSH), và Cam kết bổ sung chứng từ sau giải ngân.
+
 ### Phân hệ 8: Trải nghiệm Người dùng & Điều hướng theo Vai trò (Role Navigation & Personas)
 - Cung cấp thanh chuyển đổi vai trò (Persona Switcher) linh hoạt trên thanh Sidebar:
   1. **Chị Nghiêm Lê Cẩm Nhung (Kế toán viên - Primary End-User):**
@@ -375,3 +410,4 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
        - Cung cấp dropdown menu "Tùy chỉnh cột" trên thanh công cụ của bảng, cho phép người dùng chủ động tích chọn bật/tắt (ẩn/hiện) từng cột dữ liệu tùy theo nhu cầu xem, kèm nút "Hiện tất cả" và "Khôi phục mặc định". Trạng thái ẩn/hiện cột được tự động lưu vào `localStorage` theo từng màn hình.
     4. **Tùy chỉnh Thay đổi Độ rộng Cột (Column Resizing):**
        - Cho phép người dùng kéo thả (drag & drop) mép phân tách giữa các cột để co dãn độ rộng linh hoạt, áp dụng độ rộng tối thiểu (`minWidth`) an toàn để chống co rúm vỡ bố cục, hỗ trợ cắt chữ (`truncate`) kèm tooltip khi nội dung vượt quá kích thước.
+

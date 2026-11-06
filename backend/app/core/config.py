@@ -55,7 +55,7 @@ class Settings(BaseSettings):
     # 6. Security & JWT
     JWT_SECRET_KEY: str = "bsp_super_secret_jwt_key_development_must_be_changed_in_prod_2026"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 480  # 8 tiếng (8 * 60 phút)
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     API_KEY_INTERNAL: str = "bsp_worker_internal_secret_api_key_2026"
 

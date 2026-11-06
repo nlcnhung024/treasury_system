@@ -249,7 +249,15 @@ async def ingest_credit_statement(
         )
         db.add(snapshot)
 
-    # 6. Ghi Audit Log
+    # 6. Tự động liên kết Khế ước với Hợp đồng tín dụng theo ngày giải ngân trong thời gian hiệu lực
+    try:
+        from app.api.v1.credit_limits import ensure_credit_limit_tables, sync_facilities_to_agreements
+        await ensure_credit_limit_tables(db)
+        await sync_facilities_to_agreements(db, target_bank_code=pkg.bank_code)
+    except Exception as e:
+        logger.warning(f"Không thể tự động đồng bộ HĐTD khi nạp sao kê: {e}")
+
+    # 7. Ghi Audit Log
     db.add(
         AuditLog(
             actor=uploaded_by,

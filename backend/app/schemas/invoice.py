@@ -35,6 +35,7 @@ class LoanAllocationItemResponse(BaseModel):
     seller_name: Optional[str] = None
     total_invoice_amount: Optional[Decimal] = None
     remaining_amount: Optional[Decimal] = None
+    is_manual: bool = False
     created_at: Optional[datetime] = None
 
 
@@ -91,10 +92,28 @@ class SingleAllocationItem(BaseModel):
     invoice_id: int
     allocated_amount: Decimal
     notes: Optional[str] = None
+    is_manual: Optional[bool] = None
 
 
 class LoanBatchAllocationRequest(BaseModel):
     allocations: List[SingleAllocationItem]
+
+
+class DossierUnallocatedInvoiceItemResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    invoice_id: int
+    invoice_number: Optional[str] = None
+    invoice_series: Optional[str] = None
+    invoice_date: Optional[date] = None
+    seller_name: Optional[str] = None
+    total_invoice_amount: Decimal = Decimal("0.00")
+    remaining_amount: Decimal = Decimal("0.00")
+    locked_bank_code: Optional[str] = None
+    status: str = "AVAILABLE"
+    reason_code: str = "UNALLOCATED"  # 'BANK_MISMATCH', 'EXHAUSTED_LIMIT', 'PRINCIPAL_FULFILLED', 'UNALLOCATED'
+    reason_message: str = ""
+    allocated_to_contracts: List[str] = Field(default_factory=list)
 
 
 class LoanAllocatedInvoicesResponse(BaseModel):
@@ -107,6 +126,7 @@ class LoanAllocatedInvoicesResponse(BaseModel):
     is_fully_secured: bool
     status_message: str
     allocations: List[LoanAllocationItemResponse] = Field(default_factory=list)
+    dossier_unallocated_invoices: List[DossierUnallocatedInvoiceItemResponse] = Field(default_factory=list)
 
 
 class SyncInvoicesFromLoansResponse(BaseModel):

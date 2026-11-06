@@ -18,6 +18,9 @@ import {
   FileText,
   Receipt,
   BarChart3,
+  FolderArchive,
+  Shield,
+  Layers,
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -62,6 +65,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
   const [selectedPersona, setSelectedPersona] = useState<string>('ACCOUNTANT');
   const [tonQuyOpen, setTonQuyOpen] = useState<boolean>(true);
   const [khoanVayOpen, setKhoanVayOpen] = useState<boolean>(true);
+  const [hanMucOpen, setHanMucOpen] = useState<boolean>(true);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -92,9 +96,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
   const khoanVayNavItems = [
     { to: '/credit-statements', label: 'Sao Kê Tín Dụng', icon: Landmark },
     { to: '/loan-reports', label: 'Thống Kê Dư Nợ Tín Dụng', icon: BarChart3 },
+    { to: '/debt-rollover-plan', label: 'Kế Hoạch Đảo Nợ OCF', icon: TrendingUp },
     { to: '/invoices', label: 'Kho Hóa Đơn & Đảm Bảo', icon: Receipt },
     { to: '/loan-repayments', label: 'Đối soát trả nợ', icon: CheckCheck },
     { to: '/contract-details', label: 'Chi tiết khế ước', icon: FileText },
+  ];
+
+  const hanMucNavItems = [
+    { to: '/credit-agreements', label: 'Hợp đồng tín dụng', icon: FileText },
+    { to: '/credit-limit-dossiers', label: 'Hồ sơ hạn mức', icon: FolderArchive },
+    { to: '/collateral-assets', label: 'Tài sản đảm bảo', icon: Shield },
+    { to: '/post-loan-covenants', label: 'Cam kết sau vay', icon: CheckCheck },
   ];
 
   const currentPersona = PERSONAS.find((p) => p.key === selectedPersona) || PERSONAS[0];
@@ -214,6 +226,49 @@ export const Sidebar: React.FC<SidebarProps> = ({ mobileOpen, setMobileOpen }) =
                       className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                         isActive
                           ? 'bg-indigo-600 text-white font-semibold shadow-md shadow-indigo-600/20'
+                          : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
+                      }`}
+                    >
+                      <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-slate-400'}`} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* NHÓM 3: QUẢN LÝ HẠN MỨC */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setHanMucOpen(!hanMucOpen)}
+              className="w-full flex items-center justify-between px-2.5 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 rounded transition-colors"
+            >
+              <div className="flex items-center space-x-2">
+                <Layers className="w-3.5 h-3.5 text-purple-400" />
+                <span>Quản lý hạn mức</span>
+              </div>
+              {hanMucOpen ? (
+                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+              )}
+            </button>
+
+            {hanMucOpen && (
+              <div className="mt-1 space-y-0.5 pl-1">
+                {hanMucNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname.startsWith(item.to);
+                  return (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      onClick={() => setMobileOpen(false)}
+                      className={`flex items-center space-x-3 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                        isActive
+                          ? 'bg-purple-600 text-white font-semibold shadow-md shadow-purple-600/20'
                           : 'text-slate-300 hover:bg-slate-800/80 hover:text-white'
                       }`}
                     >

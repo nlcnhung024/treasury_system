@@ -631,6 +631,7 @@ erDiagram
         varchar contract_number
         decimal allocated_amount
         date allocation_date
+        boolean is_manual
     }
 
     CATEGORIES {

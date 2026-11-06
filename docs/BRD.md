@@ -818,9 +818,9 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
      - Vùng mở rộng khế ước phân chia thành 3 Sub-tabs chuyên biệt:
        - *Tab 1: Dòng tiền trả nợ đã đối soát:* Bảng hoàn nguyên nợ gốc/lãi theo thời gian giao dịch thực tế, phân định trả nợ quá hạn (tô nền hồng) và hoàn lãi tất toán, tích hợp dòng tổng cộng cuối bảng (tổng số giao dịch, tổng giá trị thanh toán, tổng gốc đã trả, tổng lãi đã trả, dư nợ gốc còn lại cuối kỳ).
        - *Tab 2: Đối soát hóa đơn & nhận nợ:* Thẻ KPI so khớp gốc nhận nợ vs tổng tiền HĐ đã gán, tỷ lệ & chênh lệch bảo đảm (Khớp 100%, Chưa đủ HĐ, Vượt mức), bảng hóa đơn đã gán kèm tính năng gán mới và hủy gán giải phóng hạn mức.
-       - *Tab 3: Bộ hồ sơ giải ngân:* Quản lý toàn diện chứng từ lưu trữ trên Object Storage. Mặc định phân loại hiển thị 2 loại chính: Khế ước nhận nợ và Hóa đơn, kèm nút dấu "+" để người nhập mở rộng thêm các loại chứng từ khác khi phát sinh nhu cầu. Tích hợp khu vực kéo thả tệp tin trực tiếp (inline drag-and-drop zone) hỗ trợ nhiều file đồng thời, không cần nút hay cửa sổ phụ modal.
+       - *Tab 3: Bộ hồ sơ giải ngân:* Quản lý toàn diện chứng từ lưu trữ trên Object Storage. Mặc định phân loại hiển thị 2 loại chính: Khế ước nhận nợ và Hóa đơn, kèm nút dấu "+" cho phép người nhập chọn từ danh mục có sẵn hoặc gõ trực tiếp tên loại hồ sơ mới (Custom Document Type); tự động mở tab tương ứng và lưu trữ linh hoạt. Hỗ trợ nút đóng (x) đối với các tab thêm chưa có dữ liệu. Tích hợp khu vực kéo thả tệp tin trực tiếp (inline drag-and-drop zone) hỗ trợ nhiều file đồng thời, không cần nút hay cửa sổ phụ modal.
          - Thẻ KPI tóm tắt so khớp: Gốc nhận nợ khế ước vs Tổng giá trị hóa đơn đã gán vs Chênh lệch bảo đảm (Khớp 100%, Chưa đủ hóa đơn, Vượt mức nhận nợ, Chưa có HĐ).
-         - Bảng danh sách hóa đơn đã gán: Số HĐ, Ký hiệu, Đơn vị bán (NCC), Tổng tiền HĐ, Số tiền bảo đảm nhận nợ đã gán, Ngày gán, Ghi chú và Nút "Hủy gán" giải phóng hạn mức (`DELETE /loans/{loan_id}/allocated-invoices/{allocation_id}`).
+         - Bảng danh sách hóa đơn nhận nợ: Hiển thị toàn bộ hóa đơn đã gán bảo đảm (Số HĐ, Ký hiệu, Đơn vị bán, Tổng tiền HĐ, Số tiền khả dụng, Số tiền bảo đảm nhận nợ đã gán, Ghi chú và Nút "Hủy gán" `DELETE /loans/{loan_id}/allocated-invoices/{allocation_id}`), đồng thời hiển thị đầy đủ các hóa đơn nằm trong Bộ hồ sơ giải ngân nhưng chưa/không thể phân bổ nhận nợ (`dossier_unallocated_invoices`) kèm nhãn cảnh báo nguyên nhân cụ thể (như đã bị khế ước của ngân hàng khác sử dụng hết hạn mức hoặc khóa mã TCTD).
          - Modal Gán Hóa Đơn Mới: Lọc danh sách hóa đơn khả dụng cùng ngân hàng/TCTD, cho phép tìm kiếm theo số HĐ/NCC/MST, tự động gợi ý số tiền phân bổ theo số thiếu hoặc hạn mức còn lại của HĐ, gọi `POST /loans/{loan_id}/allocate-invoices`.
   4. **1-chạm sao chép nhanh số khế ước:** Mỗi hàng có nút sao chép (kèm thông báo "Đã sao chép!"), tiện lợi cho việc tra cứu chéo trên các hệ thống core ngân hàng.
   5. **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hàng lọc chuyên dụng nằm ngay dưới header, cho phép kết hợp đồng thời: Ngân hàng, Số khế ước, Chủ thể vay, Dư nợ gốc, Đã trả gốc, Dư nợ hiện tại, Lãi suất, Lãi ước tính, Tổng lãi đã trả, Ngày giải ngân, Ngày đáo hạn và Trạng thái bảo đảm HĐ (`FULLY_SECURED`, `UNDER_SECURED`, `NO_INVOICE`).
@@ -897,6 +897,25 @@ Hệ thống được tổ chức thành **7 Epics nghiệp vụ cốt lõi**:
     And Khi chọn ngân hàng, hệ thống tự động điền mã ngân hàng và tên viết tắt
   ```
 
+### US-07.15: Kế Hoạch Tất Toán & Đảo Nợ Hằng Tháng (/debt-rollover-plan)
+* **Mô tả:** Là Giám đốc Tài chính (CFO) và Kế toán theo dõi vay, tôi muốn hệ thống tự động lập bản kế hoạch giải ngân và tất toán cho từng tháng trong chu kỳ mô phỏng (mặc định 12 tháng, tùy chọn 6/12/18/24 tháng) dựa trên trần Dòng tiền từ Hoạt động Kinh doanh (OCF), nhằm đảm bảo mỗi tháng số tiền nợ tới hạn không vượt quá dòng tiền HĐKD. Nếu có tháng nợ đến hạn cao hơn OCF, hệ thống tự động ưu tiên đáo hạn và giải ngân lại (đảo nợ) sớm tại các tháng trước đó còn dư OCF theo **Tháp Ưu Tiên Kéo Thả Xếp Chồng (Drag-and-Drop Priority Stack)** do người dùng tùy chỉnh (bao gồm cả tiêu chí cấp Ngân hàng như `bank_total_principal` - ưu tiên ngân hàng có tổng dư nợ lớn nhất trước, `bank_monthly_principal`, `bank_custom_order` và 9 tiêu chí cấp Khế ước như Lãi suất, Ngày giải ngân, Dư nợ gốc, Ngày đáo hạn...), đồng thời cập nhật tức thì (Real-time Reactive) khi có biến động dư nợ thực tế.
+* **Quy tắc Nghiệp vụ (Business Rules):**
+  1. **Ràng buộc Dòng tiền HĐKD (OCF Cap):** Tổng nợ gốc tất toán (nợ đến hạn tự nhiên + nợ kéo về đảo sớm) trong tháng M phải <= OCF tháng M.
+  2. **Cơ chế Nhập OCF linh hoạt:** Người dùng nhập mức OCF mặc định hằng tháng và có thể điều chỉnh ghi đè (override) riêng cho từng tháng cụ thể trên bảng kế hoạch.
+  3. **Đảo nợ & Kỳ hạn tái giải ngân:** 100% nợ tất toán trong tháng M được giải ngân lại thành khế ước mới tại tháng M (đáo hạn mới tại M + term), trừ các khế ước được đánh dấu "Tất toán đứt (Không vay lại)". Kỳ hạn tái giải ngân mặc định 6 tháng hoặc theo cấu hình riêng của từng Ngân hàng.
+  4. **Thuật toán Đa chu kỳ, Cắt nhỏ khế ước & Tháp Ưu Tiên Xếp Chồng:** Khoản giải ngân lại tại tháng M sẽ đáo hạn ở tháng M + term và tiếp tục được cân đối. Luôn cho phép cắt nhỏ (Partial Rollover) khế ước để lấp đầy 100% dư địa OCF của các tháng trước. Hỗ trợ bộ kéo thả xếp chồng 12 điều kiện ưu tiên (`priority_rules`, `custom_bank_order`) với chiều `ASC`/`DESC` linh hoạt.
+  5. **Bảng CSDL & Lưu trữ Cấu hình:** Lưu trữ tại bảng `debt_rollover_plan_configs` theo từng chủ thể doanh nghiệp (`borrower_name`), bao gồm `priority_rules` và `custom_bank_order`.
+* **Tiêu chí Chấp nhận (Acceptance Criteria - Gherkin):**
+  ```gherkin
+  Scenario: Cân đối trần OCF và đảo nợ sớm
+    Given Doanh nghiệp có khoản nợ đến hạn tháng T vượt quá mức trần OCF của tháng T
+    And Tháng T-1 hoặc tháng trước đó còn thừa dòng tiền OCF (Remaining_OCF > 0)
+    When Thuật toán lập Kế hoạch Tất toán & Đảo nợ hằng tháng chạy
+    Then Khoản nợ có lãi suất cao nhất tại tháng T được cắt nhỏ một phần hoặc toàn bộ kéo về tháng trước
+    And Ghi nhận tất toán sớm tại tháng trước và sinh khoản giải ngân mới đáo hạn tại chu kỳ tiếp theo
+    And Tổng nợ tất toán tại mỗi tháng không vượt quá OCF của tháng đó
+  ```
+
 ---
 
 ## 8. Tiêu chuẩn Sẵn sàng (DoR) & Hoàn thành (DoD)
@@ -943,4 +962,5 @@ gantt
 | **Sprint 1 (MVP)** | 2 tuần | Khung kiến trúc CSDL quan hệ (hỗ trợ Multi-Entity), hạ tầng Object Storage lưu file gốc, giao diện kéo-thả upload và động cơ Universal Config-Driven Parser bóc tách 7 mẫu sao kê thực tế (`MBB_CORP`, `MBB_PERSONAL`, `MBV_CORP`, `VPB_CORP`, `TPB_CORP`, `CTG_EFAST`, `SHB_CORP`) kèm khả năng mở rộng Zero-Code cho VCB, TCB, BIDV, ACB. |
 | **Sprint 2** | 2 tuần | Pipeline chuẩn hóa dữ liệu (ngày ISO, tiền Decimal), cơ chế chống trùng lặp file & dòng giao dịch bằng SHA-256, module đối soát kế toán cân bằng số dư tự động kèm cảnh báo sai lệch. |
 | **Sprint 3** | 2 tuần | Màn hình Dashboard trực quan hóa dòng tiền ròng, bộ lọc đa tiêu chí, phân loại chi phí tự động theo từ khóa, chức năng xuất file Excel/PDF an toàn và nghiệm thu UAT toàn hệ thống. |
+
 

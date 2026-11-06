@@ -11,6 +11,7 @@ from app.api.v1 import (
     templates,
     audit_logs,
     credit_statements,
+    credit_limits,
     invoices,
     corporate_entities,
     banks,
@@ -29,6 +30,7 @@ api_router.include_router(reports.router)
 api_router.include_router(templates.router)
 api_router.include_router(audit_logs.router)
 api_router.include_router(credit_statements.router)
+api_router.include_router(credit_limits.router)
 api_router.include_router(invoices.router)
 api_router.include_router(corporate_entities.router)
 api_router.include_router(banks.router)

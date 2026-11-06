@@ -106,6 +106,7 @@ class LoanInvoiceAllocation(Base):
     allocated_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     allocation_date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_by: Mapped[str] = mapped_column(String(100), nullable=False, default="SYSTEM")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

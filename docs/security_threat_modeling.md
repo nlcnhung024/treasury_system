@@ -335,7 +335,7 @@ $$\text{Mức độ Rủi ro (Risk Level)} = \text{Xác suất (Likelihood)} \ti
 - **Chuẩn hóa JSON Web Token (JWT - RFC 7519):**
   - Thuật toán ký: Sử dụng thuật toán bất đối xứng **RS256** (RSA Signature with SHA-256) với cặp Private/Public Key 2048-bit lưu trữ an toàn trong HashiCorp Vault. API Gateway chỉ giữ Public Key để xác thực chữ ký token, loại bỏ nguy cơ lộ khóa bí mật từ mã nguồn.
   - Vòng đời Token (Token Lifecycle):
-    - `access_token`: Thời gian sống ngắn (**15 phút**). Mang payload chứa `user_id`, `role`, `allowed_tax_codes`.
+    - `access_token`: Thời gian sống (**8 tiếng** / 480 phút). Mang payload chứa `user_id`, `role`, `allowed_tax_codes`.
     - `refresh_token`: Thời gian sống dài (**7 ngày**), lưu trữ mã băm SHA-256 trong Redis Cache.
     - Cơ chế Xoay vòng Refresh Token (Refresh Token Rotation): Mỗi khi `refresh_token` được sử dụng để lấy `access_token` mới, hệ thống tự động hủy token cũ và cấp phát một `refresh_token` mới. Nếu phát hiện một `refresh_token` cũ đã bị sử dụng lại (dấu hiệu Token Hijacking), hệ thống lập tức khóa toàn bộ phiên làm việc của người dùng đó.
 - **Ma trận Phân quyền Truy cập theo Vai trò (Role-Based Access Control - RBAC):**

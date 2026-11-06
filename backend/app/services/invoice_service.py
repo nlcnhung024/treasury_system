@@ -15,7 +15,12 @@ from app.models.invoice import Invoice, InvoiceItem, LoanInvoiceAllocation
 from app.models.credit import CreditFacility, DisbursementDocument
 from app.services.invoice_parser_service import parse_xml_invoice_bytes
 from app.services.storage_service import save_statement_bytes, read_statement_bytes
-from app.schemas.invoice import SingleAllocationItem, LoanAllocatedInvoicesResponse, LoanAllocationItemResponse
+from app.schemas.invoice import (
+    SingleAllocationItem,
+    LoanAllocatedInvoicesResponse,
+    LoanAllocationItemResponse,
+    DossierUnallocatedInvoiceItemResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -377,7 +382,7 @@ async def allocate_invoices_to_loan(
 
     # 3. Duyệt và kiểm tra tính hợp lệ từng hóa đơn trong yêu cầu phân bổ
     total_allocated_request = Decimal("0.00")
-    validated_invoices: Dict[int, Tuple[Invoice, Decimal, Optional[str]]] = {}
+    validated_invoices: Dict[int, Tuple[Invoice, Decimal, Optional[str], bool]] = {}
 
     for item in allocation_items:
         if item.allocated_amount <= Decimal("0.00"):
@@ -418,7 +423,8 @@ async def allocate_invoices_to_loan(
             )
 
         total_allocated_request += item.allocated_amount
-        validated_invoices[inv.invoice_id] = (inv, item.allocated_amount, item.notes)
+        is_man = item.is_manual if item.is_manual is not None else True
+        validated_invoices[inv.invoice_id] = (inv, item.allocated_amount, item.notes, is_man)
 
     # Quy tắc 3: Kiểm tra cân bằng với Dư nợ gốc ban đầu
     difference = loan_principal - total_allocated_request
@@ -447,11 +453,12 @@ async def allocate_invoices_to_loan(
             await _recalculate_invoice_state(db, inv_to_free.invoice_id)
 
     # Thêm mới hoặc cập nhật các allocation
-    for inv_id, (inv, alloc_amount, notes) in validated_invoices.items():
+    for inv_id, (inv, alloc_amount, notes, is_man) in validated_invoices.items():
         if inv_id in existing_by_invoice:
             alloc_record = existing_by_invoice[inv_id]
             alloc_record.allocated_amount = alloc_amount
             alloc_record.notes = notes
+            alloc_record.is_manual = is_man
             alloc_record.bank_code = loan_bank
             alloc_record.contract_number = loan.contract_number
         else:
@@ -462,6 +469,7 @@ async def allocate_invoices_to_loan(
                 contract_number=loan.contract_number,
                 allocated_amount=alloc_amount,
                 notes=notes,
+                is_manual=is_man,
                 created_by=user,
             )
             db.add(alloc_record)
@@ -571,6 +579,7 @@ async def get_loan_allocated_invoices(
             allocated_amount=a.allocated_amount,
             allocation_date=a.allocation_date,
             notes=a.notes,
+            is_manual=getattr(a, 'is_manual', False),
             invoice_number=a.invoice.invoice_number if a.invoice else None,
             invoice_series=a.invoice.invoice_series if a.invoice else None,
             seller_name=a.invoice.seller_name if a.invoice else None,
@@ -580,6 +589,100 @@ async def get_loan_allocated_invoices(
         )
         for a in allocs
     ]
+
+    # Tìm các hóa đơn nằm trong bộ hồ sơ giải ngân của khế ước này nhưng chưa được gán vào nhận nợ
+    allocated_inv_ids = {a.invoice_id for a in allocs}
+    stmt_dossier_docs = (
+        select(DisbursementDocument)
+        .where(
+            DisbursementDocument.loan_id == loan_id,
+            or_(
+                DisbursementDocument.document_type == "INVOICE",
+                DisbursementDocument.file_name.ilike("%.xml"),
+                DisbursementDocument.invoice_id.isnot(None),
+            ),
+        )
+        .order_by(DisbursementDocument.document_id.asc())
+    )
+    dossier_docs = (await db.execute(stmt_dossier_docs)).scalars().all()
+
+    unlinked_xml_docs = [d for d in dossier_docs if d.invoice_id is None and d.file_name.lower().endswith(".xml")]
+    if unlinked_xml_docs:
+        for u_doc in unlinked_xml_docs:
+            try:
+                content = read_statement_bytes(u_doc.storage_path)
+                await auto_sync_dossier_document_to_invoice(db=db, loan=loan, doc_record=u_doc, content=content)
+            except Exception as e:
+                logger.warning(f"Lỗi liên kết doc #{u_doc.document_id} vào kho hóa đơn: {e}")
+        await db.commit()
+
+    unallocated_dossier_inv_ids = []
+    seen_unalloc_ids = set()
+    for d in dossier_docs:
+        if d.invoice_id and d.invoice_id not in allocated_inv_ids and d.invoice_id not in seen_unalloc_ids:
+            seen_unalloc_ids.add(d.invoice_id)
+            unallocated_dossier_inv_ids.append(d.invoice_id)
+
+    unallocated_items: List[DossierUnallocatedInvoiceItemResponse] = []
+    if unallocated_dossier_inv_ids:
+        stmt_unalloc_invs = (
+            select(Invoice)
+            .where(Invoice.invoice_id.in_(unallocated_dossier_inv_ids))
+            .options(selectinload(Invoice.allocations))
+            .order_by(Invoice.invoice_date.asc(), Invoice.invoice_id.asc())
+        )
+        unalloc_invs = (await db.execute(stmt_unalloc_invs)).scalars().all()
+        loan_bank = (loan.bank_code or "").strip().upper()
+
+        for inv in unalloc_invs:
+            other_contracts = [
+                f"{oa.bank_code} - {oa.contract_number}"
+                for oa in (inv.allocations or [])
+                if oa.loan_id != loan_id
+            ]
+            other_contracts_str = ", ".join(other_contracts)
+            inv_bank = (inv.locked_bank_code or "").strip().upper()
+
+            if inv_bank and inv_bank != loan_bank:
+                reason_code = "BANK_MISMATCH"
+                if inv.remaining_amount <= Decimal("0.00"):
+                    reason_msg = (
+                        f"Đã dùng hết 100% hạn mức tại ngân hàng khác ({other_contracts_str or inv_bank}) — "
+                        f"Không thể gán cho {loan_bank}"
+                    )
+                else:
+                    reason_msg = (
+                        f"Đang khóa cho ngân hàng {inv_bank} ({other_contracts_str or inv_bank}) — "
+                        f"Vi phạm quy tắc 1 TCTD"
+                    )
+            elif inv.remaining_amount <= Decimal("0.00"):
+                reason_code = "EXHAUSTED_LIMIT"
+                reason_msg = (
+                    f"Đã hết hạn mức khả dụng (đã phân bổ hết tại {other_contracts_str or inv_bank or loan_bank})"
+                )
+            elif is_fully_secured or total_allocated >= principal:
+                reason_code = "PRINCIPAL_FULFILLED"
+                reason_msg = "Khế ước đã đủ 100% gốc vay ban đầu (hóa đơn dư trong hồ sơ)"
+            else:
+                reason_code = "UNALLOCATED"
+                reason_msg = f"Còn khả dụng {inv.remaining_amount:,.0f} ₫ trong hồ sơ nhưng chưa gán nhận nợ"
+
+            unallocated_items.append(
+                DossierUnallocatedInvoiceItemResponse(
+                    invoice_id=inv.invoice_id,
+                    invoice_number=inv.invoice_number,
+                    invoice_series=inv.invoice_series,
+                    invoice_date=inv.invoice_date,
+                    seller_name=inv.seller_name,
+                    total_invoice_amount=inv.total_amount,
+                    remaining_amount=inv.remaining_amount,
+                    locked_bank_code=inv.locked_bank_code,
+                    status=inv.status,
+                    reason_code=reason_code,
+                    reason_message=reason_msg,
+                    allocated_to_contracts=other_contracts,
+                )
+            )
 
     return LoanAllocatedInvoicesResponse(
         loan_id=loan.loan_id,
@@ -591,6 +694,7 @@ async def get_loan_allocated_invoices(
         is_fully_secured=is_fully_secured,
         status_message=msg,
         allocations=alloc_items,
+        dossier_unallocated_invoices=unallocated_items,
     )
 
 
@@ -673,15 +777,22 @@ async def auto_sync_dossier_invoices_rolling(
     )
     existing_allocs = (await db.execute(existing_alloc_stmt)).scalars().all()
 
-    # Nếu force_recalculate, ta xóa hết phân bổ hiện có để cuốn chiếu lại từ đầu
-    if force_recalculate and existing_allocs:
-        for old_alloc in existing_allocs:
+    # Phân loại: ƯU TIÊN BẢO VỆ BẢN SỬA THỦ CÔNG CỦA NGƯỜI DÙNG
+    manual_allocs = [
+        a for a in existing_allocs
+        if getattr(a, "is_manual", False) or "thủ công" in (a.notes or "").lower()
+    ]
+    auto_allocs = [a for a in existing_allocs if a not in manual_allocs]
+
+    # Khi force_recalculate: CHỈ xóa và tính lại các phân bổ tự động, TUYỆT ĐỐI BẢO TOÀN bản sửa thủ công của người dùng
+    if force_recalculate and auto_allocs:
+        for old_alloc in auto_allocs:
             old_inv_id = old_alloc.invoice_id
             await db.delete(old_alloc)
             await db.flush()
             await _recalculate_invoice_state(db, old_inv_id)
         await db.commit()
-        existing_allocs = []
+        existing_allocs = manual_allocs
 
     # 4. Lấy các hóa đơn tương ứng từ bảng hóa đơn tổng
     stmt_invs = (
@@ -693,24 +804,33 @@ async def auto_sync_dossier_invoices_rolling(
     invoices = (await db.execute(stmt_invs)).scalars().all()
 
     # 5. Thuật toán Cuốn Chiếu (Rolling Allocation Algorithm)
-    current_total_allocated = sum(a.allocated_amount for a in existing_allocs)
+    allocations_map: Dict[int, SingleAllocationItem] = {}
+    manual_inv_ids = set()
+    for a in existing_allocs:
+        is_man = getattr(a, "is_manual", False) or "thủ công" in (a.notes or "").lower()
+        if is_man:
+            manual_inv_ids.add(a.invoice_id)
+        allocations_map[a.invoice_id] = SingleAllocationItem(
+            invoice_id=a.invoice_id,
+            allocated_amount=a.allocated_amount,
+            notes=a.notes,
+            is_manual=is_man,
+        )
+
+    current_total_allocated = sum(item.allocated_amount for item in allocations_map.values())
     remaining_principal_needed = principal - current_total_allocated
 
     # Nếu đã khớp 100% hoặc vượt quá dư nợ gốc thì không cần cuốn chiếu thêm
     if remaining_principal_needed <= Decimal("0.00"):
         return await get_loan_allocated_invoices(db, loan_id, skip_auto_sync=True)
 
-    allocations_map: Dict[int, SingleAllocationItem] = {}
-    for a in existing_allocs:
-        allocations_map[a.invoice_id] = SingleAllocationItem(
-            invoice_id=a.invoice_id,
-            allocated_amount=a.allocated_amount,
-            notes=a.notes,
-        )
-
     for inv in invoices:
         if remaining_principal_needed <= Decimal("0.00"):
             break
+
+        # Nếu hóa đơn này đã được người dùng gán/sửa thủ công, ƯU TIÊN GIỮ NGUYÊN bản thủ công, không ghi đè
+        if inv.invoice_id in manual_inv_ids:
+            continue
 
         # Kiểm tra ràng buộc ngân hàng (Single Bank Rule)
         if inv.locked_bank_code and inv.locked_bank_code.strip().upper() != loan_bank:
@@ -734,6 +854,7 @@ async def auto_sync_dossier_invoices_rolling(
                 invoice_id=inv.invoice_id,
                 allocated_amount=alloc_amount,
                 notes=f"Đồng bộ cuốn chiếu từ hồ sơ ({loan.contract_number})",
+                is_manual=False,
             )
             remaining_principal_needed -= incremental
 

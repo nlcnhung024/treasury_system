@@ -1601,6 +1601,44 @@ paths:
               schema:
                 $ref: '#/components/schemas/CreditFacilitySummary'
 
+  /loans/rollover-plan-config:
+    get:
+      summary: Lấy cấu hình kế hoạch tất toán & đảo nợ hằng tháng (trần OCF, kỳ hạn ngân hàng, lệnh khóa)
+      tags:
+        - Credit Statements & Loans
+      parameters:
+        - name: borrower_name
+          in: query
+          required: false
+          schema:
+            type: string
+            default: DEFAULT
+          description: Tên chủ thể doanh nghiệp vay vốn
+      responses:
+        '200':
+          description: Cấu hình kế hoạch đảo nợ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtRolloverPlanConfigSchema'
+    put:
+      summary: Lưu hoặc cập nhật cấu hình kế hoạch tất toán & đảo nợ hằng tháng
+      tags:
+        - Credit Statements & Loans
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DebtRolloverPlanConfigUpdate'
+      responses:
+        '200':
+          description: Cấu hình kế hoạch sau khi cập nhật
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DebtRolloverPlanConfigSchema'
+
   /loans/organizations:
     get:
       summary: Lấy danh sách các đơn vị cấp tín dụng / ngân hàng / công ty tài chính đã từng có khoản vay
@@ -1717,6 +1755,21 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /loans/dossier/document-types:
+    get:
+      summary: Lấy danh sách tất cả các loại chứng từ/hồ sơ đã từng được lưu/sử dụng trong hệ thống
+      tags:
+        - Credit Statements & Loans
+      responses:
+        '200':
+          description: Danh sách mã loại chứng từ hồ sơ giải ngân
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
 
   /loans/dossier/{document_id}/download:
     get:
@@ -2771,8 +2824,8 @@ components:
           example: "bearer"
         expires_in:
           type: integer
-          example: 900
-          description: Thời hạn hiệu lực của Access Token (15 phút)
+          example: 28800
+          description: Thời hạn hiệu lực của Access Token (8 tiếng / 480 phút)
         refresh_token:
           type: string
           example: "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
@@ -4790,3 +4843,214 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/LoanAllocationItemResponse'
+        dossier_unallocated_invoices:
+          type: array
+          items:
+            $ref: '#/components/schemas/DossierUnallocatedInvoiceItemResponse'
+
+    DossierUnallocatedInvoiceItemResponse:
+      type: object
+      properties:
+        invoice_id:
+          type: integer
+        invoice_number:
+          type: string
+          nullable: true
+        invoice_series:
+          type: string
+          nullable: true
+        invoice_date:
+          type: string
+          format: date
+          nullable: true
+        seller_name:
+          type: string
+          nullable: true
+        total_invoice_amount:
+          type: number
+        remaining_amount:
+          type: number
+        locked_bank_code:
+          type: string
+          nullable: true
+        status:
+          type: string
+        reason_code:
+          type: string
+          enum: [BANK_MISMATCH, EXHAUSTED_LIMIT, PRINCIPAL_FULFILLED, UNALLOCATED]
+        reason_message:
+          type: string
+        allocated_to_contracts:
+          type: array
+          items:
+            type: string
+
+    DebtRolloverPlanConfigSchema:
+      type: object
+      properties:
+        config_id:
+          type: integer
+          nullable: true
+        borrower_name:
+          type: string
+          default: DEFAULT
+        horizon_months:
+          type: integer
+          default: 12
+        default_monthly_ocf:
+          type: number
+          default: 10000000000.00
+        default_rollover_term_months:
+          type: integer
+          default: 6
+        monthly_ocf_overrides:
+          type: object
+          additionalProperties:
+            type: number
+        bank_term_overrides:
+          type: object
+          additionalProperties:
+            type: integer
+        payoff_contract_numbers:
+          type: array
+          items:
+            type: string
+        locked_rollover_actions:
+          type: array
+          items:
+            type: object
+        priority_rules:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              direction:
+                type: string
+                enum: [ASC, DESC]
+              enabled:
+                type: boolean
+        custom_bank_order:
+          type: array
+          items:
+            type: string
+        updated_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    DebtRolloverPlanConfigUpdate:
+      type: object
+      properties:
+        borrower_name:
+          type: string
+          default: DEFAULT
+        horizon_months:
+          type: integer
+          default: 12
+        default_monthly_ocf:
+          type: number
+          default: 10000000000.00
+        default_rollover_term_months:
+          type: integer
+          default: 6
+        monthly_ocf_overrides:
+          type: object
+          additionalProperties:
+            type: number
+        bank_term_overrides:
+          type: object
+          additionalProperties:
+            type: integer
+        payoff_contract_numbers:
+          type: array
+          items:
+            type: string
+        locked_rollover_actions:
+          type: array
+          items:
+            type: object
+        priority_rules:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              direction:
+                type: string
+                enum: [ASC, DESC]
+              enabled:
+                type: boolean
+        custom_bank_order:
+          type: array
+          items:
+            type: string
+        updated_by:
+          type: string
+
+    CreditAgreementResponse:
+      type: object
+      properties:
+        agreement_id:
+          type: integer
+        bank_code:
+          type: string
+        bank_name:
+          type: string
+        agreement_number:
+          type: string
+        agreement_name:
+          type: string
+        borrower_name:
+          type: string
+        total_credit_limit:
+          type: number
+        effective_from:
+          type: string
+          format: date
+        effective_to:
+          type: string
+          format: date
+        utilized_loan_amount:
+          type: number
+        available_credit_limit:
+          type: number
+        status:
+          type: string
+
+    CollateralAssetResponse:
+      type: object
+      properties:
+        asset_id:
+          type: integer
+        asset_code:
+          type: string
+        asset_name:
+          type: string
+        owner_name:
+          type: string
+        bank_code:
+          type: string
+        agreement_id:
+          type: integer
+          nullable: true
+        appraised_value:
+          type: number
+        ltv_ratio:
+          type: number
+        collateral_status:
+          type: string
+          enum: [UNVALUED, VALUED, MORTGAGED, RELEASED]
+        latest_valuation_date:
+          type: string
+          format: date
+          nullable: true
+        requires_revaluation:
+          type: boolean
+        google_maps_url:
+          type: string
+          nullable: true

@@ -114,6 +114,42 @@
         "schemaName": "public",
         "x": 12,
         "y": 4774
+      },
+      {
+        "name": "credit_agreements",
+        "schemaName": "public",
+        "x": 12,
+        "y": 5144
+      },
+      {
+        "name": "credit_limit_dossiers",
+        "schemaName": "public",
+        "x": 371.66845703125,
+        "y": 5144
+      },
+      {
+        "name": "collateral_assets",
+        "schemaName": "public",
+        "x": 771.88818359375,
+        "y": 5144
+      },
+      {
+        "name": "collateral_valuations",
+        "schemaName": "public",
+        "x": 1178.08740234375,
+        "y": 5144
+      },
+      {
+        "name": "collateral_documents",
+        "schemaName": "public",
+        "x": 12,
+        "y": 6026
+      },
+      {
+        "name": "post_loan_covenants",
+        "schemaName": "public",
+        "x": 371.66845703125,
+        "y": 5866
       }
     ],
     "tableGroupCollapseStates": [],
@@ -610,6 +646,96 @@
           "bank_id"
         ],
         "secondTableName": "banks",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "agreement_id"
+        ],
+        "firstTableName": "credit_facilities",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "agreement_id"
+        ],
+        "secondTableName": "credit_agreements",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "agreement_id"
+        ],
+        "firstTableName": "credit_limit_dossiers",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "agreement_id"
+        ],
+        "secondTableName": "credit_agreements",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "agreement_id"
+        ],
+        "firstTableName": "collateral_assets",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "agreement_id"
+        ],
+        "secondTableName": "credit_agreements",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "asset_id"
+        ],
+        "firstTableName": "collateral_valuations",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "asset_id"
+        ],
+        "secondTableName": "collateral_assets",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "asset_id"
+        ],
+        "firstTableName": "collateral_documents",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "asset_id"
+        ],
+        "secondTableName": "collateral_assets",
+        "secondSchemaName": "public",
+        "secondRelation": "1",
+        "checkPoints": []
+      },
+      {
+        "firstFieldNames": [
+          "agreement_id"
+        ],
+        "firstTableName": "post_loan_covenants",
+        "firstSchemaName": "public",
+        "firstRelation": "*",
+        "secondFieldNames": [
+          "agreement_id"
+        ],
+        "secondTableName": "credit_agreements",
         "secondSchemaName": "public",
         "secondRelation": "1",
         "checkPoints": []

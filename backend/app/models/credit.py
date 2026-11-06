@@ -12,6 +12,7 @@ if TYPE_CHECKING:
     from app.models.bank import Bank
     from app.models.invoice import LoanInvoiceAllocation, Invoice
     from app.models.transaction import BankTransaction
+    from app.models.credit_limit import CreditAgreement
 
 
 class CreditStatementFile(Base):
@@ -55,6 +56,7 @@ class CreditFacility(Base):
     )
 
     loan_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    agreement_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("credit_agreements.agreement_id", ondelete="SET NULL"), nullable=True, index=True)
     bank_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("banks.bank_id", ondelete="SET NULL"), nullable=True, index=True)
     bank_code: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -97,6 +99,7 @@ class CreditFacility(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
+    agreement: Mapped[Optional["CreditAgreement"]] = relationship("CreditAgreement", back_populates="facilities")
     bank: Mapped[Optional["Bank"]] = relationship("Bank", back_populates="credit_facilities")
     items: Mapped[List["CreditStatementItem"]] = relationship("CreditStatementItem", back_populates="loan")
     dossier_documents: Mapped[List["DisbursementDocument"]] = relationship("DisbursementDocument", back_populates="loan", cascade="all, delete-orphan")
@@ -186,3 +189,22 @@ class LoanRepaymentHistory(Base):
     transaction: Mapped["BankTransaction"] = relationship("BankTransaction")
 
 
+
+
+class DebtRolloverPlanConfig(Base):
+    __tablename__ = "debt_rollover_plan_configs"
+
+    config_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    borrower_name: Mapped[str] = mapped_column(String(255), nullable=False, default="DEFAULT", unique=True, index=True)
+    horizon_months: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
+    default_monthly_ocf: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("10000000000.00"))
+    default_rollover_term_months: Mapped[int] = mapped_column(Integer, nullable=False, default=6)
+    monthly_ocf_overrides: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    bank_term_overrides: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    payoff_contract_numbers: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    locked_rollover_actions: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    priority_rules: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    custom_bank_order: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    updated_by: Mapped[str] = mapped_column(String(100), nullable=False, default="System")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

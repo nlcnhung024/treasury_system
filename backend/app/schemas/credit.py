@@ -66,6 +66,8 @@ class CreditStatementFileDetail(CreditStatementFileItem):
 
 class CreditFacilityItem(BaseModel):
     loan_id: int
+    agreement_id: Optional[int] = None
+    agreement_number: Optional[str] = None
     bank_id: Optional[int] = None
     bank_code: str
     bank_name: str
@@ -158,6 +160,7 @@ class LoanInvoiceReconciliationResponse(BaseModel):
 
 
 class CreditFacilityCreate(BaseModel):
+    agreement_id: Optional[int] = None
     bank_id: Optional[int] = None
     bank_code: str
     bank_name: str
@@ -187,6 +190,7 @@ class CreditFacilityCreate(BaseModel):
 
 
 class CreditFacilityUpdate(BaseModel):
+    agreement_id: Optional[int] = None
     bank_id: Optional[int] = None
     bank_code: Optional[str] = None
     bank_name: Optional[str] = None
@@ -361,3 +365,36 @@ class RepaymentRollbackResponse(BaseModel):
 
 
 
+
+
+class DebtRolloverPlanConfigSchema(BaseModel):
+    config_id: Optional[int] = None
+    borrower_name: str = "DEFAULT"
+    horizon_months: int = 12
+    default_monthly_ocf: Decimal = Decimal("10000000000.00")
+    default_rollover_term_months: int = 6
+    monthly_ocf_overrides: dict = {}
+    bank_term_overrides: dict = {}
+    payoff_contract_numbers: List[str] = []
+    locked_rollover_actions: List[dict] = []
+    priority_rules: List[dict] = []
+    custom_bank_order: List[str] = []
+    updated_by: Optional[str] = "System"
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DebtRolloverPlanConfigUpdate(BaseModel):
+    borrower_name: str = "DEFAULT"
+    horizon_months: Optional[int] = 12
+    default_monthly_ocf: Optional[Decimal] = Decimal("10000000000.00")
+    default_rollover_term_months: Optional[int] = 6
+    monthly_ocf_overrides: Optional[dict] = None
+    bank_term_overrides: Optional[dict] = None
+    payoff_contract_numbers: Optional[List[str]] = None
+    locked_rollover_actions: Optional[List[dict]] = None
+    priority_rules: Optional[List[dict]] = None
+    custom_bank_order: Optional[List[str]] = None
+    updated_by: Optional[str] = "System"

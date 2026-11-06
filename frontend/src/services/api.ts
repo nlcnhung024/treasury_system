@@ -16,5 +16,16 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Response interceptor: tự động dọn dẹp token khi hết hạn hoặc không hợp lệ (401)
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem('access_token');
+    }
+    return Promise.reject(error);
+  }
+);
+
 export default api;
 

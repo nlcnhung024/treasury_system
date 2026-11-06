@@ -13,6 +13,11 @@ import { ContractDetailsPage } from './pages/ContractDetailsPage';
 import { CFODashboardPage } from './pages/CFODashboardPage';
 import { CEOWaterfallPage } from './pages/CEOWaterfallPage';
 import { RuleManagementPage } from './pages/RuleManagementPage';
+import { DebtRolloverPlanPage } from './pages/DebtRolloverPlanPage';
+import { CreditAgreementsPage } from './pages/CreditAgreementsPage';
+import { CreditLimitDossiersPage } from './pages/CreditLimitDossiersPage';
+import { CollateralAssetsPage } from './pages/CollateralAssetsPage';
+import { PostLoanCovenantsPage } from './pages/PostLoanCovenantsPage';
 
 export const App: React.FC = () => {
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
@@ -34,9 +39,14 @@ export const App: React.FC = () => {
                 <Route path="/transactions" element={<TransactionsPage />} />
                 <Route path="/credit-statements" element={<CreditStatementsPage />} />
                 <Route path="/loan-reports" element={<LoanReportsPage />} />
+                <Route path="/debt-rollover-plan" element={<DebtRolloverPlanPage />} />
                 <Route path="/invoices" element={<InvoiceRegistryPage />} />
                 <Route path="/loan-repayments" element={<LoanRepaymentReconcilePage />} />
                 <Route path="/contract-details" element={<ContractDetailsPage />} />
+                <Route path="/credit-agreements" element={<CreditAgreementsPage />} />
+                <Route path="/credit-limit-dossiers" element={<CreditLimitDossiersPage />} />
+                <Route path="/collateral-assets" element={<CollateralAssetsPage />} />
+                <Route path="/post-loan-covenants" element={<PostLoanCovenantsPage />} />
                 <Route path="/cfo-dashboard" element={<CFODashboardPage />} />
                 <Route path="/ceo-waterfall" element={<CEOWaterfallPage />} />
                 <Route path="/rules" element={<RuleManagementPage />} />

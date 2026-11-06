@@ -298,6 +298,7 @@ Table credit_statement_files {
 
 Table credit_facilities {
   loan_id bigserial [pk, increment, note: 'Khóa chính khoản vay']
+  agreement_id bigint [note: 'Khóa ngoại trỏ tới credit_agreements(agreement_id) - 1 HĐTD gắn nhiều Khế ước']
   bank_id bigint [note: 'Khóa ngoại trỏ tới banks(bank_id)']
   entity_id bigint [note: 'Pháp nhân vay vốn']
   bank_code varchar(20) [not null, note: 'Mã ngân hàng cấp tín dụng']
@@ -451,6 +452,7 @@ Table loan_invoice_allocations {
   allocated_amount decimal(18,2) [not null, note: 'Số tiền nhận nợ trên hóa đơn này']
   allocation_date date [not null, default: `CURRENT_DATE`]
   notes text
+  is_manual boolean [not null, default: false, note: 'Đánh dấu phân bổ do người dùng sửa/gán thủ công']
   created_by varchar(100) [not null, default: 'SYSTEM']
   created_at timestamp [default: `CURRENT_TIMESTAMP`]
   updated_at timestamp [default: `CURRENT_TIMESTAMP`]
@@ -607,3 +609,144 @@ TableGroup invoice_management {
 TableGroup audit_governance {
   audit_logs
 }
+
+// =============================================================================
+// 6. PHÂN HỆ QUẢN LÝ HẠN MỨC, TÀI SẢN ĐẢM BẢO & CAM KẾT SAU VAY
+// =============================================================================
+
+Table credit_agreements {
+  agreement_id bigserial [pk, increment]
+  agreement_uuid uuid [not null, unique]
+  bank_id bigint
+  bank_code varchar(20) [not null]
+  bank_name varchar(100) [not null]
+  agreement_number varchar(100) [not null]
+  agreement_name varchar(255) [not null]
+  borrower_name varchar(150) [not null]
+  total_credit_limit decimal(18,2) [not null, default: 0.00]
+  loan_sublimit decimal(18,2)
+  guarantee_sublimit decimal(18,2)
+  lc_sublimit decimal(18,2)
+  currency varchar(5) [not null, default: 'VND']
+  signed_date date
+  effective_from date [not null]
+  effective_to date [not null]
+  interest_rate_framework varchar(255)
+  collateral_summary text
+  status varchar(30) [not null, default: 'ACTIVE']
+  parent_agreement_id bigint
+  renewed_to_agreement_id bigint
+  notes text
+  created_by varchar(100) [not null, default: 'SYSTEM']
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+Table credit_limit_dossiers {
+  dossier_id bigserial [pk, increment]
+  dossier_uuid uuid [not null, unique]
+  agreement_id bigint
+  bank_code varchar(20) [not null]
+  bank_name varchar(100) [not null]
+  borrower_name varchar(150) [not null]
+  dossier_code varchar(80) [not null, unique]
+  dossier_title varchar(255) [not null]
+  dossier_type varchar(40) [not null, default: 'RENEWAL']
+  proposed_limit_amount decimal(18,2) [not null, default: 0.00]
+  approved_limit_amount decimal(18,2)
+  submission_date date
+  approval_date date
+  expiry_review_date date
+  status varchar(30) [not null, default: 'PREPARING']
+  checklist_json text [not null]
+  responsible_person varchar(120)
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+Table collateral_assets {
+  asset_id bigserial [pk, increment]
+  asset_uuid uuid [not null, unique]
+  asset_code varchar(80) [not null, unique]
+  asset_name varchar(255) [not null]
+  asset_type varchar(50) [not null, default: 'REAL_ESTATE_LAND']
+  owner_name varchar(200) [not null]
+  owner_id_or_tax_code varchar(50)
+  ownership_relation varchar(50) [not null, default: 'BORROWER_OWNED']
+  borrower_name varchar(150)
+  bank_code varchar(20)
+  bank_name varchar(100)
+  agreement_id bigint
+  appraised_value decimal(18,2) [not null, default: 0.00]
+  ltv_ratio decimal(6,2) [not null, default: 70.00]
+  max_secured_loan_value decimal(18,2) [not null, default: 0.00]
+  currency varchar(5) [not null, default: 'VND']
+  collateral_status varchar(30) [not null, default: 'MORTGAGED']
+  latest_valuation_date date
+  certificate_number varchar(100)
+  address text
+  land_area_m2 decimal(14,2)
+  google_maps_url text
+  latitude decimal(10,7)
+  longitude decimal(10,7)
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+Table collateral_valuations {
+  valuation_id bigserial [pk, increment]
+  valuation_uuid uuid [not null, unique]
+  asset_id bigint [not null]
+  valuation_org varchar(255) [not null]
+  valuation_amount decimal(18,2) [not null, default: 0.00]
+  valuation_date date [not null]
+  report_file_name varchar(255)
+  report_storage_path varchar(500)
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+Table collateral_documents {
+  doc_id bigserial [pk, increment]
+  doc_uuid uuid [not null, unique]
+  asset_id bigint [not null]
+  doc_category varchar(50) [not null, default: 'RED_BOOK']
+  file_name varchar(255) [not null]
+  storage_path varchar(500) [not null]
+  file_size_bytes bigint [not null, default: 0]
+  mime_type varchar(100) [not null]
+  description text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+Table post_loan_covenants {
+  covenant_id bigserial [pk, increment]
+  covenant_uuid uuid [not null, unique]
+  agreement_id bigint [not null]
+  loan_id bigint
+  bank_code varchar(20) [not null]
+  bank_name varchar(100) [not null]
+  borrower_name varchar(150) [not null]
+  covenant_title varchar(255) [not null]
+  covenant_category varchar(50) [not null]
+  frequency varchar(30) [not null]
+  period_start date
+  due_date date [not null]
+  target_value decimal(18,2)
+  actual_value decimal(18,2)
+  unit varchar(30) [not null, default: 'VND']
+  compliance_status varchar(30) [not null, default: 'IN_PROGRESS']
+  responsible_person varchar(120)
+  notes text
+  created_at timestamp [default: `CURRENT_TIMESTAMP`]
+  updated_at timestamp [default: `CURRENT_TIMESTAMP`]
+}
+
+Ref: credit_facilities.agreement_id > credit_agreements.agreement_id [delete: set null]
+Ref: credit_limit_dossiers.agreement_id > credit_agreements.agreement_id [delete: set null]
+Ref: collateral_assets.agreement_id > credit_agreements.agreement_id [delete: set null]
+Ref: collateral_valuations.asset_id > collateral_assets.asset_id [delete: cascade]
+Ref: collateral_documents.asset_id > collateral_assets.asset_id [delete: cascade]
+Ref: post_loan_covenants.agreement_id > credit_agreements.agreement_id [delete: cascade]

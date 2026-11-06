@@ -531,6 +531,7 @@ CREATE TABLE loan_invoice_allocations (
     allocated_amount DECIMAL(18, 2) NOT NULL,               -- Số tiền nhận nợ trên hóa đơn này
     allocation_date DATE NOT NULL DEFAULT CURRENT_DATE,     -- Ngày phân bổ nhận nợ
     notes TEXT,                                             -- Ghi chú phân bổ
+    is_manual BOOLEAN NOT NULL DEFAULT FALSE,               -- Cờ đánh dấu người dùng đã sửa/gán thủ công (ưu tiên bảo vệ khi cuốn chiếu)
     created_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -681,3 +682,205 @@ SELECT
     (l.total_consolidated_liquidity - d.total_upcoming_debt) AS net_liquidity_position,
     CURRENT_DATE AS as_of_date
 FROM liquidity l CROSS JOIN debt d;
+
+-- =============================================================================
+-- 18. BẢNG CẤU HÌNH KẾ HOẠCH TẤT TOÁN & ĐẢO NỢ HẰNG THÁNG (DEBT ROLLOVER PLAN CONFIGS)
+-- Lưu trữ cấu hình hạn mức dòng tiền HĐKD (OCF), kỳ hạn ngân hàng, lệnh khóa & tất toán đứt
+-- =============================================================================
+CREATE TABLE debt_rollover_plan_configs (
+    config_id BIGSERIAL PRIMARY KEY,
+    borrower_name VARCHAR(255) NOT NULL DEFAULT 'DEFAULT',
+    horizon_months INTEGER NOT NULL DEFAULT 12,
+    default_monthly_ocf DECIMAL(18, 2) NOT NULL DEFAULT 10000000000.00,
+    default_rollover_term_months INTEGER NOT NULL DEFAULT 6,
+    monthly_ocf_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
+    bank_term_overrides JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payoff_contract_numbers JSONB NOT NULL DEFAULT '[]'::jsonb,
+    locked_rollover_actions JSONB NOT NULL DEFAULT '[]'::jsonb,
+    priority_rules JSONB NOT NULL DEFAULT '[]'::jsonb,
+    custom_bank_order JSONB NOT NULL DEFAULT '[]'::jsonb,
+    updated_by VARCHAR(100) DEFAULT 'System',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_debt_rollover_borrower UNIQUE (borrower_name)
+);
+
+CREATE INDEX idx_debt_rollover_borrower ON debt_rollover_plan_configs(borrower_name);
+
+-- =============================================================================
+-- 19. PHÂN HỆ QUẢN LÝ HẠN MỨC (HỢP ĐỒNG TÍN DỤNG, HỒ SƠ HẠN MỨC, TSĐB, CAM KẾT SAU VAY)
+-- =============================================================================
+
+CREATE TABLE credit_agreements (
+    agreement_id BIGSERIAL PRIMARY KEY,
+    agreement_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    bank_id BIGINT REFERENCES banks(bank_id) ON DELETE SET NULL,
+    bank_code VARCHAR(20) NOT NULL,
+    bank_name VARCHAR(100) NOT NULL,
+    agreement_number VARCHAR(100) NOT NULL,
+    agreement_name VARCHAR(255) NOT NULL,
+    borrower_name VARCHAR(150) NOT NULL,
+    total_credit_limit DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    loan_sublimit DECIMAL(18, 2),
+    guarantee_sublimit DECIMAL(18, 2),
+    lc_sublimit DECIMAL(18, 2),
+    currency VARCHAR(5) NOT NULL DEFAULT 'VND',
+    signed_date DATE,
+    effective_from DATE NOT NULL,
+    effective_to DATE NOT NULL,
+    interest_rate_framework VARCHAR(255),
+    collateral_summary TEXT,
+    status VARCHAR(30) NOT NULL DEFAULT 'ACTIVE',
+    parent_agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL,
+    renewed_to_agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL,
+    notes TEXT,
+    created_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT uq_credit_agreement_bank_number UNIQUE (bank_code, agreement_number)
+);
+
+ALTER TABLE credit_facilities ADD COLUMN IF NOT EXISTS agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL;
+
+CREATE TABLE credit_limit_dossiers (
+    dossier_id BIGSERIAL PRIMARY KEY,
+    dossier_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL,
+    bank_code VARCHAR(20) NOT NULL,
+    bank_name VARCHAR(100) NOT NULL,
+    borrower_name VARCHAR(150) NOT NULL,
+    dossier_code VARCHAR(80) NOT NULL UNIQUE,
+    dossier_title VARCHAR(255) NOT NULL,
+    dossier_type VARCHAR(40) NOT NULL DEFAULT 'RENEWAL',
+    proposed_limit_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    approved_limit_amount DECIMAL(18, 2),
+    submission_date DATE,
+    approval_date DATE,
+    expiry_review_date DATE,
+    status VARCHAR(30) NOT NULL DEFAULT 'PREPARING',
+    checklist_json TEXT NOT NULL DEFAULT '[]',
+    responsible_person VARCHAR(120),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE credit_limit_dossier_files (
+    file_id BIGSERIAL PRIMARY KEY,
+    file_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    dossier_id BIGINT NOT NULL REFERENCES credit_limit_dossiers(dossier_id) ON DELETE CASCADE,
+    category VARCHAR(50) NOT NULL DEFAULT 'LEGAL',
+    file_name VARCHAR(255) NOT NULL,
+    storage_path VARCHAR(500) NOT NULL,
+    file_size_bytes BIGINT NOT NULL DEFAULT 0,
+    mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
+    description TEXT,
+    uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE collateral_assets (
+    asset_id BIGSERIAL PRIMARY KEY,
+    asset_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    asset_code VARCHAR(80) NOT NULL UNIQUE,
+    asset_name VARCHAR(255) NOT NULL,
+    asset_type VARCHAR(50) NOT NULL DEFAULT 'REAL_ESTATE_LAND',
+    owner_name VARCHAR(200) NOT NULL,
+    owner_id_or_tax_code VARCHAR(50),
+    ownership_relation VARCHAR(50) NOT NULL DEFAULT 'BORROWER_OWNED',
+    borrower_name VARCHAR(150),
+    bank_code VARCHAR(20),
+    bank_name VARCHAR(100),
+    agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL,
+    appraised_value DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    ltv_ratio DECIMAL(6, 2) NOT NULL DEFAULT 70.00,
+    max_secured_loan_value DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    currency VARCHAR(5) NOT NULL DEFAULT 'VND',
+    collateral_status VARCHAR(30) NOT NULL DEFAULT 'MORTGAGED',
+    latest_valuation_date DATE,
+    certificate_number VARCHAR(100),
+    certificate_issue_date DATE,
+    certificate_issued_by VARCHAR(200),
+    address TEXT,
+    land_area_m2 DECIMAL(14, 2),
+    google_maps_url TEXT,
+    latitude DECIMAL(10, 7),
+    longitude DECIMAL(10, 7),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE collateral_valuations (
+    valuation_id BIGSERIAL PRIMARY KEY,
+    valuation_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    asset_id BIGINT NOT NULL REFERENCES collateral_assets(asset_id) ON DELETE CASCADE,
+    valuation_org VARCHAR(255) NOT NULL,
+    valuation_amount DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
+    valuation_date DATE NOT NULL,
+    valuer_name VARCHAR(150),
+    report_number VARCHAR(100),
+    report_file_name VARCHAR(255),
+    report_storage_path VARCHAR(500),
+    report_file_size BIGINT,
+    report_mime_type VARCHAR(100),
+    notes TEXT,
+    created_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE collateral_documents (
+    doc_id BIGSERIAL PRIMARY KEY,
+    doc_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    asset_id BIGINT NOT NULL REFERENCES collateral_assets(asset_id) ON DELETE CASCADE,
+    doc_category VARCHAR(50) NOT NULL DEFAULT 'RED_BOOK',
+    file_name VARCHAR(255) NOT NULL,
+    storage_path VARCHAR(500) NOT NULL,
+    file_size_bytes BIGINT NOT NULL DEFAULT 0,
+    mime_type VARCHAR(100) NOT NULL DEFAULT 'application/pdf',
+    description TEXT,
+    uploaded_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE collateral_agreement_history (
+    history_id BIGSERIAL PRIMARY KEY,
+    asset_id BIGINT NOT NULL REFERENCES collateral_assets(asset_id) ON DELETE CASCADE,
+    from_agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL,
+    from_agreement_number VARCHAR(100),
+    to_agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL,
+    to_agreement_number VARCHAR(100),
+    bank_code VARCHAR(20),
+    action_type VARCHAR(40) NOT NULL DEFAULT 'INITIAL_MORTGAGE',
+    effective_date DATE NOT NULL,
+    notes TEXT,
+    performed_by VARCHAR(100) NOT NULL DEFAULT 'SYSTEM',
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE post_loan_covenants (
+    covenant_id BIGSERIAL PRIMARY KEY,
+    covenant_uuid UUID NOT NULL DEFAULT uuid_generate_v4() UNIQUE,
+    agreement_id BIGINT NOT NULL REFERENCES credit_agreements(agreement_id) ON DELETE CASCADE,
+    loan_id BIGINT REFERENCES credit_facilities(loan_id) ON DELETE SET NULL,
+    bank_code VARCHAR(20) NOT NULL,
+    bank_name VARCHAR(100) NOT NULL,
+    borrower_name VARCHAR(150) NOT NULL,
+    covenant_title VARCHAR(255) NOT NULL,
+    covenant_category VARCHAR(50) NOT NULL DEFAULT 'CASHFLOW_TURNOVER',
+    frequency VARCHAR(30) NOT NULL DEFAULT 'QUARTERLY',
+    linked_account_id BIGINT REFERENCES bank_accounts(account_id) ON DELETE SET NULL,
+    linked_account_number VARCHAR(50),
+    period_start DATE,
+    due_date DATE NOT NULL,
+    target_value DECIMAL(18, 2),
+    actual_value DECIMAL(18, 2),
+    unit VARCHAR(30) NOT NULL DEFAULT 'VND',
+    compliance_status VARCHAR(30) NOT NULL DEFAULT 'IN_PROGRESS',
+    evidence_file_name VARCHAR(255),
+    evidence_storage_path VARCHAR(500),
+    responsible_person VARCHAR(120),
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);

@@ -11,6 +11,7 @@ import {
   ChevronsUpDown,
 } from 'lucide-react';
 import { CreditFacility } from '../../types';
+import { useCorporateEntity, PRESET_CORPORATE_ENTITIES } from '../../contexts/CorporateEntityContext';
 
 interface MonthlyDueStackedChartProps {
   loans: CreditFacility[];
@@ -23,6 +24,7 @@ interface LoanItemProcessed {
   bank_code: string;
   bank_name: string;
   borrower_name: string;
+  borrower_short: string;
   due_date: string; // YYYY-MM-DD
   month_key: string; // YYYY-MM
   month_label: string; // Tháng MM/YYYY
@@ -37,6 +39,42 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
   loans,
   formatVND,
 }) => {
+  const { entities } = useCorporateEntity();
+
+  // Rút gọn tên doanh nghiệp (ví dụ: CONG TY CO PHAN XI MANG SUNRISE -> Xi măng Sunrise)
+  const formatShortCompanyName = (rawName: string | undefined | null): string => {
+    if (!rawName) return 'Doanh nghiệp';
+    const stripAccents = (s: string) =>
+      s
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/gi, 'd')
+        .toUpperCase()
+        .trim();
+
+    const norm = stripAccents(rawName);
+    const allEntities = [...entities, ...PRESET_CORPORATE_ENTITIES];
+    for (const ent of allEntities) {
+      if (ent.id === 'ALL') continue;
+      const entNorm = stripAccents(ent.name || '');
+      const shortNorm = stripAccents(ent.shortName || '');
+      if (
+        (entNorm && (norm.includes(entNorm) || entNorm.includes(norm))) ||
+        (shortNorm && norm.includes(shortNorm))
+      ) {
+        return ent.shortName;
+      }
+    }
+
+    if (norm.includes('SUNRISE')) return 'Xi măng Sunrise';
+    if (norm.includes('HUONG DUONG')) return 'TM & PT Hướng Dương';
+    if (norm.includes('LAN ANH')) return 'Bà Lan Anh (CEO)';
+
+    return rawName
+      .replace(/^(CÔNG TY CỔ PHẦN|CONG TY CO PHAN|CTCP)\s+/i, 'CTCP ')
+      .replace(/^(CÔNG TY TNHH|CONG TY TNHH)\s+/i, 'TNHH ')
+      .trim();
+  };
   // Dropdown open/close state for detail breakdown table (default open)
   const [isTableOpen, setIsTableOpen] = useState<boolean>(true);
 
@@ -97,6 +135,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
         bank_code: (l.bank_code || 'OTHER').trim().toUpperCase(),
         bank_name: l.bank_name || l.bank_code || 'Chưa rõ',
         borrower_name: l.borrower_name || 'Doanh nghiệp',
+        borrower_short: formatShortCompanyName(l.borrower_name),
         due_date: dateStr,
         month_key,
         month_label,
@@ -108,7 +147,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
       });
     });
     return list;
-  }, [loans]);
+  }, [loans, entities]);
 
   // Group by Month (sorted chronologically from left to right)
   const monthsData = useMemo(() => {
@@ -331,7 +370,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
               </span>
               <span>•</span>
               <span className="text-slate-500 italic truncate max-w-xs" title={hoveredLoan.borrower_name}>
-                {hoveredLoan.borrower_name}
+                {hoveredLoan.borrower_short}
               </span>
             </div>
           ) : (
@@ -415,35 +454,49 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
               </div>
             </div>
 
-            {/* Scrollable Transposed Table Container */}
-            <div className="overflow-x-auto max-h-[640px]">
-              <table className="w-full border-collapse text-xs text-left min-w-[1000px]">
+            {/* Transposed Table Container: Fixed Layout, Equal Bank Columns, Fits Page Width Without Horizontal Overflow */}
+            <div className="w-full overflow-x-hidden overflow-y-auto max-h-[640px]">
+              <table className="w-full table-fixed border-collapse text-xs text-left">
+                <colgroup>
+                  {/* Cột 1: Kỳ Hạn Đáo Hạn */}
+                  <col className="w-[155px]" />
+                  {/* Cột 2..N: Các cột Ngân hàng luôn có độ rộng bằng nhau tuyệt đối */}
+                  {banksList.map((bank) => (
+                    <col key={`col-${bank.bank_code}`} />
+                  ))}
+                  {/* Cột Cuối: Tổng Gốc Đến Hạn */}
+                  <col className="w-[135px]" />
+                </colgroup>
+
                 {/* TABLE HEAD: COLUMNS = BANKS */}
                 <thead>
                   <tr className="bg-slate-100 text-slate-800 border-b-2 border-slate-300">
                     {/* Column 1: Time Dimension (Month / Day) */}
-                    <th className="sticky left-0 z-20 bg-slate-100 px-3.5 py-3 font-bold border-r border-slate-300 min-w-[220px] shadow-xs">
+                    <th className="px-2.5 py-2.5 font-bold border-r border-slate-300 bg-slate-100 align-top">
                       <div className="flex items-center gap-1.5 text-slate-800">
-                        <Calendar className="w-4 h-4 text-indigo-600" />
-                        <span>Kỳ Hạn Đáo Hạn</span>
+                        <Calendar className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                        <span className="leading-tight break-words">Kỳ Hạn Đáo Hạn</span>
                       </div>
                     </th>
 
-                    {/* Columns 2..N: Bank Organizations */}
+                    {/* Columns 2..N: Bank Organizations (Equal Width, Wrap Long Names) */}
                     {banksList.map((bank) => (
                       <th
                         key={bank.bank_code}
-                        className="px-3 py-3 text-center font-bold border-r border-slate-200 min-w-[190px] bg-slate-100/90"
+                        className="px-1.5 py-2.5 text-center font-bold border-r border-slate-200 bg-slate-100/90 align-top break-words"
                       >
-                        <div className="flex items-center justify-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded bg-white text-indigo-700 font-black text-xs border border-indigo-200 shadow-2xs">
+                        <div className="flex flex-wrap items-center justify-center gap-1">
+                          <span className="px-1.5 py-0.5 rounded bg-white text-indigo-700 font-black text-[11px] border border-indigo-200 shadow-2xs shrink-0">
                             {bank.bank_code}
                           </span>
-                          <span className="truncate max-w-[120px] text-slate-900" title={bank.bank_name}>
+                          <span
+                            className="text-slate-900 text-[11px] leading-tight whitespace-normal break-words"
+                            title={bank.bank_name}
+                          >
                             {bank.bank_name}
                           </span>
                         </div>
-                        <div className="text-[11px] font-semibold text-slate-600 mt-1">
+                        <div className="text-[11px] font-semibold text-slate-700 mt-1 leading-tight break-words">
                           {formatVND(bank.total)}
                         </div>
                         <div className="text-[10px] text-slate-500 font-normal">
@@ -453,7 +506,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                     ))}
 
                     {/* Column Right: Row Total (All banks in this period) */}
-                    <th className="px-3.5 py-3 font-bold text-right bg-slate-200 text-slate-900 min-w-[180px]">
+                    <th className="px-2.5 py-2.5 font-bold text-right bg-slate-200 text-slate-900 align-top break-words">
                       Tổng Gốc Đến Hạn
                     </th>
                   </tr>
@@ -478,43 +531,37 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                         >
                           {/* Column 1: Month Name & Expand/Collapse Toggle */}
                           <td
-                            className={`sticky left-0 z-10 px-3.5 py-3 font-bold border-r border-slate-200 shadow-xs cursor-pointer select-none align-top ${
+                            className={`px-2.5 py-2.5 font-bold border-r border-slate-200 cursor-pointer select-none align-top ${
                               isExpanded ? 'bg-indigo-100/80 text-indigo-950' : 'bg-white text-slate-900 hover:bg-slate-50'
                             }`}
                             onClick={() => toggleMonthExpansion(m.month_key)}
                           >
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="flex items-start gap-2">
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleMonthExpansion(m.month_key);
-                                  }}
-                                  className={`p-1 mt-0.5 rounded text-[11px] font-bold flex items-center justify-center border transition-all ${
-                                    isExpanded
-                                      ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
-                                      : 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200'
-                                  }`}
-                                  title={isExpanded ? 'Thu gọn xem tóm tắt tháng' : 'Mở rộng xem chi tiết từng ngày'}
-                                >
-                                  {isExpanded ? (
-                                    <Minus className="w-3.5 h-3.5" />
-                                  ) : (
-                                    <Plus className="w-3.5 h-3.5" />
-                                  )}
-                                </button>
-                                <div>
-                                  <span className="text-sm font-bold block text-slate-900">{m.label}</span>
-                                  <span className="text-[10px] font-normal text-slate-500 block">
-                                    {m.days.length} ngày phát sinh • {m.loans.length} HĐ
-                                  </span>
-                                </div>
+                            <div className="flex items-start gap-1.5">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleMonthExpansion(m.month_key);
+                                }}
+                                className={`p-1 mt-0.5 rounded text-[11px] font-bold flex items-center justify-center border transition-all shrink-0 ${
+                                  isExpanded
+                                    ? 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                                    : 'bg-indigo-100 text-indigo-800 border-indigo-300 hover:bg-indigo-200'
+                                }`}
+                                title={isExpanded ? 'Thu gọn xem tóm tắt tháng' : 'Mở rộng xem chi tiết từng ngày'}
+                              >
+                                {isExpanded ? (
+                                  <Minus className="w-3 h-3" />
+                                ) : (
+                                  <Plus className="w-3 h-3" />
+                                )}
+                              </button>
+                              <div className="min-w-0">
+                                <span className="text-xs font-bold block text-slate-900 leading-tight">{m.label}</span>
+                                <span className="text-[10px] font-normal text-slate-500 block leading-tight mt-0.5">
+                                  {m.days.length} ngày • {m.loans.length} HĐ
+                                </span>
                               </div>
-
-                              <span className="text-[10px] font-medium text-slate-400 mt-0.5 whitespace-nowrap">
-                                {isExpanded ? 'Đang mở' : 'Bấm để mở'}
-                              </span>
                             </div>
                           </td>
 
@@ -528,11 +575,11 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                               return (
                                 <td
                                   key={`col-month-${bank.bank_code}-${m.month_key}`}
-                                  className="px-3 py-3 border-r border-slate-100 align-top text-center"
+                                  className="px-1.5 py-2.5 border-r border-slate-100 align-top text-center break-words"
                                 >
                                   {bankMonthTotal > 0 ? (
                                     <div className="space-y-0.5">
-                                      <span className="text-xs font-bold text-slate-900 block">
+                                      <span className="text-[11px] font-bold text-slate-900 block leading-tight break-words">
                                         {formatVND(bankMonthTotal)}
                                       </span>
                                       <span className="text-[10px] text-slate-500 font-medium block">
@@ -550,11 +597,11 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                             return (
                               <td
                                 key={`col-month-exp-${bank.bank_code}-${m.month_key}`}
-                                className="px-3 py-3 border-r border-indigo-200/60 align-top text-center bg-indigo-50/40"
+                                className="px-1.5 py-2.5 border-r border-indigo-200/60 align-top text-center bg-indigo-50/40 break-words"
                               >
                                 {bankMonthTotal > 0 ? (
                                   <div className="space-y-0.5">
-                                    <span className="text-xs font-bold text-indigo-950 block">
+                                    <span className="text-[11px] font-bold text-indigo-950 block leading-tight break-words">
                                       {formatVND(bankMonthTotal)}
                                     </span>
                                     <span className="text-[10px] text-indigo-700 font-medium block">
@@ -569,8 +616,8 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                           })}
 
                           {/* Column Right: Month Total */}
-                          <td className="px-3.5 py-3 text-right font-black text-slate-900 bg-slate-100/70 align-top">
-                            <span className="text-xs block">{formatVND(m.total)}</span>
+                          <td className="px-2.5 py-2.5 text-right font-black text-slate-900 bg-slate-100/70 align-top break-words">
+                            <span className="text-[11px] block leading-tight">{formatVND(m.total)}</span>
                             <span className="text-[10px] text-slate-500 font-normal block">
                               {m.loans.length} HĐ
                             </span>
@@ -587,12 +634,12 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                               className="bg-white hover:bg-slate-50/80 transition-colors border-b border-slate-100"
                             >
                               {/* Column 1: Indented Day Cell */}
-                              <td className="sticky left-0 z-10 bg-white hover:bg-slate-50 px-3.5 py-2 pl-9 border-r border-slate-200 shadow-xs">
-                                <div className="flex items-center gap-1.5 text-slate-800">
-                                  <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                                  <span className="font-bold text-xs">Ngày {d.day_key}</span>
+                              <td className="bg-white hover:bg-slate-50 px-2.5 py-2 pl-5 border-r border-slate-200 align-top">
+                                <div className="flex items-center gap-1 text-slate-800">
+                                  <Calendar className="w-3 h-3 text-indigo-500 shrink-0" />
+                                  <span className="font-bold text-[11px] leading-tight">Ngày {d.day_key}</span>
                                 </div>
-                                <span className="text-[10px] text-slate-500 block pl-5">
+                                <span className="text-[10px] text-slate-500 block pl-4">
                                   {d.loans.length} HĐ đến hạn
                                 </span>
                               </td>
@@ -605,35 +652,39 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                                 return (
                                   <td
                                     key={`cell-day-${bank.bank_code}-${d.day_key}`}
-                                    className="px-2.5 py-2 border-r border-slate-100 align-top text-center"
+                                    className="px-1.5 py-1.5 border-r border-slate-100 align-top text-center overflow-hidden"
                                   >
                                     {bankDayLoans.length === 0 ? (
                                       <span className="text-slate-300 font-light">-</span>
                                     ) : (
                                       <div className="space-y-1.5 text-left">
-                                        {/* THẺ CON TỪNG KHẾ ƯỚC TRONG NGÀY: SỐ TIỀN ĐẦY ĐỦ KHÔNG RÚT GỌN */}
+                                        {/* THẺ CON TỪNG KHẾ ƯỚC TRONG NGÀY: TÊN CÔNG TY VIẾT TẮT, TỰ XUỐNG DÒNG KHI DÀI */}
                                         {bankDayLoans.map((l) => (
                                           <div
                                             key={l.contract_number}
-                                            className="p-2 bg-white hover:bg-indigo-50/80 border border-slate-200 hover:border-indigo-300 rounded transition-all text-left shadow-2xs group cursor-pointer"
+                                            className="p-1.5 bg-white hover:bg-indigo-50/80 border border-slate-200 hover:border-indigo-300 rounded transition-all text-left shadow-2xs group cursor-pointer break-words"
                                             title={`HĐ: ${l.contract_number}\nChủ thể: ${l.borrower_name}\nĐến hạn: ${l.day_key}\nNghĩa vụ: ${formatVND(l.obligation)}`}
                                           >
-                                            <div className="flex items-center justify-between gap-1 text-[11px] font-bold text-indigo-950">
-                                              <span className="font-mono tracking-tight">{l.contract_number}</span>
+                                            <div className="text-[10px] font-bold text-indigo-950 font-mono leading-tight break-all">
+                                              {l.contract_number}
                                             </div>
                                             {/* SỐ TIỀN ĐẦY ĐỦ KHÔNG RÚT GỌN */}
-                                            <div className="text-xs font-bold text-slate-900 mt-1">
+                                            <div className="text-[11px] font-bold text-slate-900 mt-0.5 leading-tight break-words">
                                               {formatVND(l.obligation)}
                                             </div>
-                                            <div className="text-[10px] text-slate-500 truncate mt-0.5" title={l.borrower_name}>
-                                              {l.borrower_name}
+                                            {/* TÊN CÔNG TY VIẾT TẮT, NẾU DÀI QUÁ THÌ XUỐNG DÒNG */}
+                                            <div
+                                              className="text-[10px] text-slate-500 mt-0.5 leading-tight whitespace-normal break-words"
+                                              title={l.borrower_name}
+                                            >
+                                              {l.borrower_short}
                                             </div>
                                           </div>
                                         ))}
 
                                         {/* Subtotal if multiple loans on same day */}
                                         {bankDayLoans.length > 1 && (
-                                          <div className="text-[10px] font-bold text-indigo-900 text-right pt-0.5 border-t border-slate-200">
+                                          <div className="text-[10px] font-bold text-indigo-900 text-right pt-0.5 border-t border-slate-200 break-words">
                                             Tổng: {formatVND(bankDayTotal)}
                                           </div>
                                         )}
@@ -644,8 +695,8 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                               })}
 
                               {/* Day Row Total */}
-                              <td className="px-3.5 py-2 text-right font-bold text-slate-800 bg-slate-50">
-                                <span className="text-xs block">{formatVND(d.total)}</span>
+                              <td className="px-2.5 py-2 text-right font-bold text-slate-800 bg-slate-50 align-top break-words">
+                                <span className="text-[11px] block leading-tight">{formatVND(d.total)}</span>
                                 <span className="text-[10px] text-slate-500 font-normal">
                                   {d.loans.length} HĐ
                                 </span>
@@ -660,10 +711,10 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                 {/* TABLE FOOTER: SUMMARY ROW ACROSS ALL BANKS */}
                 <tfoot>
                   <tr className="bg-slate-200 text-slate-900 font-bold border-t-2 border-slate-400">
-                    <td className="sticky left-0 z-10 bg-slate-200 px-3.5 py-3 border-r border-slate-300 shadow-xs">
-                      <div className="font-black text-xs text-slate-900">TỔNG CỘNG THEO NGÂN HÀNG</div>
-                      <div className="text-[10px] text-slate-600 font-normal">
-                        Toàn bộ {processedLoans.length} khế ước đáo hạn
+                    <td className="bg-slate-200 px-2.5 py-2.5 border-r border-slate-300 align-top break-words">
+                      <div className="font-black text-[11px] text-slate-900 leading-tight">TỔNG CỘNG NGÂN HÀNG</div>
+                      <div className="text-[10px] text-slate-600 font-normal mt-0.5">
+                        {processedLoans.length} khế ước đáo hạn
                       </div>
                     </td>
 
@@ -671,9 +722,9 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                     {banksList.map((bank) => (
                       <td
                         key={`foot-${bank.bank_code}`}
-                        className="px-3 py-3 text-right border-r border-slate-300"
+                        className="px-1.5 py-2.5 text-center border-r border-slate-300 align-top break-words"
                       >
-                        <span className="text-xs font-black text-slate-900 block">
+                        <span className="text-[11px] font-black text-slate-900 block leading-tight break-words">
                           {formatVND(bank.total)}
                         </span>
                         <span className="text-[10px] text-slate-600 font-normal">
@@ -683,8 +734,8 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                     ))}
 
                     {/* Grand Total */}
-                    <td className="px-3.5 py-3 text-right font-black text-xs text-indigo-950 bg-indigo-100/90 border-l border-slate-300">
-                      <span className="text-sm block">{formatVND(grandTotal)}</span>
+                    <td className="px-2.5 py-2.5 text-right font-black text-xs text-indigo-950 bg-indigo-100/90 border-l border-slate-300 align-top break-words">
+                      <span className="text-xs block leading-tight">{formatVND(grandTotal)}</span>
                       <span className="text-[10px] text-indigo-800 font-normal">
                         100% dư nợ gốc
                       </span>

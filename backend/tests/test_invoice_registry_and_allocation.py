@@ -315,3 +315,144 @@ async def test_sync_invoices_from_loan_dossiers(db_session: AsyncSession):
     assert sample_inv.has_pdf is True
     assert sample_inv.total_amount > Decimal("0.00")
 
+
+
+@pytest.mark.asyncio
+async def test_manual_allocation_priority_over_rolling_sync(db_session: AsyncSession):
+    """
+    Kiểm tra nguyên tắc Ưu tiên Bản sửa thủ công của người dùng:
+    Khi người dùng đã sửa/gán thủ công một hóa đơn,
+    kể cả khi chạy Đồng bộ cuốn chiếu (force_recalculate=True),
+    hệ thống TUYỆT ĐỐI BẢO VỆ số tiền thủ công của người dùng,
+    chỉ tự động cuốn chiếu phần dư nợ còn thiếu trên các hóa đơn còn lại.
+    """
+    from app.models.credit import DisbursementDocument
+
+    # 1. Dọn dẹp trước nếu có dữ liệu cũ
+    old_loans = (await db_session.execute(
+        select(CreditFacility.loan_id).where(CreditFacility.contract_number == "TEST_HDTD_MANUAL_PRIORITY")
+    )).scalars().all()
+    if old_loans:
+        await db_session.execute(delete(LoanInvoiceAllocation).where(LoanInvoiceAllocation.loan_id.in_(old_loans)))
+        await db_session.execute(delete(DisbursementDocument).where(DisbursementDocument.loan_id.in_(old_loans)))
+        await db_session.execute(delete(CreditFacility).where(CreditFacility.loan_id.in_(old_loans)))
+
+    old_invs = (await db_session.execute(
+        select(Invoice.invoice_id).where(Invoice.invoice_number.in_(["TEST_MAN_001", "TEST_MAN_002"]))
+    )).scalars().all()
+    if old_invs:
+        await db_session.execute(delete(LoanInvoiceAllocation).where(LoanInvoiceAllocation.invoice_id.in_(old_invs)))
+        await db_session.execute(delete(Invoice).where(Invoice.invoice_id.in_(old_invs)))
+    await db_session.commit()
+
+    # 2. Tạo 2 hóa đơn
+    from datetime import date
+    inv1 = Invoice(
+        invoice_number="TEST_MAN_001",
+        invoice_series="C26MAN",
+        invoice_date=date(2026, 11, 1),
+        seller_tax_code="0101010101",
+        seller_name="CÔNG TY CỔ PHẦN VẬT TƯ A",
+        buyer_tax_code="0109730501",
+        buyer_name="SUNRISE",
+        total_amount=Decimal("50000000.00"),
+        remaining_amount=Decimal("50000000.00"),
+        status="AVAILABLE",
+    )
+    inv2 = Invoice(
+        invoice_number="TEST_MAN_002",
+        invoice_series="C26MAN",
+        invoice_date=date(2026, 11, 2),
+        seller_tax_code="0202020202",
+        seller_name="CÔNG TY CỔ PHẦN VẬT TƯ B",
+        buyer_tax_code="0109730501",
+        buyer_name="SUNRISE",
+        total_amount=Decimal("80000000.00"),
+        remaining_amount=Decimal("80000000.00"),
+        status="AVAILABLE",
+    )
+    db_session.add_all([inv1, inv2])
+    await db_session.flush()
+
+    # 3. Tạo khoản vay 100 triệu
+    loan = CreditFacility(
+        bank_code="MBB",
+        bank_name="Ngân hàng TMCP Quân Đội",
+        contract_number="TEST_HDTD_MANUAL_PRIORITY",
+        borrower_name="SUNRISE",
+        original_principal_balance=Decimal("100000000.00"),
+        current_principal_balance=Decimal("100000000.00"),
+    )
+    db_session.add(loan)
+    await db_session.flush()
+
+    # 4. Tạo hồ sơ giải ngân chứa 2 hóa đơn này
+    doc1 = DisbursementDocument(
+        loan_id=loan.loan_id,
+        file_name="TEST_MAN_001.xml",
+        storage_path="statements/MBB/2026/doc1.xml",
+        file_size_bytes=1024,
+        file_sha256="fake_sha256_man_1",
+        mime_type="text/xml",
+        document_type="INVOICE",
+        invoice_id=inv1.invoice_id,
+    )
+    doc2 = DisbursementDocument(
+        loan_id=loan.loan_id,
+        file_name="TEST_MAN_002.xml",
+        storage_path="statements/MBB/2026/doc2.xml",
+        file_size_bytes=1024,
+        file_sha256="fake_sha256_man_2",
+        mime_type="text/xml",
+        document_type="INVOICE",
+        invoice_id=inv2.invoice_id,
+    )
+    db_session.add_all([doc1, doc2])
+    await db_session.commit()
+
+    # 5. Người dùng sửa thủ công: gán cho inv1 số tiền 30,000,000 đ (thay vì 50,000,000)
+    manual_res = await invoice_service.allocate_invoices_to_loan(
+        db=db_session,
+        loan_id=loan.loan_id,
+        allocation_items=[
+            SingleAllocationItem(
+                invoice_id=inv1.invoice_id,
+                allocated_amount=Decimal("30000000.00"),
+                notes="Điều chỉnh thủ công từ kế toán",
+                is_manual=True,
+            )
+        ],
+        strict_principal_check=False,
+    )
+    assert len(manual_res.allocations) == 1
+    assert manual_res.allocations[0].allocated_amount == Decimal("30000000.00")
+    assert manual_res.allocations[0].is_manual is True
+
+    # 6. Người dùng bấm "Đồng Bộ Cuốn Chiếu" (force_recalculate=True)
+    # Kỳ vọng: Bản sửa thủ công 30 triệu của inv1 ĐƯỢC GIỮ NGUYÊN!
+    # Hệ thống chỉ tự động cuốn chiếu phần còn thiếu (100tr - 30tr = 70tr) sang inv2!
+    sync_res = await invoice_service.auto_sync_dossier_invoices_rolling(
+        db=db_session,
+        loan_id=loan.loan_id,
+        user="Chị Cẩm Nhung",
+        force_recalculate=True,
+    )
+    assert sync_res.is_fully_secured is True
+    assert sync_res.total_allocated_amount == Decimal("100000000.00")
+    assert len(sync_res.allocations) == 2
+
+    alloc_map = {a.invoice_id: a for a in sync_res.allocations}
+    # inv1 vẫn phải giữ nguyên 30 triệu và is_manual == True
+    assert alloc_map[inv1.invoice_id].allocated_amount == Decimal("30000000.00")
+    assert alloc_map[inv1.invoice_id].is_manual is True
+
+    # inv2 được tự động cuốn chiếu 70 triệu
+    assert alloc_map[inv2.invoice_id].allocated_amount == Decimal("70000000.00")
+    assert alloc_map[inv2.invoice_id].is_manual is False
+
+    # 7. Teardown 100% sạch sẽ
+    await db_session.execute(delete(LoanInvoiceAllocation).where(LoanInvoiceAllocation.loan_id == loan.loan_id))
+    await db_session.execute(delete(DisbursementDocument).where(DisbursementDocument.loan_id == loan.loan_id))
+    await db_session.execute(delete(CreditFacility).where(CreditFacility.loan_id == loan.loan_id))
+    await db_session.execute(delete(Invoice).where(Invoice.invoice_id.in_([inv1.invoice_id, inv2.invoice_id])))
+    await db_session.commit()
