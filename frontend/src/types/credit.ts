@@ -538,6 +538,11 @@ export interface LinkedCollateralBrief {
   requires_revaluation: boolean;
 }
 
+export interface SublimitItem {
+  name: string;
+  amount: number;
+}
+
 export interface CreditAgreement {
   agreement_id: number;
   agreement_uuid: string;
@@ -546,11 +551,19 @@ export interface CreditAgreement {
   bank_name: string;
   agreement_number: string;
   agreement_name: string;
+  entity_id?: number | null;
+  entity_code?: string | null;
+  entity_short_name?: string | null;
   borrower_name: string;
   total_credit_limit: number;
   loan_sublimit?: number | null;
   guarantee_sublimit?: number | null;
   lc_sublimit?: number | null;
+  sublimits_json?: string | null;
+  sublimits?: SublimitItem[];
+  contract_file_name?: string | null;
+  contract_file_path?: string | null;
+  contract_file_size?: number | null;
   currency: string;
   signed_date?: string | null;
   effective_from: string;

@@ -610,6 +610,17 @@ TableGroup audit_governance {
   audit_logs
 }
 
+TableGroup credit_limit_management {
+  credit_agreements
+  credit_limit_dossiers
+  credit_limit_dossier_files
+  collateral_assets
+  collateral_valuations
+  collateral_documents
+  collateral_agreement_history
+  post_loan_covenants
+}
+
 // =============================================================================
 // 6. PHÂN HỆ QUẢN LÝ HẠN MỨC, TÀI SẢN ĐẢM BẢO & CAM KẾT SAU VAY
 // =============================================================================
@@ -617,16 +628,21 @@ TableGroup audit_governance {
 Table credit_agreements {
   agreement_id bigserial [pk, increment]
   agreement_uuid uuid [not null, unique]
-  bank_id bigint
+  bank_id bigint [note: 'Khóa ngoại trỏ tới banks(bank_id) - Mỗi HĐTD gắn liền với 1 Ngân hàng']
   bank_code varchar(20) [not null]
   bank_name varchar(100) [not null]
   agreement_number varchar(100) [not null]
   agreement_name varchar(255) [not null]
+  entity_id bigint [note: 'ID Pháp nhân vay vốn (corporate_entities)']
   borrower_name varchar(150) [not null]
   total_credit_limit decimal(18,2) [not null, default: 0.00]
   loan_sublimit decimal(18,2)
   guarantee_sublimit decimal(18,2)
   lc_sublimit decimal(18,2)
+  sublimits_json text [default: '[]', note: 'Danh sách các loại hạn mức con tự định nghĩa JSON']
+  contract_file_name varchar(255) [note: 'Tên file scan PDF hợp đồng tín dụng']
+  contract_file_path varchar(500) [note: 'Đường dẫn lưu trữ file PDF HĐTD']
+  contract_file_size bigint [note: 'Kích thước file PDF (bytes)']
   currency varchar(5) [not null, default: 'VND']
   signed_date date
   effective_from date [not null]
@@ -750,3 +766,7 @@ Ref: collateral_assets.agreement_id > credit_agreements.agreement_id [delete: se
 Ref: collateral_valuations.asset_id > collateral_assets.asset_id [delete: cascade]
 Ref: collateral_documents.asset_id > collateral_assets.asset_id [delete: cascade]
 Ref: post_loan_covenants.agreement_id > credit_agreements.agreement_id [delete: cascade]
+Ref: credit_agreements.bank_id > banks.bank_id [delete: set null]
+Ref: credit_agreements.entity_id > corporate_entities.entity_id [delete: set null]
+Ref: credit_agreements.parent_agreement_id - credit_agreements.agreement_id [delete: set null]
+Ref: credit_agreements.renewed_to_agreement_id - credit_agreements.agreement_id [delete: set null]

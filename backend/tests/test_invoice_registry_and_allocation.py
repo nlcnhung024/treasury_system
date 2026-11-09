@@ -456,3 +456,88 @@ async def test_manual_allocation_priority_over_rolling_sync(db_session: AsyncSes
     await db_session.execute(delete(CreditFacility).where(CreditFacility.loan_id == loan.loan_id))
     await db_session.execute(delete(Invoice).where(Invoice.invoice_id.in_([inv1.invoice_id, inv2.invoice_id])))
     await db_session.commit()
+
+
+@pytest.mark.asyncio
+async def test_delete_dossier_invoice_deletes_debt_allocation(db_session: AsyncSession):
+    """
+    Kiểm tra liên kết chặt chẽ giữa Hồ sơ tệp hóa đơn và Số tiền nhận nợ:
+    Khi người dùng xóa file hóa đơn trong hồ sơ giải ngân, hệ thống bắt buộc phải
+    xóa luôn phần nhận nợ tương ứng bên dưới của khoản vay và hoàn lại hạn mức.
+    """
+    import uuid
+    from datetime import date
+    from app.models.credit import DisbursementDocument
+    from app.api.v1.credit_statements import delete_disbursement_document
+
+    # 1. Tạo khoản vay
+    loan = CreditFacility(
+        bank_code="MBB",
+        bank_name="MBBank",
+        contract_number="TEST_DELETE_LINK_001",
+        borrower_name="Công ty Test Liên Kết",
+        disbursement_date=date(2026, 9, 1),
+        maturity_date=date(2027, 3, 1),
+        original_principal_balance=Decimal("50000000.00"),
+        current_principal_balance=Decimal("50000000.00"),
+        interest_rate=Decimal("8.5"),
+    )
+    db_session.add(loan)
+    await db_session.flush()
+
+    # 2. Tạo hóa đơn trong kho
+    inv = Invoice(
+        invoice_uuid=uuid.uuid4(),
+        invoice_number="999888",
+        invoice_series="C26TTest",
+        invoice_template="1",
+        invoice_date=date(2026, 9, 1),
+        seller_tax_code="0101010101",
+        seller_name="NCC Test",
+        buyer_tax_code="0202020202",
+        buyer_name="Công ty Test Liên Kết",
+        total_amount=Decimal("50000000.00"),
+        allocated_amount=Decimal("0.00"),
+        remaining_amount=Decimal("50000000.00"),
+        status="AVAILABLE",
+    )
+    db_session.add(inv)
+    await db_session.flush()
+
+    # 3. Tạo tài liệu hóa đơn trong bộ hồ sơ giải ngân
+    doc = DisbursementDocument(
+        document_uuid=uuid.uuid4(),
+        loan_id=loan.loan_id,
+        invoice_id=inv.invoice_id,
+        file_name="0101010101_1_C26TTest_999888_01092026_ncctest.xml",
+        storage_path="disbursement_dossiers/MBB/TEST_DELETE_LINK_001/doc_test.xml",
+        file_size_bytes=1024,
+        file_sha256="testsha256",
+        mime_type="application/xml",
+        document_type="INVOICE",
+        invoice_number="999888",
+        invoice_total_amount=Decimal("50000000.00"),
+    )
+    db_session.add(doc)
+    await db_session.flush()
+
+    # 4. Chạy đồng bộ cuốn chiếu -> tạo phân bổ nhận nợ
+    sync_res = await invoice_service.auto_sync_dossier_invoices_rolling(
+        db=db_session,
+        loan_id=loan.loan_id,
+        user="Tester",
+    )
+    assert len(sync_res.allocations) == 1
+    assert sync_res.total_allocated_amount == Decimal("50000000.00")
+    assert sync_res.is_fully_secured is True
+
+    # 5. Thực thi XÓA FILE HÓA ĐƠN khỏi hồ sơ giải ngân
+    del_res = await delete_disbursement_document(document_id=doc.document_id, db=db_session)
+    assert del_res["deleted_allocation"] is True
+
+    # 6. Kiểm tra lại danh sách phân bổ nhận nợ của khoản vay
+    res_after = await invoice_service.get_loan_allocated_invoices(db=db_session, loan_id=loan.loan_id)
+    # Phần nợ bên dưới bắt buộc phải biến mất hoàn toàn (0 đ)
+    assert len(res_after.allocations) == 0
+    assert res_after.total_allocated_amount == Decimal("0.00")
+    assert res_after.is_fully_secured is False

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from app.models.bank import Bank
     from app.models.credit import CreditFacility
     from app.models.account import BankAccount
+    from app.models.corporate_entity import CorporateEntity
 
 
 class CreditAgreement(Base):
@@ -39,6 +40,7 @@ class CreditAgreement(Base):
     bank_name: Mapped[str] = mapped_column(String(100), nullable=False)
     agreement_number: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     agreement_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    entity_id: Mapped[Optional[int]] = mapped_column(BigInteger, ForeignKey("corporate_entities.entity_id", ondelete="SET NULL"), nullable=True, index=True)
     borrower_name: Mapped[str] = mapped_column(String(150), nullable=False, index=True)
 
     # Cơ cấu hạn mức
@@ -46,6 +48,10 @@ class CreditAgreement(Base):
     loan_sublimit: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
     guarantee_sublimit: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
     lc_sublimit: Mapped[Optional[Decimal]] = mapped_column(Numeric(18, 2), nullable=True)
+    sublimits_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True, default="[]")
+    contract_file_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    contract_file_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    contract_file_size: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     currency: Mapped[str] = mapped_column(String(5), nullable=False, default="VND")
 
     # Thời gian hiệu lực (Khế ước có ngày giải ngân trong khoảng này tự động gán vào HĐTD)
@@ -72,6 +78,8 @@ class CreditAgreement(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
+    bank: Mapped[Optional["Bank"]] = relationship("Bank", back_populates="credit_agreements")
+    corporate_entity: Mapped[Optional["CorporateEntity"]] = relationship("CorporateEntity", back_populates="credit_agreements")
     facilities: Mapped[List["CreditFacility"]] = relationship("CreditFacility", back_populates="agreement")
     dossiers: Mapped[List["CreditLimitDossier"]] = relationship("CreditLimitDossier", back_populates="agreement", cascade="all, delete-orphan")
     collateral_assets: Mapped[List["CollateralAsset"]] = relationship("CollateralAsset", back_populates="agreement")

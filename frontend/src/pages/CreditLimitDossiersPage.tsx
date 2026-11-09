@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FolderArchive,
   Plus,
@@ -13,6 +13,7 @@ import {
 import api from '../services/api';
 import { CreditLimitDossier, CreditAgreement, ChecklistItem } from '../types';
 import { useCorporateEntity } from '../contexts/CorporateEntityContext';
+import { fetchMasterBanks, MasterBank, ALL_VIETNAM_BANKS } from '../services/bankService';
 
 const formatCurrency = (val: number | undefined | null): string => {
   if (val === undefined || val === null) return '0 đ';
@@ -38,6 +39,8 @@ export const CreditLimitDossiersPage: React.FC = () => {
   const { selectedEntity } = useCorporateEntity();
   const [dossiers, setDossiers] = useState<CreditLimitDossier[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
+  const [masterBanks, setMasterBanks] = useState<MasterBank[]>(ALL_VIETNAM_BANKS);
+  const [filterBank, setFilterBank] = useState<string>('ALL');
   const [loading, setLoading] = useState<boolean>(true);
   const [selectedDossier, setSelectedDossier] = useState<CreditLimitDossier | null>(null);
 
@@ -70,13 +73,15 @@ export const CreditLimitDossiersPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [dosRes, agRes] = await Promise.all([
+      const [dosRes, agRes, banks] = await Promise.all([
         api.get<CreditLimitDossier[]>('/credit-limits/dossiers'),
         api.get<CreditAgreement[]>('/credit-limits/agreements'),
+        fetchMasterBanks(),
       ]);
       const list = dosRes.data || [];
       setDossiers(list);
       setAgreements(agRes.data || []);
+      if (banks && banks.length > 0) setMasterBanks(banks);
       if (selectedDossier) {
         const refreshed = list.find((d) => d.dossier_id === selectedDossier.dossier_id);
         if (refreshed) setSelectedDossier(refreshed);
@@ -93,6 +98,13 @@ export const CreditLimitDossiersPage: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [selectedEntity]);
+
+  const filteredDossiers = useMemo(() => {
+    return dossiers.filter((d) => {
+      if (filterBank !== 'ALL' && d.bank_code !== filterBank) return false;
+      return true;
+    });
+  }, [dossiers, filterBank]);
 
   const openCreateModal = () => {
     setEditingDossier(null);
@@ -261,16 +273,32 @@ export const CreditLimitDossiersPage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
         {/* Cột trái: Danh sách các Bộ hồ sơ hạn mức */}
         <div className="lg:col-span-5 space-y-4">
+          <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200">
+            <span className="text-xs font-bold uppercase text-slate-500">Lọc Ngân hàng:</span>
+            <select
+              value={filterBank}
+              onChange={(e) => setFilterBank(e.target.value)}
+              className="text-xs border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white font-semibold"
+            >
+              <option value="ALL">Tất cả ngân hàng ({dossiers.length})</option>
+              {masterBanks.map((b) => (
+                <option key={b.bank_code} value={b.bank_code}>
+                  {b.short_name} ({b.bank_code})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {loading ? (
             <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center text-sm text-slate-500">
               Đang tải danh sách bộ hồ sơ hạn mức...
             </div>
-          ) : dossiers.length === 0 ? (
+          ) : filteredDossiers.length === 0 ? (
             <div className="bg-white p-8 rounded-2xl border border-slate-200 text-center text-sm text-slate-500">
-              Chưa có bộ hồ sơ hạn mức nào.
+              {dossiers.length === 0 ? 'Chưa có bộ hồ sơ hạn mức nào.' : 'Không có hồ sơ hạn mức thuộc ngân hàng đã chọn.'}
             </div>
           ) : (
-            dossiers.map((dos) => {
+            filteredDossiers.map((dos) => {
               const isSelected = selectedDossier?.dossier_id === dos.dossier_id;
               const badge = STATUS_BADGES[dos.status] || STATUS_BADGES.PREPARING;
               return (
@@ -544,6 +572,77 @@ export const CreditLimitDossiersPage: React.FC = () => {
                   ))}
                 </select>
               </div>
+
+              {!formData.agreement_id && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-blue-50/60 p-3.5 rounded-xl border border-blue-200">
+                  <div>
+                    <label className="block text-xs font-bold text-blue-900 mb-1">
+                      Ngân hàng nhận hồ sơ hạn mức *
+                    </label>
+                    <select
+                      value={formData.bank_code}
+                      onChange={(e) => {
+                        const code = e.target.value;
+                        const found = masterBanks.find((b) => b.bank_code === code);
+                        setFormData({
+                          ...formData,
+                          bank_code: code,
+                          bank_name: found ? found.short_name : code,
+                        });
+                      }}
+                      className="w-full border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs bg-white font-medium"
+                    >
+                      <optgroup label="🌟 Ngân hàng đang có khoản vay / tài khoản tại hệ thống">
+                        {masterBanks
+                          .filter((b) => b.category === 'SYSTEM_ACTIVE')
+                          .map((b) => (
+                            <option key={b.bank_code} value={b.bank_code}>
+                              {b.bank_code} — {b.short_name} ({b.bank_name})
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="🏛️ Ngân hàng Thương mại Việt Nam">
+                        {masterBanks
+                          .filter((b) => b.category === 'COMMERCIAL')
+                          .map((b) => (
+                            <option key={b.bank_code} value={b.bank_code}>
+                              {b.bank_code} — {b.short_name} ({b.bank_name})
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="🌏 Ngân hàng Nước ngoài & Liên doanh">
+                        {masterBanks
+                          .filter((b) => b.category === 'FOREIGN_JV')
+                          .map((b) => (
+                            <option key={b.bank_code} value={b.bank_code}>
+                              {b.bank_code} — {b.short_name} ({b.bank_name})
+                            </option>
+                          ))}
+                      </optgroup>
+                      <optgroup label="💼 Công ty Tài chính & Cho thuê (Leasing)">
+                        {masterBanks
+                          .filter((b) => b.category === 'FINANCE_LEASING')
+                          .map((b) => (
+                            <option key={b.bank_code} value={b.bank_code}>
+                              {b.bank_code} — {b.short_name} ({b.bank_name})
+                            </option>
+                          ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-blue-900 mb-1">Tên hiển thị Ngân hàng *</label>
+                    <input
+                      type="text"
+                      required
+                      value={formData.bank_name}
+                      onChange={(e) => setFormData({ ...formData, bank_name: e.target.value })}
+                      className="w-full border border-blue-300 rounded-lg px-2.5 py-1.5 text-xs bg-white"
+                      placeholder="VD: VietinBank, VPBank, EVNFinance..."
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>

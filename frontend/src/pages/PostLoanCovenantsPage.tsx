@@ -13,6 +13,7 @@ import {
 import api from '../services/api';
 import { PostLoanCovenant, CreditAgreement } from '../types';
 import { useCorporateEntity } from '../contexts/CorporateEntityContext';
+import { fetchMasterBanks, MasterBank, ALL_VIETNAM_BANKS } from '../services/bankService';
 
 const formatCurrency = (val: number | undefined | null): string => {
   if (val === undefined || val === null) return '0';
@@ -50,6 +51,7 @@ export const PostLoanCovenantsPage: React.FC = () => {
   const { selectedEntity } = useCorporateEntity();
   const [covenants, setCovenants] = useState<PostLoanCovenant[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
+  const [masterBanks, setMasterBanks] = useState<MasterBank[]>(ALL_VIETNAM_BANKS);
   const [loading, setLoading] = useState<boolean>(true);
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
   const [filterBank, setFilterBank] = useState<string>('ALL');
@@ -77,12 +79,14 @@ export const PostLoanCovenantsPage: React.FC = () => {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [covRes, agRes] = await Promise.all([
+      const [covRes, agRes, banks] = await Promise.all([
         api.get<PostLoanCovenant[]>('/credit-limits/covenants'),
         api.get<CreditAgreement[]>('/credit-limits/agreements'),
+        fetchMasterBanks(),
       ]);
       setCovenants(covRes.data || []);
       setAgreements(agRes.data || []);
+      if (banks && banks.length > 0) setMasterBanks(banks);
     } catch (err) {
       console.error('Lỗi tải Cam kết sau vay:', err);
     } finally {
@@ -314,9 +318,11 @@ export const PostLoanCovenantsPage: React.FC = () => {
             className="text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white font-semibold"
           >
             <option value="ALL">Tất cả ngân hàng</option>
-            <option value="CTG">VietinBank (CTG)</option>
-            <option value="MBB">MBBank (MBB)</option>
-            <option value="VPB">VPBank (VPB)</option>
+            {masterBanks.map((b) => (
+              <option key={b.bank_code} value={b.bank_code}>
+                {b.short_name} ({b.bank_code})
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -476,28 +482,34 @@ export const PostLoanCovenantsPage: React.FC = () => {
             <form onSubmit={handleSave} className="p-6 space-y-4 text-sm">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Thuộc Hợp đồng tín dụng *</label>
-                <select
-                  required
-                  value={formData.agreement_id}
-                  onChange={(e) => {
-                    const agId = e.target.value;
-                    const found = agreements.find((a) => String(a.agreement_id) === agId);
-                    setFormData({
-                      ...formData,
-                      agreement_id: agId,
-                      bank_code: found ? found.bank_code : formData.bank_code,
-                      bank_name: found ? found.bank_name : formData.bank_name,
-                      borrower_name: found ? found.borrower_name : formData.borrower_name,
-                    });
-                  }}
-                  className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold"
-                >
-                  {agreements.map((ag) => (
-                    <option key={ag.agreement_id} value={ag.agreement_id}>
-                      [{ag.bank_code}] {ag.agreement_number} — {ag.agreement_name}
-                    </option>
-                  ))}
-                </select>
+                {agreements.length === 0 ? (
+                  <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+                    Chưa có Hợp đồng tín dụng nào trong hệ thống. Vui lòng tạo Hợp đồng tín dụng trước tại menu <strong>"Hợp đồng tín dụng"</strong>.
+                  </div>
+                ) : (
+                  <select
+                    required
+                    value={formData.agreement_id}
+                    onChange={(e) => {
+                      const agId = e.target.value;
+                      const found = agreements.find((a) => String(a.agreement_id) === agId);
+                      setFormData({
+                        ...formData,
+                        agreement_id: agId,
+                        bank_code: found ? found.bank_code : formData.bank_code,
+                        bank_name: found ? found.bank_name : formData.bank_name,
+                        borrower_name: found ? found.borrower_name : formData.borrower_name,
+                      });
+                    }}
+                    className="w-full border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold"
+                  >
+                    {agreements.map((ag) => (
+                      <option key={ag.agreement_id} value={ag.agreement_id}>
+                        [{ag.bank_code}] {ag.agreement_number} — {ag.agreement_name}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

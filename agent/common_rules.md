@@ -120,3 +120,10 @@ Mọi Agent khi khởi tạo hoặc cập nhật bất kỳ tài liệu kỹ thu
 ## 10. Bất biến Trường Dữ liệu Tự động Tính toán (Auto-Calculated Fields Invariant)
 - **Tự động hóa 100% các giá trị phái sinh:** Các trường dữ liệu có quy tắc hoặc công thức luật định rõ ràng (như Lãi cộng dồn, Lãi dự trả theo Thông tư 14/2017/TT-NHNN, Tổng nghĩa vụ đến hạn) BẮT BUỘC phải do hệ thống tự động tính toán. TUYỆT ĐỐI KHÔNG yêu cầu người dùng phải tự tính nhẩm hoặc nhập tay trên giao diện người dùng.
 - **Bảo đảm tính toàn vẹn số học hai đầu (Client & Server):** Phía giao diện hiển thị trường dưới dạng Read-Only / Computed Display trực quan, cập nhật thời gian thực khi tham số gốc thay đổi; phía backend luôn tự động tính toán lại và đồng bộ chính xác khi thêm mới hoặc sửa đổi dữ liệu.
+
+
+## 11. Bất biến Vòng Đời Tệp Tin & Dữ Liệu Phân Bổ (File-to-Allocation Lifecycle Invariant)
+- **Đồng bộ xóa hai chiều:** Khi các bản ghi phân bổ dữ liệu (như phân bổ hóa đơn bảo đảm nhận nợ khoản vay) bắt nguồn hoặc gắn liền với một tệp tin lưu trữ (chứng từ hồ sơ giải ngân):
+  - **Khi xóa tệp tin nguồn:** Hệ thống BẮT BUỘC phải tự động thu hồi / xóa bỏ toàn bộ các bản ghi phân bổ bắt nguồn từ tệp tin đó, hoàn lại hạn mức và dọn dẹp các thực thể mồ côi (orphaned records). Tuyệt đối cấm để lại các phân bổ "ma" khi file nguồn đã bị xóa.
+  - **Khi người dùng thao tác xóa phân bổ trên giao diện:** Hệ thống phải xóa bản ghi phân bổ và cung cấp cơ chế đồng bộ thu hồi hoặc xóa bỏ tệp tin nguồn tương ứng trong hồ sơ để đảm bảo dữ liệu luôn nhất quán 100%.
+  - **Tự động phục hồi (Self-Healing on Read):** Khi truy xuất dữ liệu danh mục phân bổ, hệ thống phải tự động phát hiện và dọn dẹp các bản ghi phân bổ mồ côi mà tệp tin gốc không còn tồn tại.

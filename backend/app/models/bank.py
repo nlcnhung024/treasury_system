@@ -20,3 +20,4 @@ class Bank(Base):
     # Relationships
     accounts = relationship("BankAccount", back_populates="bank")
     credit_facilities = relationship("CreditFacility", back_populates="bank")
+    credit_agreements = relationship("CreditAgreement", back_populates="bank")

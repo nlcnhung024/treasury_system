@@ -26,7 +26,9 @@ from app.models.credit_limit import (
 from app.models.transaction import BankTransaction
 from app.models.account import BankAccount
 from app.models.bank import Bank
+from app.models.corporate_entity import CorporateEntity
 from app.schemas.credit_limit import (
+    SublimitItem,
     CreditAgreementResponse,
     CreditAgreementCreate,
     CreditAgreementUpdate,
@@ -88,7 +90,19 @@ async def sync_facilities_to_agreements(db: AsyncSession, target_bank_code: Opti
     """
     agreements_stmt = select(CreditAgreement).order_by(desc(CreditAgreement.effective_from))
     if target_bank_code:
-        agreements_stmt = agreements_stmt.where(CreditAgreement.bank_code == target_bank_code)
+        norm = _normalize_bank_family(target_bank_code)
+        variants = {target_bank_code, norm}
+        if norm == "CTG":
+            variants.update({"CTG", "VIETINBANK", "CTG_LEASING"})
+        elif norm == "MBB":
+            variants.update({"MB", "MBB", "MBBANK"})
+        elif norm == "VPB":
+            variants.update({"VPB", "VPBANK"})
+        elif norm == "BIDV":
+            variants.update({"BIDV", "BID"})
+        elif norm == "VCB":
+            variants.update({"VCB", "VIETCOMBANK"})
+        agreements_stmt = agreements_stmt.where(CreditAgreement.bank_code.in_(list(variants)))
     agreements = (await db.execute(agreements_stmt)).scalars().all()
 
     if not agreements:
@@ -96,7 +110,19 @@ async def sync_facilities_to_agreements(db: AsyncSession, target_bank_code: Opti
 
     facilities_stmt = select(CreditFacility)
     if target_bank_code:
-        facilities_stmt = facilities_stmt.where(CreditFacility.bank_code == target_bank_code)
+        norm = _normalize_bank_family(target_bank_code)
+        variants = {target_bank_code, norm}
+        if norm == "CTG":
+            variants.update({"CTG", "VIETINBANK", "CTG_LEASING"})
+        elif norm == "MBB":
+            variants.update({"MB", "MBB", "MBBANK"})
+        elif norm == "VPB":
+            variants.update({"VPB", "VPBANK"})
+        elif norm == "BIDV":
+            variants.update({"BIDV", "BID"})
+        elif norm == "VCB":
+            variants.update({"VCB", "VIETCOMBANK"})
+        facilities_stmt = facilities_stmt.where(CreditFacility.bank_code.in_(list(variants)))
     facilities = (await db.execute(facilities_stmt)).scalars().all()
 
     matched_count = 0
@@ -169,11 +195,16 @@ async def ensure_credit_limit_tables(db: AsyncSession) -> None:
                 bank_name VARCHAR(100) NOT NULL,
                 agreement_number VARCHAR(100) NOT NULL,
                 agreement_name VARCHAR(255) NOT NULL,
+                entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
                 borrower_name VARCHAR(150) NOT NULL,
                 total_credit_limit DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
                 loan_sublimit DECIMAL(18, 2),
                 guarantee_sublimit DECIMAL(18, 2),
                 lc_sublimit DECIMAL(18, 2),
+                sublimits_json TEXT DEFAULT '[]',
+                contract_file_name VARCHAR(255),
+                contract_file_path VARCHAR(500),
+                contract_file_size BIGINT,
                 currency VARCHAR(5) NOT NULL DEFAULT 'VND',
                 signed_date DATE,
                 effective_from DATE NOT NULL,
@@ -189,6 +220,13 @@ async def ensure_credit_limit_tables(db: AsyncSession) -> None:
                 updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 CONSTRAINT uq_credit_agreement_bank_number UNIQUE (bank_code, agreement_number)
             );
+            """)
+    )
+    await db.execute(text("CREATE INDEX IF NOT EXISTS idx_credit_agreements_bank_id ON credit_agreements(bank_id);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS idx_credit_agreements_bank_code ON credit_agreements(bank_code);"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS idx_credit_agreements_entity_id ON credit_agreements(entity_id);"))
+    await db.execute(
+        text("""
             """
         )
     )
@@ -449,6 +487,33 @@ async def _build_agreement_response(ag: CreditAgreement, all_agreements_map: dic
             )
         )
 
+    entity_code = None
+    entity_short_name = None
+    if ag.entity_id:
+        ent = await db.get(CorporateEntity, ag.entity_id)
+        if ent:
+            entity_code = ent.entity_code
+            entity_short_name = ent.short_name
+
+    parsed_sublimits = []
+    try:
+        raw_subs = json.loads(ag.sublimits_json or "[]")
+        if isinstance(raw_subs, list):
+            for s in raw_subs:
+                if isinstance(s, dict) and "name" in s and "amount" in s:
+                    parsed_sublimits.append(SublimitItem(name=str(s["name"]), amount=Decimal(str(s["amount"]))))
+    except Exception:
+        pass
+
+    # Tự động suy diễn nếu sublimits_json chưa có nhưng các trường cũ có giá trị
+    if not parsed_sublimits:
+        if ag.loan_sublimit and ag.loan_sublimit > Decimal("0.00"):
+            parsed_sublimits.append(SublimitItem(name="Hạn mức Cho vay (Loan)", amount=ag.loan_sublimit))
+        if ag.guarantee_sublimit and ag.guarantee_sublimit > Decimal("0.00"):
+            parsed_sublimits.append(SublimitItem(name="Hạn mức Bảo lãnh", amount=ag.guarantee_sublimit))
+        if ag.lc_sublimit and ag.lc_sublimit > Decimal("0.00"):
+            parsed_sublimits.append(SublimitItem(name="Hạn mức L/C", amount=ag.lc_sublimit))
+
     return CreditAgreementResponse(
         agreement_id=ag.agreement_id,
         agreement_uuid=ag.agreement_uuid,
@@ -457,11 +522,19 @@ async def _build_agreement_response(ag: CreditAgreement, all_agreements_map: dic
         bank_name=ag.bank_name,
         agreement_number=ag.agreement_number,
         agreement_name=ag.agreement_name,
+        entity_id=ag.entity_id,
+        entity_code=entity_code,
+        entity_short_name=entity_short_name,
         borrower_name=ag.borrower_name,
         total_credit_limit=ag.total_credit_limit,
         loan_sublimit=ag.loan_sublimit,
         guarantee_sublimit=ag.guarantee_sublimit,
         lc_sublimit=ag.lc_sublimit,
+        sublimits_json=ag.sublimits_json or "[]",
+        sublimits=parsed_sublimits,
+        contract_file_name=ag.contract_file_name,
+        contract_file_path=ag.contract_file_path,
+        contract_file_size=ag.contract_file_size,
         currency=ag.currency,
         signed_date=ag.signed_date,
         effective_from=ag.effective_from,
@@ -499,6 +572,7 @@ async def _build_agreement_response(ag: CreditAgreement, all_agreements_map: dic
 @router.get("/agreements", response_model=List[CreditAgreementResponse])
 async def list_credit_agreements(
     bank_code: Optional[str] = Query(None),
+    entity_id: Optional[int] = Query(None),
     borrower_name: Optional[str] = Query(None),
     status_filter: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -508,6 +582,8 @@ async def list_credit_agreements(
     stmt = select(CreditAgreement).order_by(desc(CreditAgreement.effective_to), CreditAgreement.bank_code)
     if bank_code:
         stmt = stmt.where(CreditAgreement.bank_code == bank_code)
+    if entity_id:
+        stmt = stmt.where(CreditAgreement.entity_id == entity_id)
     if borrower_name:
         stmt = stmt.where(CreditAgreement.borrower_name == borrower_name)
 
@@ -544,17 +620,67 @@ async def create_credit_agreement(
             detail=f"Số Hợp đồng tín dụng '{payload.agreement_number}' tại ngân hàng {payload.bank_code} đã tồn tại.",
         )
 
+    # Tự động truy vấn và gắn bank_id từ bảng banks qua bank_code nếu chưa có
+    resolved_bank_id = payload.bank_id
+    if not resolved_bank_id and payload.bank_code:
+        bank_obj = (
+            await db.execute(select(Bank).where(Bank.bank_code == payload.bank_code.strip().upper()))
+        ).scalar_one_or_none()
+        if bank_obj:
+            resolved_bank_id = bank_obj.bank_id
+
+    # Xử lý các loại hạn mức con & kiểm tra điều kiện không vượt quá tổng hạn mức
+    sublimits_to_save = []
+    if payload.sublimits:
+        for sub in payload.sublimits:
+            if sub.amount > payload.total_credit_limit:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Loại hạn mức '{sub.name}' ({sub.amount:,.0f} VND) không được cao hơn Tổng hạn mức ({payload.total_credit_limit:,.0f} VND).",
+                )
+            sublimits_to_save.append({"name": sub.name.strip(), "amount": float(sub.amount)})
+    elif payload.sublimits_json:
+        try:
+            raw_subs = json.loads(payload.sublimits_json)
+            for sub in raw_subs:
+                amt = Decimal(str(sub.get("amount", 0)))
+                s_name = str(sub.get("name", "")).strip()
+                if amt > payload.total_credit_limit:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Loại hạn mức '{s_name}' ({amt:,.0f} VND) không được cao hơn Tổng hạn mức ({payload.total_credit_limit:,.0f} VND).",
+                    )
+                sublimits_to_save.append({"name": s_name, "amount": float(amt)})
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    sublimits_json_str = json.dumps(sublimits_to_save, ensure_ascii=False) if sublimits_to_save else (payload.sublimits_json or "[]")
+
+    entity_id_val = payload.entity_id
+    borrower_name_val = payload.borrower_name.strip() if payload.borrower_name else ""
+    if entity_id_val:
+        corp = await db.get(CorporateEntity, entity_id_val)
+        if corp and not borrower_name_val:
+            borrower_name_val = corp.company_name
+
     new_ag = CreditAgreement(
-        bank_id=payload.bank_id,
+        bank_id=resolved_bank_id,
         bank_code=payload.bank_code.strip().upper(),
         bank_name=payload.bank_name.strip(),
+        entity_id=entity_id_val,
         agreement_number=payload.agreement_number.strip(),
         agreement_name=payload.agreement_name.strip(),
-        borrower_name=payload.borrower_name.strip(),
+        borrower_name=borrower_name_val,
         total_credit_limit=payload.total_credit_limit,
         loan_sublimit=payload.loan_sublimit,
         guarantee_sublimit=payload.guarantee_sublimit,
         lc_sublimit=payload.lc_sublimit,
+        sublimits_json=sublimits_json_str,
+        contract_file_name=payload.contract_file_name,
+        contract_file_path=payload.contract_file_path,
+        contract_file_size=payload.contract_file_size,
         currency=payload.currency,
         signed_date=payload.signed_date or payload.effective_from,
         effective_from=payload.effective_from,
@@ -624,6 +750,42 @@ async def update_credit_agreement(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy Hợp đồng tín dụng.")
 
     update_data = payload.model_dump(exclude_unset=True)
+    target_total = update_data.get("total_credit_limit", ag.total_credit_limit)
+    if payload.sublimits is not None:
+        sublimits_to_save = []
+        for sub in payload.sublimits:
+            if sub.amount > target_total:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Loại hạn mức '{sub.name}' ({sub.amount:,.0f} VND) không được cao hơn Tổng hạn mức ({target_total:,.0f} VND).",
+                )
+            sublimits_to_save.append({"name": sub.name.strip(), "amount": float(sub.amount)})
+        ag.sublimits_json = json.dumps(sublimits_to_save, ensure_ascii=False)
+        update_data.pop("sublimits", None)
+        update_data.pop("sublimits_json", None)
+    elif "sublimits_json" in update_data and update_data["sublimits_json"]:
+        try:
+            raw_subs = json.loads(update_data["sublimits_json"])
+            for sub in raw_subs:
+                amt = Decimal(str(sub.get("amount", 0)))
+                s_name = str(sub.get("name", "")).strip()
+                if amt > target_total:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Loại hạn mức '{s_name}' ({amt:,.0f} VND) không được cao hơn Tổng hạn mức ({target_total:,.0f} VND).",
+                    )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+    if "bank_code" in update_data and update_data["bank_code"]:
+        update_data["bank_code"] = update_data["bank_code"].strip().upper()
+        bank_obj = (
+            await db.execute(select(Bank).where(Bank.bank_code == update_data["bank_code"]))
+        ).scalar_one_or_none()
+        if bank_obj:
+            ag.bank_id = bank_obj.bank_id
     for k, v in update_data.items():
         setattr(ag, k, v)
 
@@ -660,6 +822,74 @@ async def delete_credit_agreement(
     return {"message": f"Đã xóa Hợp đồng tín dụng {ag.agreement_number} thành công."}
 
 
+@router.post("/agreements/{agreement_id}/file", response_model=CreditAgreementResponse)
+async def upload_agreement_file(
+    agreement_id: int,
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+):
+    ag = (await db.execute(select(CreditAgreement).where(CreditAgreement.agreement_id == agreement_id))).scalar_one_or_none()
+    if not ag:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy Hợp đồng tín dụng.")
+
+    filename = file.filename or "hop_dong_tin_dung.pdf"
+    if not filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chỉ chấp nhận tệp định dạng PDF cho Hợp đồng tín dụng.")
+
+    content = await file.read()
+    f_uuid = uuid.uuid4()
+    storage_path = f"credit_agreements/{ag.bank_code}/{ag.agreement_id}/{f_uuid}_{filename}"
+    save_statement_bytes(storage_path, content, content_type="application/pdf")
+
+    ag.contract_file_name = filename
+    ag.contract_file_path = storage_path
+    ag.contract_file_size = len(content)
+    await db.commit()
+    await db.refresh(ag)
+
+    all_ags = (await db.execute(select(CreditAgreement))).scalars().all()
+    all_map = {a.agreement_id: a.agreement_number for a in all_ags}
+    return await _build_agreement_response(ag, all_map, db)
+
+
+@router.get("/agreements/{agreement_id}/file")
+async def download_agreement_file(
+    agreement_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    ag = (await db.execute(select(CreditAgreement).where(CreditAgreement.agreement_id == agreement_id))).scalar_one_or_none()
+    if not ag or not ag.contract_file_name or not ag.contract_file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Hợp đồng tín dụng này chưa có tệp PDF đính kèm.")
+
+    try:
+        raw_bytes = read_statement_bytes(ag.contract_file_path)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tệp PDF trên hệ thống lưu trữ.")
+
+    return StreamingResponse(
+        io.BytesIO(raw_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{ag.contract_file_name}"'},
+    )
+
+
+@router.delete("/agreements/{agreement_id}/file")
+async def delete_agreement_file(
+    agreement_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    ag = (await db.execute(select(CreditAgreement).where(CreditAgreement.agreement_id == agreement_id))).scalar_one_or_none()
+    if not ag:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy Hợp đồng tín dụng.")
+
+    ag.contract_file_name = None
+    ag.contract_file_path = None
+    ag.contract_file_size = None
+    await db.commit()
+    await db.refresh(ag)
+    return {"message": "Đã xóa tệp PDF đính kèm của Hợp đồng tín dụng."}
+
+
 @router.post("/agreements/sync-loans")
 async def trigger_sync_loans_to_agreements(
     db: AsyncSession = Depends(get_db),
@@ -684,8 +914,16 @@ async def renew_agreement_and_transfer_collaterals(
     if not old_ag:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy Hợp đồng tín dụng cũ.")
 
+    resolved_bank_id = old_ag.bank_id
+    if not resolved_bank_id and old_ag.bank_code:
+        bank_obj = (
+            await db.execute(select(Bank).where(Bank.bank_code == old_ag.bank_code))
+        ).scalar_one_or_none()
+        if bank_obj:
+            resolved_bank_id = bank_obj.bank_id
+
     new_ag = CreditAgreement(
-        bank_id=old_ag.bank_id,
+        bank_id=resolved_bank_id,
         bank_code=old_ag.bank_code,
         bank_name=old_ag.bank_name,
         agreement_number=payload.new_agreement_number.strip(),

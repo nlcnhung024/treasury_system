@@ -10,7 +10,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func, and_, or_, case, text
+from sqlalchemy import select, desc, func, and_, or_, case, text, delete
 from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
@@ -26,7 +26,7 @@ from app.models.credit import (
 )
 from app.models.credit_limit import CreditAgreement
 from app.api.v1.credit_limits import ensure_credit_limit_seed_data, sync_facilities_to_agreements
-from app.models.invoice import LoanInvoiceAllocation
+from app.models.invoice import Invoice, InvoiceItem, LoanInvoiceAllocation
 from app.models.audit_log import AuditLog
 from app.schemas.credit import (
     CreditStatementFileItem,
@@ -52,7 +52,7 @@ from app.schemas.credit import (
 )
 from app.schemas.common import PaginationMeta
 from app.services.credit_ingestion_service import ingest_credit_statement
-from app.services.storage_service import save_statement_bytes, read_statement_bytes
+from app.services.storage_service import save_statement_bytes, read_statement_bytes, delete_statement_file
 from app.services.loan_interest_service import calculate_loan_interest
 from app.services.debt_reconciliation_service import DebtReconciliationService
 from app.services.invoice_parser_service import parse_xml_invoice_bytes, calculate_loan_invoice_reconciliation
@@ -1380,25 +1380,100 @@ async def delete_disbursement_document(
 ):
     """
     Xóa tài liệu khỏi bộ hồ sơ giải ngân của khoản vay.
+    Đồng thời liên kết tự động xóa số tiền nhận nợ bên dưới nếu đây là tệp hóa đơn.
     """
     stmt = select(DisbursementDocument).where(DisbursementDocument.document_id == document_id)
     doc = (await db.execute(stmt)).scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy tài liệu giải ngân để xóa.")
 
+    loan_id = doc.loan_id
+    doc_invoice_id = doc.invoice_id
+    doc_storage_path = doc.storage_path
+    doc_file_name = doc.file_name
+
+    # Nếu document chưa gắn invoice_id nhưng là file hóa đơn XML/PDF, tìm invoice tương ứng
+    if not doc_invoice_id:
+        stmt_find_inv = select(Invoice.invoice_id).where(
+            or_(
+                Invoice.xml_storage_path == doc_storage_path,
+                Invoice.pdf_storage_path == doc_storage_path,
+                Invoice.xml_file_name == doc_file_name,
+                Invoice.pdf_file_name == doc_file_name,
+            )
+        )
+        doc_invoice_id = (await db.execute(stmt_find_inv)).scalar_one_or_none()
+
+    # Xóa tài liệu khỏi database
     await db.delete(doc)
+    await db.flush()
+
+    # Xóa file vật lý khỏi Object Storage / Local Disk
+    if doc_storage_path:
+        delete_statement_file(doc_storage_path)
+
+    deleted_allocation = False
+    if doc_invoice_id:
+        # Kiểm tra xem khoản vay này còn tài liệu nào khác gắn với hóa đơn này không (ví dụ còn file PDF nếu vừa xóa XML)
+        stmt_remaining_docs = select(func.count(DisbursementDocument.document_id)).where(
+            DisbursementDocument.loan_id == loan_id,
+            DisbursementDocument.invoice_id == doc_invoice_id,
+        )
+        remaining_docs = (await db.execute(stmt_remaining_docs)).scalar() or 0
+
+        # Nếu không còn tệp hóa đơn nào khác cho hóa đơn này trong hồ sơ giải ngân:
+        # Xóa luôn toàn bộ phần nhận nợ tương ứng của hóa đơn này tại khoản vay!
+        if remaining_docs == 0:
+            stmt_allocs = select(LoanInvoiceAllocation).where(
+                LoanInvoiceAllocation.loan_id == loan_id,
+                LoanInvoiceAllocation.invoice_id == doc_invoice_id,
+            )
+            allocs_to_del = (await db.execute(stmt_allocs)).scalars().all()
+            for a in allocs_to_del:
+                await db.delete(a)
+                deleted_allocation = True
+
+            await db.flush()
+            await invoice_service._recalculate_invoice_state(db, doc_invoice_id)
+
+            # Kiểm tra dọn dẹp hóa đơn mồ côi nếu không còn bất kỳ khoản vay nào nhận nợ
+            # và cũng không còn tệp hồ sơ nào trong toàn hệ thống tham chiếu đến
+            stmt_any_alloc = select(func.count(LoanInvoiceAllocation.allocation_id)).where(
+                LoanInvoiceAllocation.invoice_id == doc_invoice_id
+            )
+            has_any_alloc = ((await db.execute(stmt_any_alloc)).scalar() or 0) > 0
+
+            stmt_any_doc = select(func.count(DisbursementDocument.document_id)).where(
+                DisbursementDocument.invoice_id == doc_invoice_id
+            )
+            has_any_doc = ((await db.execute(stmt_any_doc)).scalar() or 0) > 0
+
+            if not has_any_alloc and not has_any_doc:
+                orphaned_inv = await db.get(Invoice, doc_invoice_id)
+                if orphaned_inv:
+                    await db.execute(delete(InvoiceItem).where(InvoiceItem.invoice_id == doc_invoice_id))
+                    await db.delete(orphaned_inv)
 
     audit = AuditLog(
         actor="Chị Cẩm Nhung",
         action="DELETE_DISBURSEMENT_DOCUMENT",
         target_entity="disbursement_documents",
         target_id=str(document_id),
-        details={"storage_path": doc.storage_path, "file_name": doc.file_name, "loan_id": doc.loan_id},
+        details={
+            "storage_path": doc_storage_path,
+            "file_name": doc_file_name,
+            "loan_id": loan_id,
+            "invoice_id": doc_invoice_id,
+            "deleted_allocation": deleted_allocation,
+        },
     )
     db.add(audit)
     await db.commit()
 
-    return {"message": f"Đã xóa thành công tài liệu ID #{document_id} khỏi hồ sơ giải ngân."}
+    msg = f"Đã xóa thành công tài liệu '{doc_file_name}' khỏi hồ sơ giải ngân."
+    if deleted_allocation:
+        msg += " Hệ thống đã tự động xóa phần nhận nợ tương ứng của hóa đơn khỏi khoản vay và hoàn lại hạn mức."
+    return {"message": msg, "deleted_allocation": deleted_allocation}
 
 
 # =============================================================================

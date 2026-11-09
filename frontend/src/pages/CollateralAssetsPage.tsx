@@ -18,6 +18,7 @@ import {
 import api from '../services/api';
 import { CollateralAsset, CreditAgreement } from '../types';
 import { useCorporateEntity } from '../contexts/CorporateEntityContext';
+import { fetchMasterBanks, MasterBank, ALL_VIETNAM_BANKS } from '../services/bankService';
 
 const formatCurrency = (val: number | undefined | null): string => {
   if (val === undefined || val === null) return '0 đ';
@@ -52,6 +53,7 @@ export const CollateralAssetsPage: React.FC = () => {
   const { selectedEntity } = useCorporateEntity();
   const [assets, setAssets] = useState<CollateralAsset[]>([]);
   const [agreements, setAgreements] = useState<CreditAgreement[]>([]);
+  const [masterBanks, setMasterBanks] = useState<MasterBank[]>(ALL_VIETNAM_BANKS);
   const [loading, setLoading] = useState<boolean>(true);
   const [filterBank, setFilterBank] = useState<string>('ALL');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
@@ -112,13 +114,15 @@ export const CollateralAssetsPage: React.FC = () => {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [colRes, agRes] = await Promise.all([
+      const [colRes, agRes, banks] = await Promise.all([
         api.get<CollateralAsset[]>('/credit-limits/collaterals'),
         api.get<CreditAgreement[]>('/credit-limits/agreements'),
+        fetchMasterBanks(),
       ]);
       const list = colRes.data || [];
       setAssets(list);
       setAgreements(agRes.data || []);
+      if (banks && banks.length > 0) setMasterBanks(banks);
       if (selectedAsset) {
         const updated = list.find((a) => a.asset_id === selectedAsset.asset_id);
         if (updated) setSelectedAsset(updated);
@@ -489,11 +493,11 @@ export const CollateralAssetsPage: React.FC = () => {
             className="text-xs border border-slate-300 rounded-lg px-3 py-1.5 bg-white font-semibold"
           >
             <option value="ALL">Tất cả ngân hàng</option>
-            <option value="CTG">VietinBank (CTG)</option>
-            <option value="MBB">MBBank (MBB)</option>
-            <option value="VPB">VPBank (VPB)</option>
-            <option value="BIDV">BIDV</option>
-            <option value="VCB">Vietcombank (VCB)</option>
+            {masterBanks.map((b) => (
+              <option key={b.bank_code} value={b.bank_code}>
+                {b.short_name} ({b.bank_code})
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -1254,6 +1258,45 @@ export const CollateralAssetsPage: React.FC = () => {
                     </option>
                   ))}
                 </select>
+
+                {!assetForm.agreement_id && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-bold text-purple-900 mb-1">
+                        Ngân hàng quản lý / định giá TS *
+                      </label>
+                      <select
+                        value={assetForm.bank_code}
+                        onChange={(e) => {
+                          const code = e.target.value;
+                          const found = masterBanks.find((b) => b.bank_code === code);
+                          setAssetForm({
+                            ...assetForm,
+                            bank_code: code,
+                            bank_name: found ? found.short_name : code,
+                          });
+                        }}
+                        className="w-full border border-purple-300 rounded-lg px-2 py-1.5 text-xs bg-white font-medium"
+                      >
+                        {masterBanks.map((b) => (
+                          <option key={b.bank_code} value={b.bank_code}>
+                            {b.bank_code} — {b.short_name} ({b.bank_name})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold text-purple-900 mb-1">Tên hiển thị Ngân hàng *</label>
+                      <input
+                        type="text"
+                        required
+                        value={assetForm.bank_name}
+                        onChange={(e) => setAssetForm({ ...assetForm, bank_name: e.target.value })}
+                        className="w-full border border-purple-300 rounded-lg px-2 py-1.5 text-xs bg-white"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Giá trị thẩm định, LTV, Tình trạng, Thời điểm định giá gần nhất */}

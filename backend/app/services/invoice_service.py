@@ -541,7 +541,57 @@ async def get_loan_allocated_invoices(
         .options(selectinload(LoanInvoiceAllocation.invoice))
         .order_by(LoanInvoiceAllocation.allocation_id.asc())
     )
-    allocs = (await db.execute(stmt_alloc)).scalars().all()
+    allocs = list((await db.execute(stmt_alloc)).scalars().all())
+
+    # Kiểm tra liên kết chặt chẽ giữa Hồ sơ tệp hóa đơn và Phần nhận nợ:
+    # Nếu người dùng đã xóa tệp hóa đơn trong hồ sơ giải ngân, các phân bổ nợ cuốn chiếu
+    # liên quan đến hóa đơn đó bắt buộc phải được tự động dọn dẹp và hoàn lại hạn mức.
+    stmt_active_dossier_invs = select(DisbursementDocument.invoice_id).where(
+        DisbursementDocument.loan_id == loan_id,
+        DisbursementDocument.invoice_id.isnot(None),
+    )
+    active_dossier_inv_ids = set((await db.execute(stmt_active_dossier_invs)).scalars().all())
+
+    stmt_active_dossier_docs = select(DisbursementDocument).where(
+        DisbursementDocument.loan_id == loan_id,
+        or_(
+            DisbursementDocument.document_type == "INVOICE",
+            DisbursementDocument.file_name.ilike("%.xml"),
+        ),
+    )
+    active_docs = (await db.execute(stmt_active_dossier_docs)).scalars().all()
+    for doc in active_docs:
+        if doc.invoice_id:
+            active_dossier_inv_ids.add(doc.invoice_id)
+
+    cleaned_any = False
+    recalc_inv_ids = set()
+    for a in list(allocs):
+        is_from_dossier = "hồ sơ" in (a.notes or "").lower() or "cuốn chiếu" in (a.notes or "").lower()
+        if is_from_dossier and not getattr(a, "is_manual", False) and a.invoice_id not in active_dossier_inv_ids:
+            recalc_inv_ids.add(a.invoice_id)
+            await db.delete(a)
+            allocs.remove(a)
+            cleaned_any = True
+
+    if cleaned_any:
+        await db.flush()
+        for inv_id in recalc_inv_ids:
+            await _recalculate_invoice_state(db, inv_id)
+            stmt_has_any_alloc = select(func.count(LoanInvoiceAllocation.allocation_id)).where(
+                LoanInvoiceAllocation.invoice_id == inv_id
+            )
+            has_any_alloc = ((await db.execute(stmt_has_any_alloc)).scalar() or 0) > 0
+            stmt_has_any_doc = select(func.count(DisbursementDocument.document_id)).where(
+                DisbursementDocument.invoice_id == inv_id
+            )
+            has_any_doc = ((await db.execute(stmt_has_any_doc)).scalar() or 0) > 0
+            if not has_any_alloc and not has_any_doc:
+                orphaned_inv = await db.get(Invoice, inv_id)
+                if orphaned_inv:
+                    await db.execute(delete(InvoiceItem).where(InvoiceItem.invoice_id == inv_id))
+                    await db.delete(orphaned_inv)
+        await db.commit()
 
     # Tự động đồng bộ cuốn chiếu hóa đơn từ hồ sơ nếu bộ hồ sơ đã có hóa đơn nhưng chưa được gắn nhận nợ
     if not skip_auto_sync and len(allocs) == 0:
@@ -888,6 +938,22 @@ async def remove_loan_allocation(db: AsyncSession, allocation_id: int) -> None:
     await db.delete(alloc)
     await db.flush()
     await _recalculate_invoice_state(db, invoice_id)
+
+    # Nếu hóa đơn này không còn bất kỳ phân bổ nào và cũng không còn tệp hồ sơ nào trong toàn hệ thống, dọn dẹp hóa đơn mồ côi
+    stmt_has_any_alloc = select(func.count(LoanInvoiceAllocation.allocation_id)).where(
+        LoanInvoiceAllocation.invoice_id == invoice_id
+    )
+    has_any_alloc = ((await db.execute(stmt_has_any_alloc)).scalar() or 0) > 0
+    stmt_has_any_doc = select(func.count(DisbursementDocument.document_id)).where(
+        DisbursementDocument.invoice_id == invoice_id
+    )
+    has_any_doc = ((await db.execute(stmt_has_any_doc)).scalar() or 0) > 0
+    if not has_any_alloc and not has_any_doc:
+        orphaned_inv = await db.get(Invoice, invoice_id)
+        if orphaned_inv:
+            await db.execute(delete(InvoiceItem).where(InvoiceItem.invoice_id == invoice_id))
+            await db.delete(orphaned_inv)
+
     await db.commit()
 
 

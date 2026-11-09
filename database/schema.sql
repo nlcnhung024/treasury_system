@@ -719,11 +719,16 @@ CREATE TABLE credit_agreements (
     bank_name VARCHAR(100) NOT NULL,
     agreement_number VARCHAR(100) NOT NULL,
     agreement_name VARCHAR(255) NOT NULL,
+    entity_id BIGINT REFERENCES corporate_entities(entity_id) ON DELETE SET NULL,
     borrower_name VARCHAR(150) NOT NULL,
     total_credit_limit DECIMAL(18, 2) NOT NULL DEFAULT 0.00,
     loan_sublimit DECIMAL(18, 2),
     guarantee_sublimit DECIMAL(18, 2),
     lc_sublimit DECIMAL(18, 2),
+    sublimits_json TEXT DEFAULT '[]',
+    contract_file_name VARCHAR(255),
+    contract_file_path VARCHAR(500),
+    contract_file_size BIGINT,
     currency VARCHAR(5) NOT NULL DEFAULT 'VND',
     signed_date DATE,
     effective_from DATE NOT NULL,
@@ -739,6 +744,10 @@ CREATE TABLE credit_agreements (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT uq_credit_agreement_bank_number UNIQUE (bank_code, agreement_number)
 );
+
+CREATE INDEX IF NOT EXISTS idx_credit_agreements_bank_id ON credit_agreements(bank_id);
+CREATE INDEX IF NOT EXISTS idx_credit_agreements_bank_code ON credit_agreements(bank_code);
+CREATE INDEX IF NOT EXISTS idx_credit_agreements_entity_id ON credit_agreements(entity_id);
 
 ALTER TABLE credit_facilities ADD COLUMN IF NOT EXISTS agreement_id BIGINT REFERENCES credit_agreements(agreement_id) ON DELETE SET NULL;
 

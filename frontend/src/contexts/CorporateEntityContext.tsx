@@ -3,6 +3,7 @@ import api from '../services/api';
 
 export interface CorporateEntity {
   id: string; // 'ALL', 'SUNRISE', 'HUONG_DUONG', 'LAN_ANH' hoặc custom ID
+  entityId?: number;
   name: string; // Tên pháp nhân đầy đủ
   shortName: string; // Tên ngắn gọn hiển thị
   taxCode?: string; // Mã số thuế
@@ -25,6 +26,7 @@ export const PRESET_CORPORATE_ENTITIES: CorporateEntity[] = [
   },
   {
     id: 'SUNRISE',
+    entityId: 1,
     name: 'CONG TY CO PHAN XI MANG SUNRISE',
     shortName: 'Xi măng Sunrise',
     taxCode: '0109730501',
@@ -36,6 +38,7 @@ export const PRESET_CORPORATE_ENTITIES: CorporateEntity[] = [
   },
   {
     id: 'HUONG_DUONG',
+    entityId: 2,
     name: 'CONG TY CO PHAN THUONG MAI VA PHAT TRIEN HUONG DUONG',
     shortName: 'TM & PT Hướng Dương',
     taxCode: '0110176990',
@@ -46,6 +49,7 @@ export const PRESET_CORPORATE_ENTITIES: CorporateEntity[] = [
   },
   {
     id: 'LAN_ANH',
+    entityId: 3,
     name: 'NGUYEN THI LAN ANH',
     shortName: 'Bà Nguyễn Thị Lan Anh (CEO)',
     taxCode: '0109730501',
@@ -104,6 +108,7 @@ export const CorporateEntityProvider: React.FC<{ children: React.ReactNode }> = 
       if (res.data && Array.isArray(res.data) && res.data.length > 0) {
         const fromApi: CorporateEntity[] = res.data.map((item: any) => ({
           id: item.entity_code || `ENTITY_${item.entity_id}`,
+          entityId: item.entity_id,
           name: item.company_name,
           shortName: item.short_name,
           taxCode: item.tax_code || undefined,

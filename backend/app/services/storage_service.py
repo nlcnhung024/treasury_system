@@ -99,3 +99,42 @@ def read_statement_bytes(storage_path: str) -> bytes:
 
     raise FileNotFoundError(f"Không tìm thấy file sao kê tại '{storage_path}'.")
 
+
+def delete_statement_file(storage_path: str) -> bool:
+    """
+    Xóa file sao kê / tài liệu khỏi Local Disk và MinIO Object Storage.
+    """
+    if not storage_path:
+        return False
+
+    deleted = False
+    rel_path = storage_path.lstrip("/\\")
+    local_target = LOCAL_STORAGE_ROOT / rel_path
+
+    if local_target.exists():
+        try:
+            local_target.unlink()
+            deleted = True
+        except Exception as exc:
+            logger.warning(f"Lỗi khi xóa file local ({local_target}): {exc}")
+
+    if _is_minio_reachable():
+        try:
+            from minio import Minio
+
+            client = Minio(
+                settings.MINIO_ENDPOINT,
+                access_key=settings.MINIO_ROOT_USER,
+                secret_key=settings.MINIO_ROOT_PASSWORD,
+                secure=settings.MINIO_USE_SSL,
+            )
+            bucket = settings.MINIO_BUCKET_NAME
+            object_name = rel_path.replace("\\", "/")
+            client.remove_object(bucket_name=bucket, object_name=object_name)
+            deleted = True
+        except Exception as exc:
+            logger.warning(f"Lỗi khi xóa object MinIO ({storage_path}): {exc}")
+
+    return deleted
+
+

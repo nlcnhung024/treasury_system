@@ -1252,6 +1252,8 @@ interface DisbursementDocItem {
 
   description?: string | null;
 
+  invoice_id?: number | null;
+
   invoice_number?: string | null;
 
   invoice_total_amount?: number | null;
@@ -2252,22 +2254,16 @@ const DisbursementDossierPanel: React.FC<DisbursementDossierPanelProps> = ({ con
 
   const handleSaveAllocations = async () => {
 
-    // Ràng buộc điều kiện: Tổng số tiền nhận nợ bằng tổng giá trị khoản vay
-
+    // Cảnh báo điều kiện nếu tổng số tiền nhận nợ chưa bằng đúng gốc vay ban đầu
     if (totalAllocated !== originalPrincipal) {
-
-      alert(
-
-        `ĐIỀU KIỆN LƯU BẮT BUỘC:\n\nTổng số tiền nhận nợ các bên (${totalAllocated.toLocaleString('vi-VN')} đ) phải BẰNG ĐÚNG tổng giá trị gốc khoản vay (${originalPrincipal.toLocaleString('vi-VN')} đ)!\n\nHiện đang ${
-
-          diff > 0 ? `thiếu ${diff.toLocaleString('vi-VN')} đ` : `thừa ${Math.abs(diff).toLocaleString('vi-VN')} đ`
-
-        }.\n\nVui lòng tùy chỉnh lại số tiền nhận nợ giữa các bên/hóa đơn sao cho khớp 100% gốc vay trước khi lưu.`
-
-      );
-
-      return;
-
+      const isUnder = totalAllocated < originalPrincipal;
+      const diffAmt = Math.abs(totalAllocated - originalPrincipal);
+      const confirmMsg = isUnder
+        ? `CẢNH BÁO THIẾU HÓA ĐƠN BẢO ĐẢM:\n\nTổng số tiền nhận nợ (${totalAllocated.toLocaleString('vi-VN')} đ) còn THIẾU ${diffAmt.toLocaleString('vi-VN')} đ so với gốc vay (${originalPrincipal.toLocaleString('vi-VN')} đ).\n\nKhoản vay sẽ ghi nhận trạng thái "Chưa Đủ Gốc Vay / Thiếu hóa đơn".\n\nBạn có chắc chắn muốn lưu phân bổ này không?`
+        : `CẢNH BÁO THỪA HÓA ĐƠN:\n\nTổng số tiền nhận nợ (${totalAllocated.toLocaleString('vi-VN')} đ) VƯỢT QUÁ gốc vay ${diffAmt.toLocaleString('vi-VN')} đ.\n\nBạn có chắc chắn muốn lưu phân bổ này không?`;
+      if (!window.confirm(confirmMsg)) {
+        return;
+      }
     }
 
 
@@ -2480,6 +2476,37 @@ const DisbursementDossierPanel: React.FC<DisbursementDossierPanelProps> = ({ con
 
 
 
+  const handleDeleteAllocationRow = async (item: any) => {
+    const invName = item.invoice_number ? `hóa đơn số ${item.invoice_number}` : 'hóa đơn này';
+    if (!window.confirm(`Bạn có chắc chắn muốn xóa nhận nợ cho ${invName} khỏi khế ước này?`)) {
+      return;
+    }
+    try {
+      if (item.allocation_id) {
+        await api.delete(`/loans/${contract.loan_id}/allocated-invoices/${item.allocation_id}`);
+      }
+      // Đồng thời nếu có tệp hồ sơ gắn với hóa đơn này trong khế ước, xóa luôn tệp hồ sơ tương ứng
+      const linkedDoc = docs.find((d) => d.invoice_id === item.invoice_id || (item.invoice_number && d.invoice_number === item.invoice_number));
+      if (linkedDoc) {
+        try {
+          await api.delete(`/loans/dossier/${linkedDoc.document_id}`);
+        } catch (e) {
+          console.warn('Lỗi khi xóa tệp hồ sơ đính kèm:', e);
+        }
+      }
+      setEditingAmounts((prev) => {
+        const next = { ...prev };
+        delete next[item.invoice_id];
+        return next;
+      });
+      await fetchDocs();
+      await fetchAllocations();
+      onRefreshContract();
+    } catch (err: any) {
+      alert(err?.response?.data?.detail || 'Lỗi khi xóa nhận nợ hóa đơn.');
+    }
+  };
+
   const handleDeleteDoc = async (docId: number) => {
 
     if (!window.confirm('Bạn có chắc chắn muốn xóa tài liệu này khỏi bộ hồ sơ giải ngân?')) return;
@@ -2489,10 +2516,11 @@ const DisbursementDossierPanel: React.FC<DisbursementDossierPanelProps> = ({ con
     try {
 
       await api.delete(`/loans/dossier/${docId}`);
+      setEditingAmounts({});
 
-      fetchDocs();
+      await fetchDocs();
 
-      fetchAllocations();
+      await fetchAllocations();
 
       onRefreshContract();
 
@@ -4401,17 +4429,11 @@ const DisbursementDossierPanel: React.FC<DisbursementDossierPanelProps> = ({ con
 
                           type="button"
 
-                          onClick={() => {
-
-                            // Đặt số tiền nhận nợ về 0 đ (chuyển thành hóa đơn thừa) thay vì xóa mất dòng
-
-                            handleAmountChange(item.invoice_id, '0');
-
-                          }}
+                          onClick={() => handleDeleteAllocationRow(item)}
 
                           className="p-1 rounded text-rose-500 hover:text-white hover:bg-rose-600 transition-colors cursor-pointer"
 
-                          title="Đặt số tiền nhận nợ về 0 đ (chuyển thành hóa đơn thừa)"
+                          title="Xóa nhận nợ hóa đơn này khỏi khoản vay (đồng thời xóa tệp hồ sơ liên quan nếu có)"
 
                         >
 

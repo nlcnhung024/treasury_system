@@ -40,6 +40,11 @@ class LinkedCollateralBrief(BaseModel):
         from_attributes = True
 
 
+class SublimitItem(BaseModel):
+    name: str
+    amount: Decimal
+
+
 class CreditAgreementResponse(BaseModel):
     agreement_id: int
     agreement_uuid: UUID
@@ -48,11 +53,19 @@ class CreditAgreementResponse(BaseModel):
     bank_name: str
     agreement_number: str
     agreement_name: str
+    entity_id: Optional[int] = None
+    entity_code: Optional[str] = None
+    entity_short_name: Optional[str] = None
     borrower_name: str
     total_credit_limit: Decimal = Decimal("0.00")
     loan_sublimit: Optional[Decimal] = None
     guarantee_sublimit: Optional[Decimal] = None
     lc_sublimit: Optional[Decimal] = None
+    sublimits_json: Optional[str] = "[]"
+    sublimits: List[SublimitItem] = []
+    contract_file_name: Optional[str] = None
+    contract_file_path: Optional[str] = None
+    contract_file_size: Optional[int] = None
     currency: str = "VND"
     signed_date: Optional[date] = None
     effective_from: date
@@ -93,11 +106,17 @@ class CreditAgreementCreate(BaseModel):
     bank_name: str
     agreement_number: str
     agreement_name: str
+    entity_id: Optional[int] = None
     borrower_name: str
     total_credit_limit: Decimal
     loan_sublimit: Optional[Decimal] = None
     guarantee_sublimit: Optional[Decimal] = None
     lc_sublimit: Optional[Decimal] = None
+    sublimits_json: Optional[str] = "[]"
+    sublimits: Optional[List[SublimitItem]] = None
+    contract_file_name: Optional[str] = None
+    contract_file_path: Optional[str] = None
+    contract_file_size: Optional[int] = None
     currency: str = "VND"
     signed_date: Optional[date] = None
     effective_from: date
@@ -116,11 +135,17 @@ class CreditAgreementUpdate(BaseModel):
     bank_name: Optional[str] = None
     agreement_number: Optional[str] = None
     agreement_name: Optional[str] = None
+    entity_id: Optional[int] = None
     borrower_name: Optional[str] = None
     total_credit_limit: Optional[Decimal] = None
     loan_sublimit: Optional[Decimal] = None
     guarantee_sublimit: Optional[Decimal] = None
     lc_sublimit: Optional[Decimal] = None
+    sublimits_json: Optional[str] = None
+    sublimits: Optional[List[SublimitItem]] = None
+    contract_file_name: Optional[str] = None
+    contract_file_path: Optional[str] = None
+    contract_file_size: Optional[int] = None
     currency: Optional[str] = None
     signed_date: Optional[date] = None
     effective_from: Optional[date] = None
