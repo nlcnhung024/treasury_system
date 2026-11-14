@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from typing import Optional, List
+from urllib.parse import quote
 from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -49,6 +50,7 @@ from app.schemas.credit import (
     LoanInvoiceReconciliationResponse,
     DebtRolloverPlanConfigSchema,
     DebtRolloverPlanConfigUpdate,
+    ExportContractsExcelRequest,
 )
 from app.schemas.common import PaginationMeta
 from app.services.credit_ingestion_service import ingest_credit_statement
@@ -57,6 +59,7 @@ from app.services.loan_interest_service import calculate_loan_interest
 from app.services.debt_reconciliation_service import DebtReconciliationService
 from app.services.invoice_parser_service import parse_xml_invoice_bytes, calculate_loan_invoice_reconciliation
 from app.services import invoice_service
+from app.services.loan_excel_exporter import build_contracts_summary_excel
 
 logger = logging.getLogger(__name__)
 
@@ -783,12 +786,10 @@ def _estimate_contract_interest(principal: Decimal, rate_pct: Decimal, start: Op
     return value.quantize(Decimal("0.01"))
 
 
-@router.get("/loans/contract-details", response_model=dict)
-async def list_contract_details(db: AsyncSession = Depends(get_db)):
-    """
-    Danh sách chi tiết khế ước kèm tổng gốc/lãi đã trả (từ các giao dịch đã đối soát
-    trong loan_repayment_history) và lãi ước tính.
-    """
+async def _fetch_contract_details_records(
+    db: AsyncSession,
+    loan_ids: Optional[List[int]] = None,
+) -> List[dict]:
     paid_stmt = (
         select(
             LoanRepaymentHistory.loan_id,
@@ -827,11 +828,23 @@ async def list_contract_details(db: AsyncSession = Depends(get_db)):
         for row in (await db.execute(doc_stmt)).all()
     }
 
-    loans = (
-        await db.execute(
-            select(CreditFacility).order_by(CreditFacility.bank_code, CreditFacility.disbursement_date, CreditFacility.contract_number)
-        )
-    ).scalars().all()
+    stmt = select(CreditFacility)
+    if loan_ids is not None:
+        if len(loan_ids) > 0:
+            stmt = stmt.where(CreditFacility.loan_id.in_(loan_ids))
+        else:
+            return []
+    else:
+        stmt = stmt.order_by(CreditFacility.bank_code, CreditFacility.disbursement_date, CreditFacility.contract_number)
+
+    raw_loans = (await db.execute(stmt)).scalars().all()
+
+    # Giữ đúng thứ tự sắp xếp loan_ids nếu truyền danh sách cụ thể
+    if loan_ids:
+        loan_dict = {l.loan_id: l for l in raw_loans}
+        loans = [loan_dict[lid] for lid in loan_ids if lid in loan_dict]
+    else:
+        loans = raw_loans
 
     items = []
     for loan in loans:
@@ -877,7 +890,51 @@ async def list_contract_details(db: AsyncSession = Depends(get_db)):
             "invoice_reconciliation_status": rec_status,
             "dossier_count": doc_map.get(loan.loan_id, 0),
         })
+    return items
+
+
+@router.get("/loans/contract-details", response_model=dict)
+async def list_contract_details(db: AsyncSession = Depends(get_db)):
+    """
+    Danh sách chi tiết khế ước kèm tổng gốc/lãi đã trả (từ các giao dịch đã đối soát
+    trong loan_repayment_history) và lãi ước tính.
+    """
+    items = await _fetch_contract_details_records(db)
     return {"data": items}
+
+
+@router.post("/loans/contracts/export-excel")
+async def export_contracts_excel(
+    payload: ExportContractsExcelRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Xuất file Excel thống kê khế ước nhận nợ còn hiệu lực theo chuẩn kế toán:
+    - Trang 1: Danh sách chi tiết cột hàng toàn bộ các khế ước đang hiển thị.
+    - Trang 2: Bảng Pivot ma trận Ngày đến hạn × Ngân hàng, format báo cáo chuyên nghiệp.
+    """
+    items = await _fetch_contract_details_records(db, loan_ids=payload.loan_ids)
+    report_dt = datetime.now()
+    excel_stream = build_contracts_summary_excel(
+        items=items,
+        company_name=payload.company_name,
+        report_date=report_dt,
+    )
+
+    date_str = report_dt.strftime("%d.%m.%Y")
+    filename = f"Thống kê khế ước nhận nợ còn hiệu lực ngày {date_str}.xlsx"
+    ascii_filename = f"Thong ke khe uoc nhan no con hieu luc ngay {date_str}.xlsx"
+    encoded_filename = quote(filename)
+
+    return StreamingResponse(
+        excel_stream,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{ascii_filename}"; filename*=UTF-8\'\'{encoded_filename}',
+            "Access-Control-Expose-Headers": "Content-Disposition",
+        },
+    )
+
 
 
 @router.get("/loans/{loan_id}/cashflow", response_model=dict)

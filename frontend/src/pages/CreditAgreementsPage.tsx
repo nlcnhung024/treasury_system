@@ -1341,40 +1341,50 @@ export const CreditAgreementsPage: React.FC = () => {
                 </div>
               </div>
 
-              {!editingAgreement && (
-                <div className="bg-amber-50/70 p-3.5 rounded-xl border border-amber-200 space-y-2">
+              {/* Kế thừa từ Hợp đồng tín dụng cũ (Hỗ trợ cả Thêm mới & Cập nhật/Chỉnh sửa) */}
+              <div className="bg-amber-50/70 p-3.5 rounded-xl border border-amber-200 space-y-2">
+                <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-amber-900">
-                    Kế thừa từ Hợp đồng tín dụng cũ (Tùy chọn - Dùng khi HĐTD cũ hết hạn)
+                    Kế thừa từ Hợp đồng tín dụng cũ (Tùy chọn - Dùng khi gia hạn hoặc HĐTD cũ hết hạn)
                   </label>
-                  <select
-                    value={formData.parent_agreement_id}
-                    onChange={(e) => setFormData({ ...formData, parent_agreement_id: e.target.value })}
-                    className="w-full border border-amber-300 rounded-xl px-3 py-2 bg-white text-xs"
-                  >
-                    <option value="">-- Không kế thừa (Hợp đồng cấp mới độc lập) --</option>
-                    {agreements
-                      .filter((a) => a.bank_code === formData.bank_code)
-                      .map((a) => (
-                        <option key={a.agreement_id} value={a.agreement_id}>
-                          {a.agreement_number} - {a.agreement_name} ({a.computed_status}) - Có {a.collateral_count} TSĐB
-                        </option>
-                      ))}
-                  </select>
-                  {formData.parent_agreement_id && (
-                    <label className="flex items-center space-x-2 text-xs text-amber-900 font-medium pt-1">
-                      <input
-                        type="checkbox"
-                        checked={formData.transfer_collaterals_from_parent}
-                        onChange={(e) =>
-                          setFormData({ ...formData, transfer_collaterals_from_parent: e.target.checked })
-                        }
-                        className="rounded text-amber-600"
-                      />
-                      <span>Tự động chuyển tiếp toàn bộ Tài sản đảm bảo từ HĐTD cũ sang HĐTD mới này</span>
-                    </label>
+                  {editingAgreement?.parent_agreement_number && (
+                    <span className="text-[11px] bg-amber-100 text-amber-800 font-semibold px-2 py-0.5 rounded border border-amber-300">
+                      Đang kế thừa: {editingAgreement.parent_agreement_number}
+                    </span>
                   )}
                 </div>
-              )}
+                <select
+                  value={formData.parent_agreement_id}
+                  onChange={(e) => setFormData({ ...formData, parent_agreement_id: e.target.value })}
+                  className="w-full border border-amber-300 rounded-xl px-3 py-2 bg-white text-xs"
+                >
+                  <option value="">-- Không kế thừa (Hợp đồng cấp mới độc lập) --</option>
+                  {agreements
+                    .filter(
+                      (a) =>
+                        a.bank_code === formData.bank_code &&
+                        (!editingAgreement || a.agreement_id !== editingAgreement.agreement_id)
+                    )
+                    .map((a) => (
+                      <option key={a.agreement_id} value={a.agreement_id}>
+                        {a.agreement_number} - {a.agreement_name} ({a.computed_status}) - Có {a.collateral_count} TSĐB
+                      </option>
+                    ))}
+                </select>
+                {formData.parent_agreement_id && (
+                  <label className="flex items-center space-x-2 text-xs text-amber-900 font-medium pt-1">
+                    <input
+                      type="checkbox"
+                      checked={formData.transfer_collaterals_from_parent}
+                      onChange={(e) =>
+                        setFormData({ ...formData, transfer_collaterals_from_parent: e.target.checked })
+                      }
+                      className="rounded text-amber-600"
+                    />
+                    <span>Tự động chuyển tiếp toàn bộ Tài sản đảm bảo từ HĐTD cũ sang HĐTD này</span>
+                  </label>
+                )}
+              </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Khung lãi suất & Ghi chú</label>

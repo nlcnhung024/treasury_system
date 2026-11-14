@@ -779,6 +779,8 @@ async def update_credit_agreement(
         except Exception:
             pass
 
+    transfer_collaterals = update_data.pop("transfer_collaterals_from_parent", False)
+
     if "bank_code" in update_data and update_data["bank_code"]:
         update_data["bank_code"] = update_data["bank_code"].strip().upper()
         bank_obj = (
@@ -786,6 +788,44 @@ async def update_credit_agreement(
         ).scalar_one_or_none()
         if bank_obj:
             ag.bank_id = bank_obj.bank_id
+
+    # Xử lý kế thừa từ HĐTD cũ nếu có thay đổi parent_agreement_id
+    if "parent_agreement_id" in update_data:
+        parent_id = update_data.get("parent_agreement_id")
+        if parent_id and parent_id != ag.parent_agreement_id:
+            parent_ag = (
+                await db.execute(select(CreditAgreement).where(CreditAgreement.agreement_id == parent_id))
+            ).scalar_one_or_none()
+            if parent_ag:
+                parent_ag.renewed_to_agreement_id = ag.agreement_id
+                if transfer_collaterals:
+                    cols = (
+                        await db.execute(
+                            select(CollateralAsset).where(
+                                CollateralAsset.agreement_id == parent_ag.agreement_id,
+                                CollateralAsset.collateral_status != "RELEASED",
+                            )
+                        )
+                    ).scalars().all()
+                    for col in cols:
+                        col.agreement_id = ag.agreement_id
+                        col.bank_code = ag.bank_code
+                        col.bank_name = ag.bank_name
+                        db.add(
+                            CollateralAgreementHistory(
+                                asset_id=col.asset_id,
+                                from_agreement_id=parent_ag.agreement_id,
+                                from_agreement_number=parent_ag.agreement_number,
+                                to_agreement_id=ag.agreement_id,
+                                to_agreement_number=ag.agreement_number,
+                                bank_code=ag.bank_code,
+                                action_type="ROLLOVER_TRANSFER",
+                                effective_date=ag.effective_from,
+                                notes=f"Tự động chuyển tiếp tài sản đảm bảo từ HĐTD {parent_ag.agreement_number} sang HĐTD {ag.agreement_number}.",
+                                performed_by="SYSTEM",
+                            )
+                        )
+
     for k, v in update_data.items():
         setattr(ag, k, v)
 

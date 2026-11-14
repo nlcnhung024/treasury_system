@@ -9,6 +9,10 @@ import {
   Calendar,
   ChevronsDownUp,
   ChevronsUpDown,
+  Layers,
+  X,
+  Building2,
+  Landmark,
 } from 'lucide-react';
 import { CreditFacility } from '../../types';
 import { useCorporateEntity, PRESET_CORPORATE_ENTITIES } from '../../contexts/CorporateEntityContext';
@@ -34,6 +38,181 @@ interface LoanItemProcessed {
   principal: number;
   interest: number;
 }
+
+interface ColorDef {
+  bg: string;
+  hover: string;
+  text: string;
+  lightBg: string;
+  border: string;
+}
+
+const BANK_COLOR_MAP: Record<string, ColorDef> = {
+  BIDV: {
+    bg: 'bg-blue-600',
+    hover: 'hover:bg-blue-700',
+    text: 'text-blue-700',
+    lightBg: 'bg-blue-50',
+    border: 'border-blue-300',
+  },
+  VCB: {
+    bg: 'bg-emerald-600',
+    hover: 'hover:bg-emerald-700',
+    text: 'text-emerald-700',
+    lightBg: 'bg-emerald-50',
+    border: 'border-emerald-300',
+  },
+  VIETCOMBANK: {
+    bg: 'bg-emerald-600',
+    hover: 'hover:bg-emerald-700',
+    text: 'text-emerald-700',
+    lightBg: 'bg-emerald-50',
+    border: 'border-emerald-300',
+  },
+  CTG: {
+    bg: 'bg-teal-600',
+    hover: 'hover:bg-teal-700',
+    text: 'text-teal-700',
+    lightBg: 'bg-teal-50',
+    border: 'border-teal-300',
+  },
+  VIETINBANK: {
+    bg: 'bg-teal-600',
+    hover: 'hover:bg-teal-700',
+    text: 'text-teal-700',
+    lightBg: 'bg-teal-50',
+    border: 'border-teal-300',
+  },
+  MBB: {
+    bg: 'bg-indigo-600',
+    hover: 'hover:bg-indigo-700',
+    text: 'text-indigo-700',
+    lightBg: 'bg-indigo-50',
+    border: 'border-indigo-300',
+  },
+  MB: {
+    bg: 'bg-indigo-600',
+    hover: 'hover:bg-indigo-700',
+    text: 'text-indigo-700',
+    lightBg: 'bg-indigo-50',
+    border: 'border-indigo-300',
+  },
+  TCB: {
+    bg: 'bg-rose-600',
+    hover: 'hover:bg-rose-700',
+    text: 'text-rose-700',
+    lightBg: 'bg-rose-50',
+    border: 'border-rose-300',
+  },
+  TECHCOMBANK: {
+    bg: 'bg-rose-600',
+    hover: 'hover:bg-rose-700',
+    text: 'text-rose-700',
+    lightBg: 'bg-rose-50',
+    border: 'border-rose-300',
+  },
+  VPB: {
+    bg: 'bg-lime-600',
+    hover: 'hover:bg-lime-700',
+    text: 'text-lime-700',
+    lightBg: 'bg-lime-50',
+    border: 'border-lime-300',
+  },
+  VPBANK: {
+    bg: 'bg-lime-600',
+    hover: 'hover:bg-lime-700',
+    text: 'text-lime-700',
+    lightBg: 'bg-lime-50',
+    border: 'border-lime-300',
+  },
+  TPB: {
+    bg: 'bg-purple-600',
+    hover: 'hover:bg-purple-700',
+    text: 'text-purple-700',
+    lightBg: 'bg-purple-50',
+    border: 'border-purple-300',
+  },
+  TPBANK: {
+    bg: 'bg-purple-600',
+    hover: 'hover:bg-purple-700',
+    text: 'text-purple-700',
+    lightBg: 'bg-purple-50',
+    border: 'border-purple-300',
+  },
+  ACB: {
+    bg: 'bg-sky-600',
+    hover: 'hover:bg-sky-700',
+    text: 'text-sky-700',
+    lightBg: 'bg-sky-50',
+    border: 'border-sky-300',
+  },
+  HDB: {
+    bg: 'bg-amber-600',
+    hover: 'hover:bg-amber-700',
+    text: 'text-amber-700',
+    lightBg: 'bg-amber-50',
+    border: 'border-amber-300',
+  },
+  HDBANK: {
+    bg: 'bg-amber-600',
+    hover: 'hover:bg-amber-700',
+    text: 'text-amber-700',
+    lightBg: 'bg-amber-50',
+    border: 'border-amber-300',
+  },
+  SHB: {
+    bg: 'bg-orange-600',
+    hover: 'hover:bg-orange-700',
+    text: 'text-orange-700',
+    lightBg: 'bg-orange-50',
+    border: 'border-orange-300',
+  },
+  MSB: {
+    bg: 'bg-red-600',
+    hover: 'hover:bg-red-700',
+    text: 'text-red-700',
+    lightBg: 'bg-red-50',
+    border: 'border-red-300',
+  },
+  STB: {
+    bg: 'bg-cyan-700',
+    hover: 'hover:bg-cyan-800',
+    text: 'text-cyan-800',
+    lightBg: 'bg-cyan-50',
+    border: 'border-cyan-300',
+  },
+  SACOMBANK: {
+    bg: 'bg-cyan-700',
+    hover: 'hover:bg-cyan-800',
+    text: 'text-cyan-800',
+    lightBg: 'bg-cyan-50',
+    border: 'border-cyan-300',
+  },
+};
+
+const BANK_FALLBACK_PALETTE: ColorDef[] = [
+  { bg: 'bg-blue-600', hover: 'hover:bg-blue-700', text: 'text-blue-700', lightBg: 'bg-blue-50', border: 'border-blue-300' },
+  { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-700', text: 'text-emerald-700', lightBg: 'bg-emerald-50', border: 'border-emerald-300' },
+  { bg: 'bg-teal-600', hover: 'hover:bg-teal-700', text: 'text-teal-700', lightBg: 'bg-teal-50', border: 'border-teal-300' },
+  { bg: 'bg-indigo-600', hover: 'hover:bg-indigo-700', text: 'text-indigo-700', lightBg: 'bg-indigo-50', border: 'border-indigo-300' },
+  { bg: 'bg-rose-600', hover: 'hover:bg-rose-700', text: 'text-rose-700', lightBg: 'bg-rose-50', border: 'border-rose-300' },
+  { bg: 'bg-amber-600', hover: 'hover:bg-amber-700', text: 'text-amber-700', lightBg: 'bg-amber-50', border: 'border-amber-300' },
+  { bg: 'bg-purple-600', hover: 'hover:bg-purple-700', text: 'text-purple-700', lightBg: 'bg-purple-50', border: 'border-purple-300' },
+  { bg: 'bg-green-600', hover: 'hover:bg-green-700', text: 'text-green-700', lightBg: 'bg-green-50', border: 'border-green-300' },
+  { bg: 'bg-sky-600', hover: 'hover:bg-sky-700', text: 'text-sky-700', lightBg: 'bg-sky-50', border: 'border-sky-300' },
+];
+
+const BORROWER_PALETTE: ColorDef[] = [
+  { bg: 'bg-indigo-600', hover: 'hover:bg-indigo-700', text: 'text-indigo-700', lightBg: 'bg-indigo-50', border: 'border-indigo-300' },
+  { bg: 'bg-amber-600', hover: 'hover:bg-amber-700', text: 'text-amber-700', lightBg: 'bg-amber-50', border: 'border-amber-300' },
+  { bg: 'bg-pink-600', hover: 'hover:bg-pink-700', text: 'text-pink-700', lightBg: 'bg-pink-50', border: 'border-pink-300' },
+  { bg: 'bg-emerald-600', hover: 'hover:bg-emerald-700', text: 'text-emerald-700', lightBg: 'bg-emerald-50', border: 'border-emerald-300' },
+  { bg: 'bg-sky-600', hover: 'hover:bg-sky-700', text: 'text-sky-700', lightBg: 'bg-sky-50', border: 'border-sky-300' },
+  { bg: 'bg-purple-600', hover: 'hover:bg-purple-700', text: 'text-purple-700', lightBg: 'bg-purple-50', border: 'border-purple-300' },
+  { bg: 'bg-teal-600', hover: 'hover:bg-teal-700', text: 'text-teal-700', lightBg: 'bg-teal-50', border: 'border-teal-300' },
+  { bg: 'bg-orange-600', hover: 'hover:bg-orange-700', text: 'text-orange-700', lightBg: 'bg-orange-50', border: 'border-orange-300' },
+  { bg: 'bg-rose-600', hover: 'hover:bg-rose-700', text: 'text-rose-700', lightBg: 'bg-rose-50', border: 'border-rose-300' },
+];
 
 export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
   loans,
@@ -75,16 +254,56 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
       .replace(/^(CÔNG TY TNHH|CONG TY TNHH)\s+/i, 'TNHH ')
       .trim();
   };
+
   // Dropdown open/close state for detail breakdown table (default open)
   const [isTableOpen, setIsTableOpen] = useState<boolean>(true);
 
   // Expanded months set: which months are currently expanded to show individual days as child rows
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
 
-  // Hovered loan in stacked bar for interactive tooltip
-  const [hoveredLoan, setHoveredLoan] = useState<LoanItemProcessed | null>(null);
+  // Dropdown selection state:
+  // - 'group:bank': Phân loại cột chồng theo Tổ chức tín dụng (Toàn bộ)
+  // - 'group:borrower': Phân loại cột chồng theo Chủ thể nhận nợ / Công ty (Toàn bộ)
+  // - 'group:contract': Theo từng khế ước đơn lẻ (Đơn sắc)
+  // - 'filter:bank:<CODE>': Lọc chỉ hiển thị 1 Tổ chức tín dụng cụ thể
+  // - 'filter:borrower:<NAME>': Lọc chỉ hiển thị 1 Chủ thể nhận nợ cụ thể
+  const [dropdownSelection, setDropdownSelection] = useState<string>('group:bank');
 
-  // Helper for compact money formatting (used exclusively on top of bar charts)
+  // Derived view mode & active filter
+  const viewMode: 'bank' | 'borrower' | 'contract' = useMemo(() => {
+    if (dropdownSelection === 'group:borrower' || dropdownSelection.startsWith('filter:borrower:')) {
+      return 'borrower';
+    }
+    if (dropdownSelection === 'group:contract') {
+      return 'contract';
+    }
+    return 'bank';
+  }, [dropdownSelection]);
+
+  const activeFilter = useMemo(() => {
+    if (dropdownSelection.startsWith('filter:bank:')) {
+      return { type: 'bank' as const, value: dropdownSelection.replace('filter:bank:', '') };
+    }
+    if (dropdownSelection.startsWith('filter:borrower:')) {
+      return { type: 'borrower' as const, value: dropdownSelection.replace('filter:borrower:', '') };
+    }
+    return null;
+  }, [dropdownSelection]);
+
+  // Hovered item or segment for interactive tooltip
+  const [hoveredInfo, setHoveredInfo] = useState<{
+    type: 'contract' | 'bank' | 'borrower';
+    title: string;
+    subtitle?: string;
+    amount: number;
+    count?: number;
+    contractNumber?: string;
+    bankCode?: string;
+    borrowerShort?: string;
+    monthLabel?: string;
+  } | null>(null);
+
+  // Helper for compact money formatting (used on top of bar charts)
   const formatShortMoney = (val: number): string => {
     if (!val || val === 0) return '0 ₫';
     const absVal = Math.abs(val);
@@ -105,13 +324,10 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
       const curBal = Number(l.current_principal_balance) || 0;
 
       // CHỈ LẤY SỐ TIỀN GỐC ĐẾN HẠN (LOẠI BỎ SỐ TIỀN LÃI):
-      // - Nếu có kỳ trả gốc cụ thể: lấy next_principal_amount
-      // - Nếu khoản vay đáo hạn trả gốc một lần cuối kỳ: lấy dư nợ gốc hiện tại curBal
       const principalDue = nextP > 0 ? nextP : curBal;
       if (principalDue <= 0) return;
 
       // NGÀY ĐẾN HẠN GỐC:
-      // Nếu có next_principal_amount > 0 thì dùng next_repayment_date, nếu trả gốc cuối kỳ thì lấy maturity_date
       const dateStr = (nextP > 0 && l.next_repayment_date)
         ? l.next_repayment_date
         : (l.maturity_date || l.next_repayment_date);
@@ -141,7 +357,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
         month_label,
         day_key,
         day_short,
-        obligation: principalDue, // Số tiền gốc đến hạn (không tính lãi)
+        obligation: principalDue,
         principal: principalDue,
         interest: 0,
       });
@@ -149,7 +365,87 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
     return list;
   }, [loans, entities]);
 
-  // Group by Month (sorted chronologically from left to right)
+  // Unique Banks list across ALL processed loans (sorted descending by total obligation)
+  const allBanksList = useMemo(() => {
+    const map = new Map<string, { bank_code: string; bank_name: string; total: number; count: number }>();
+    processedLoans.forEach((l) => {
+      if (!map.has(l.bank_code)) {
+        map.set(l.bank_code, {
+          bank_code: l.bank_code,
+          bank_name: l.bank_name,
+          total: 0,
+          count: 0,
+        });
+      }
+      const b = map.get(l.bank_code)!;
+      b.total += l.obligation;
+      b.count += 1;
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [processedLoans]);
+
+  // Unique Borrowers list across ALL processed loans (sorted descending by total obligation)
+  const allBorrowersList = useMemo(() => {
+    const map = new Map<string, { shortName: string; fullName: string; total: number; count: number }>();
+    processedLoans.forEach((l) => {
+      const key = l.borrower_short;
+      if (!map.has(key)) {
+        map.set(key, {
+          shortName: key,
+          fullName: l.borrower_name,
+          total: 0,
+          count: 0,
+        });
+      }
+      const item = map.get(key)!;
+      item.total += l.obligation;
+      item.count += 1;
+    });
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [processedLoans]);
+
+  // Get color for Bank
+  const getBankColor = (bankCode: string, fallbackIdx: number = 0): ColorDef => {
+    const code = (bankCode || '').trim().toUpperCase();
+    if (BANK_COLOR_MAP[code]) return BANK_COLOR_MAP[code];
+    return BANK_FALLBACK_PALETTE[fallbackIdx % BANK_FALLBACK_PALETTE.length];
+  };
+
+  // Pre-calculate Borrower Color Map
+  const borrowerColorMap = useMemo(() => {
+    const map = new Map<string, ColorDef>();
+    allBorrowersList.forEach((b, idx) => {
+      const norm = b.fullName.toUpperCase();
+      if (norm.includes('SUNRISE')) {
+        map.set(b.shortName, BORROWER_PALETTE[0]); // Indigo
+      } else if (norm.includes('HUONG DUONG') || b.shortName.includes('Hướng Dương')) {
+        map.set(b.shortName, BORROWER_PALETTE[1]); // Amber
+      } else if (norm.includes('LAN ANH') || b.shortName.includes('Lan Anh')) {
+        map.set(b.shortName, BORROWER_PALETTE[2]); // Pink
+      } else {
+        map.set(b.shortName, BORROWER_PALETTE[idx % BORROWER_PALETTE.length]);
+      }
+    });
+    return map;
+  }, [allBorrowersList]);
+
+  const getBorrowerColor = (borrowerShort: string, fallbackIdx: number = 0): ColorDef => {
+    return borrowerColorMap.get(borrowerShort) || BORROWER_PALETTE[fallbackIdx % BORROWER_PALETTE.length];
+  };
+
+  // Filtered Loans based on activeFilter
+  const displayLoans = useMemo(() => {
+    if (!activeFilter) return processedLoans;
+    if (activeFilter.type === 'bank') {
+      return processedLoans.filter((l) => l.bank_code === activeFilter.value);
+    }
+    if (activeFilter.type === 'borrower') {
+      return processedLoans.filter((l) => l.borrower_short === activeFilter.value);
+    }
+    return processedLoans;
+  }, [processedLoans, activeFilter]);
+
+  // Group by Month (sorted chronologically from left to right) based on displayLoans
   const monthsData = useMemo(() => {
     const map = new Map<
       string,
@@ -162,7 +458,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
       }
     >();
 
-    processedLoans.forEach((l) => {
+    displayLoans.forEach((l) => {
       if (!map.has(l.month_key)) {
         map.set(l.month_key, {
           month_key: l.month_key,
@@ -204,12 +500,12 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
         days: sortedDays,
       };
     });
-  }, [processedLoans]);
+  }, [displayLoans]);
 
-  // Unique Banks list (Columns in Transposed Table), sorted descending by total obligation
-  const banksList = useMemo(() => {
+  // Banks list for the detail table: if filtering by a single bank, only show that bank; otherwise show all relevant banks
+  const tableBanksList = useMemo(() => {
     const map = new Map<string, { bank_code: string; bank_name: string; total: number; count: number }>();
-    processedLoans.forEach((l) => {
+    displayLoans.forEach((l) => {
       if (!map.has(l.bank_code)) {
         map.set(l.bank_code, {
           bank_code: l.bank_code,
@@ -223,7 +519,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
       b.count += 1;
     });
     return Array.from(map.values()).sort((a, b) => b.total - a.total);
-  }, [processedLoans]);
+  }, [displayLoans]);
 
   // Max month total for stacked bar chart scaling
   const maxMonthTotal = useMemo(() => {
@@ -231,10 +527,15 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
     return Math.max(...monthsData.map((m) => m.total));
   }, [monthsData]);
 
-  // Grand total obligation
-  const grandTotal = useMemo(() => {
+  // Total obligation of current view
+  const currentTotal = useMemo(() => {
     return monthsData.reduce((sum, m) => sum + m.total, 0);
   }, [monthsData]);
+
+  // Grand total obligation across all loans without filters
+  const grandTotal = useMemo(() => {
+    return processedLoans.reduce((sum, l) => sum + l.obligation, 0);
+  }, [processedLoans]);
 
   // Toggle single month expansion
   const toggleMonthExpansion = (monthKey: string) => {
@@ -265,27 +566,93 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-5">
-      {/* HEADER SECTION */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+      {/* ========================================================================= */}
+      {/* HEADER SECTION WITH MULTI-DIMENSIONAL DROPDOWN & FILTER                   */}
+      {/* ========================================================================= */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 pb-3">
         <div>
           <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-indigo-600" />
+            <BarChart3 className="w-5 h-5 text-indigo-600 shrink-0" />
             <span>Dư Nợ Đến Hạn Theo Các Tháng (Maturity Timeline)</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Biểu đồ cột chồng thể hiện phân bổ nghĩa vụ nợ đến hạn theo trình tự thời gian từ trái sang phải.
           </p>
         </div>
-        <div className="text-right">
-          <span className="text-xs text-slate-500">Tổng gốc đến hạn:</span>
-          <span className="ml-2 text-sm font-bold text-slate-900">
-            {formatVND(grandTotal)}
-          </span>
+
+        {/* CONTROLS & DROPDOWN */}
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+          {/* THE DROPDOWN SELECTOR: PHÂN LOẠI & LỌC THEO TCTD / DOANH NGHIỆP */}
+          <div className="flex items-center gap-1.5 bg-slate-50 p-1 border border-slate-200 rounded-lg">
+            <label
+              htmlFor="timeline-dropdown-selector"
+              className="text-xs font-semibold text-slate-600 pl-1.5 flex items-center gap-1 shrink-0"
+            >
+              <Layers className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline">Hiển thị theo:</span>
+            </label>
+            <select
+              id="timeline-dropdown-selector"
+              value={dropdownSelection}
+              onChange={(e) => setDropdownSelection(e.target.value)}
+              className="text-xs font-bold text-slate-800 bg-white border border-slate-300 rounded px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 cursor-pointer shadow-2xs"
+            >
+              <optgroup label="── CHẾ ĐỘ PHÂN TẦNG CỘT CHỒNG ──">
+                <option value="group:bank">🏦 Theo Tổ chức tín dụng (Toàn bộ)</option>
+                <option value="group:borrower">🏢 Theo Chủ thể nhận nợ / Công ty (Toàn bộ)</option>
+                <option value="group:contract">📄 Theo Từng khế ước (Đơn sắc)</option>
+              </optgroup>
+
+              <optgroup label="── LỌC THEO TỪNG TỔ CHỨC TÍN DỤNG ──">
+                {allBanksList.map((b) => (
+                  <option key={`opt-bank-${b.bank_code}`} value={`filter:bank:${b.bank_code}`}>
+                    TCTD: {b.bank_code} - {b.bank_name} ({b.count} HĐ • {formatShortMoney(b.total)})
+                  </option>
+                ))}
+              </optgroup>
+
+              <optgroup label="── LỌC THEO TỪNG CHỦ THỂ / CÔNG TY ──">
+                {allBorrowersList.map((c) => (
+                  <option key={`opt-borrower-${c.shortName}`} value={`filter:borrower:${c.shortName}`}>
+                    Chủ thể: {c.shortName} ({c.count} HĐ • {formatShortMoney(c.total)})
+                  </option>
+                ))}
+              </optgroup>
+            </select>
+          </div>
+
+          {/* RESET FILTER BUTTON IF ACTIVE */}
+          {activeFilter && (
+            <button
+              type="button"
+              onClick={() => setDropdownSelection(viewMode === 'borrower' ? 'group:borrower' : 'group:bank')}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2 py-1.5 rounded transition-colors shadow-2xs"
+              title="Hủy bộ lọc, xem toàn bộ khoản vay"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Xem toàn bộ</span>
+            </button>
+          )}
+
+          {/* TOTAL OBLIGATION BADGE */}
+          <div className="text-right pl-2 border-l border-slate-200">
+            <span className="text-[11px] text-slate-500 block leading-tight">
+              {activeFilter ? 'Gốc đến hạn (Đang lọc):' : 'Tổng gốc đến hạn:'}
+            </span>
+            <span className="text-sm font-bold text-slate-900 leading-tight">
+              {formatVND(currentTotal)}
+            </span>
+            {activeFilter && (
+              <span className="text-[10px] text-slate-400 block leading-tight">
+                (Toàn DM: {formatShortMoney(grandTotal)})
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
       {/* ========================================================================= */}
-      {/* 1. STACKED BAR CHART: EXACT 1 SOLID COLOR, NO ROUNDED, NO GRADIENT        */}
+      {/* 1. STACKED BAR CHART: INTERACTIVE MULTI-DIMENSIONAL STACKS                */}
       {/* ========================================================================= */}
       <div className="space-y-2">
         {/* Main Chart Area */}
@@ -298,10 +665,11 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
             <div className="border-b border-slate-300 w-full" />
           </div>
 
-          {/* Render Columns for Each Month from Left to Right (Distributed evenly across full width) */}
+          {/* Render Columns for Each Month from Left to Right */}
           {monthsData.map((m) => {
             const columnHeightPct = Math.max(6, Math.round((m.total / maxMonthTotal) * 100));
 
+            // Group loans in this month according to viewMode
             return (
               <div
                 key={m.month_key}
@@ -315,28 +683,182 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                 {/* Stacked Bar Container */}
                 <div
                   style={{ height: `${columnHeightPct}%` }}
-                  className="w-full max-w-[110px] sm:max-w-[140px] flex flex-col-reverse justify-start border border-indigo-900/40 shadow-xs bg-indigo-50/30"
+                  className="w-full max-w-[110px] sm:max-w-[140px] flex flex-col-reverse justify-start border border-indigo-900/40 shadow-xs bg-indigo-50/20"
                 >
-                  {/* Each Loan Slice: 1 SOLID COLOR (bg-indigo-600), NO ROUNDED, NO GRADIENT */}
-                  {m.loans.map((loan) => {
-                    const slicePct = (loan.obligation / m.total) * 100;
-                    const isHovered = hoveredLoan?.contract_number === loan.contract_number;
+                  {/* CASE A: GROUP BY CREDIT INSTITUTION (BANK) */}
+                  {viewMode === 'bank' &&
+                    (() => {
+                      // Group loans in this month by bank_code
+                      const bankMap = new Map<
+                        string,
+                        { bank_code: string; bank_name: string; total: number; loans: LoanItemProcessed[] }
+                      >();
+                      m.loans.forEach((l) => {
+                        if (!bankMap.has(l.bank_code)) {
+                          bankMap.set(l.bank_code, {
+                            bank_code: l.bank_code,
+                            bank_name: l.bank_name,
+                            total: 0,
+                            loans: [],
+                          });
+                        }
+                        const b = bankMap.get(l.bank_code)!;
+                        b.total += l.obligation;
+                        b.loans.push(l);
+                      });
+                      const bankGroups = Array.from(bankMap.values()).sort((a, b) => b.total - a.total);
 
-                    return (
-                      <div
-                        key={loan.contract_number}
-                        onMouseEnter={() => setHoveredLoan(loan)}
-                        onMouseLeave={() => setHoveredLoan(null)}
-                        style={{ height: `${Math.max(3, slicePct)}%` }}
-                        className={`w-full bg-indigo-600 border-t border-white/60 transition-colors cursor-pointer ${
-                          isHovered
-                            ? 'bg-indigo-900 ring-2 ring-amber-400 z-20'
-                            : 'hover:bg-indigo-700'
-                        }`}
-                        title={`HĐ: ${loan.contract_number}\nNH: ${loan.bank_code}\nĐến hạn: ${loan.day_key}\nSố tiền: ${formatVND(loan.obligation)}`}
-                      />
-                    );
-                  })}
+                      return bankGroups.map((bg, bIdx) => {
+                        const bankSlicePct = (bg.total / m.total) * 100;
+                        const color = getBankColor(bg.bank_code, bIdx);
+                        const isHovered =
+                          hoveredInfo?.type === 'bank' &&
+                          hoveredInfo?.bankCode === bg.bank_code &&
+                          hoveredInfo?.monthLabel === m.label;
+
+                        return (
+                          <div
+                            key={`slice-bank-${m.month_key}-${bg.bank_code}`}
+                            style={{ height: `${Math.max(4, bankSlicePct)}%` }}
+                            className={`w-full ${color.bg} border-t border-white/70 transition-all cursor-pointer relative flex flex-col-reverse justify-start ${
+                              isHovered ? 'ring-2 ring-amber-400 z-20 brightness-110' : color.hover
+                            }`}
+                            onMouseEnter={() =>
+                              setHoveredInfo({
+                                type: 'bank',
+                                title: `TCTD: ${bg.bank_name} (${bg.bank_code})`,
+                                subtitle: `${m.label} • ${bg.loans.length} HĐ`,
+                                amount: bg.total,
+                                count: bg.loans.length,
+                                bankCode: bg.bank_code,
+                                monthLabel: m.label,
+                              })
+                            }
+                            onMouseLeave={() => setHoveredInfo(null)}
+                            onClick={() => setDropdownSelection(`filter:bank:${bg.bank_code}`)}
+                            title={`TCTD: ${bg.bank_name} (${bg.bank_code})\nĐến hạn: ${m.label}\nNghĩa vụ: ${formatVND(bg.total)} (${bg.loans.length} HĐ)\nBấm để lọc TCTD này`}
+                          >
+                            {/* Sub-slices for individual contracts inside this bank */}
+                            {bg.loans.length > 1 &&
+                              bg.loans.map((loan) => {
+                                const subPct = (loan.obligation / bg.total) * 100;
+                                return (
+                                  <div
+                                    key={`sub-${loan.contract_number}`}
+                                    style={{ height: `${subPct}%` }}
+                                    className="w-full border-t border-white/30"
+                                  />
+                                );
+                              })}
+                          </div>
+                        );
+                      });
+                    })()}
+
+                  {/* CASE B: GROUP BY BORROWER / COMPANY */}
+                  {viewMode === 'borrower' &&
+                    (() => {
+                      // Group loans in this month by borrower_short
+                      const borrowerMap = new Map<
+                        string,
+                        { shortName: string; fullName: string; total: number; loans: LoanItemProcessed[] }
+                      >();
+                      m.loans.forEach((l) => {
+                        const key = l.borrower_short;
+                        if (!borrowerMap.has(key)) {
+                          borrowerMap.set(key, {
+                            shortName: key,
+                            fullName: l.borrower_name,
+                            total: 0,
+                            loans: [],
+                          });
+                        }
+                        const item = borrowerMap.get(key)!;
+                        item.total += l.obligation;
+                        item.loans.push(l);
+                      });
+                      const borrowerGroups = Array.from(borrowerMap.values()).sort((a, b) => b.total - a.total);
+
+                      return borrowerGroups.map((cg, cIdx) => {
+                        const compSlicePct = (cg.total / m.total) * 100;
+                        const color = getBorrowerColor(cg.shortName, cIdx);
+                        const isHovered =
+                          hoveredInfo?.type === 'borrower' &&
+                          hoveredInfo?.borrowerShort === cg.shortName &&
+                          hoveredInfo?.monthLabel === m.label;
+
+                        return (
+                          <div
+                            key={`slice-comp-${m.month_key}-${cg.shortName}`}
+                            style={{ height: `${Math.max(4, compSlicePct)}%` }}
+                            className={`w-full ${color.bg} border-t border-white/70 transition-all cursor-pointer relative flex flex-col-reverse justify-start ${
+                              isHovered ? 'ring-2 ring-amber-400 z-20 brightness-110' : color.hover
+                            }`}
+                            onMouseEnter={() =>
+                              setHoveredInfo({
+                                type: 'borrower',
+                                title: `Chủ thể: ${cg.shortName}`,
+                                subtitle: `${m.label} • ${cg.loans.length} HĐ`,
+                                amount: cg.total,
+                                count: cg.loans.length,
+                                borrowerShort: cg.shortName,
+                                monthLabel: m.label,
+                              })
+                            }
+                            onMouseLeave={() => setHoveredInfo(null)}
+                            onClick={() => setDropdownSelection(`filter:borrower:${cg.shortName}`)}
+                            title={`Chủ thể: ${cg.shortName}\nĐến hạn: ${m.label}\nNghĩa vụ: ${formatVND(cg.total)} (${cg.loans.length} HĐ)\nBấm để lọc Doanh nghiệp này`}
+                          >
+                            {/* Sub-slices for individual contracts inside this company */}
+                            {cg.loans.length > 1 &&
+                              cg.loans.map((loan) => {
+                                const subPct = (loan.obligation / cg.total) * 100;
+                                return (
+                                  <div
+                                    key={`sub-${loan.contract_number}`}
+                                    style={{ height: `${subPct}%` }}
+                                    className="w-full border-t border-white/30"
+                                  />
+                                );
+                              })}
+                          </div>
+                        );
+                      });
+                    })()}
+
+                  {/* CASE C: INDIVIDUAL CONTRACTS (SOLID BLUE - ORIGINAL VIEW) */}
+                  {viewMode === 'contract' &&
+                    m.loans.map((loan) => {
+                      const slicePct = (loan.obligation / m.total) * 100;
+                      const isHovered =
+                        hoveredInfo?.type === 'contract' &&
+                        hoveredInfo?.contractNumber === loan.contract_number;
+
+                      return (
+                        <div
+                          key={loan.contract_number}
+                          onMouseEnter={() =>
+                            setHoveredInfo({
+                              type: 'contract',
+                              title: `Khế ước: ${loan.contract_number} (${loan.bank_code})`,
+                              subtitle: `Đến hạn: ${loan.day_key} • ${loan.borrower_short}`,
+                              amount: loan.obligation,
+                              count: 1,
+                              contractNumber: loan.contract_number,
+                              monthLabel: m.label,
+                            })
+                          }
+                          onMouseLeave={() => setHoveredInfo(null)}
+                          style={{ height: `${Math.max(3, slicePct)}%` }}
+                          className={`w-full bg-indigo-600 border-t border-white/60 transition-colors cursor-pointer ${
+                            isHovered
+                              ? 'bg-indigo-900 ring-2 ring-amber-400 z-20'
+                              : 'hover:bg-indigo-700'
+                          }`}
+                          title={`HĐ: ${loan.contract_number}\nNH: ${loan.bank_code}\nChủ thể: ${loan.borrower_short}\nĐến hạn: ${loan.day_key}\nSố tiền: ${formatVND(loan.obligation)}`}
+                        />
+                      );
+                    })}
                 </div>
 
                 {/* Bottom Month Label */}
@@ -353,36 +875,137 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
           })}
         </div>
 
-        {/* Hover Information Banner / Legend */}
+        {/* Hover Information Banner */}
         <div className="min-h-[28px] text-xs text-slate-600 flex flex-wrap items-center justify-between gap-2 px-1">
-          {hoveredLoan ? (
-            <div className="flex items-center gap-3 animate-in fade-in duration-150">
-              <span className="font-semibold text-slate-900">
-                Khế ước: <strong className="text-indigo-600">{hoveredLoan.contract_number}</strong> ({hoveredLoan.bank_code})
-              </span>
+          {hoveredInfo ? (
+            <div className="flex items-center gap-2 sm:gap-3 animate-in fade-in duration-150 flex-wrap">
+              <span className="font-bold text-slate-900">{hoveredInfo.title}</span>
+              {hoveredInfo.subtitle && (
+                <>
+                  <span>•</span>
+                  <span className="text-slate-600 font-medium">{hoveredInfo.subtitle}</span>
+                </>
+              )}
               <span>•</span>
               <span>
-                Đến hạn: <strong>{hoveredLoan.day_key}</strong>
+                Nghĩa vụ: <strong className="text-emerald-600 font-bold">{formatVND(hoveredInfo.amount)}</strong>
               </span>
-              <span>•</span>
-              <span>
-                Nghĩa vụ: <strong className="text-emerald-600">{formatVND(hoveredLoan.obligation)}</strong>
-              </span>
-              <span>•</span>
-              <span className="text-slate-500 italic truncate max-w-xs" title={hoveredLoan.borrower_name}>
-                {hoveredLoan.borrower_short}
-              </span>
+              {hoveredInfo.count && hoveredInfo.count > 1 && (
+                <>
+                  <span>•</span>
+                  <span className="text-indigo-600 font-semibold">{hoveredInfo.count} khế ước</span>
+                </>
+              )}
             </div>
           ) : (
             <span className="text-slate-400 italic">
-              Rê chuột vào các đoạn cột chồng để xem chi tiết từng khế ước cụ thể.
+              {viewMode === 'bank'
+                ? 'Rê chuột vào các tầng để xem TCTD • Bấm vào lát cắt hoặc thẻ chú giải để lọc.'
+                : viewMode === 'borrower'
+                ? 'Rê chuột vào các tầng để xem Công ty • Bấm vào lát cắt hoặc thẻ chú giải để lọc.'
+                : 'Rê chuột vào các đoạn cột chồng để xem chi tiết từng khế ước cụ thể.'}
             </span>
           )}
 
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            <span className="w-3 h-3 bg-indigo-600 border border-slate-300 inline-block" />
-            <span>Khoản vay đến hạn (Đơn sắc, phẳng)</span>
-          </div>
+          {activeFilter && (
+            <div className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+              Đang lọc:{' '}
+              {activeFilter.type === 'bank'
+                ? `TCTD ${activeFilter.value}`
+                : `Chủ thể ${activeFilter.value}`}
+            </div>
+          )}
+        </div>
+
+        {/* ========================================================================= */}
+        {/* INTERACTIVE LEGEND / PALETTE BAR                                          */}
+        {/* ========================================================================= */}
+        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <span className="text-[11px] font-bold text-slate-600 mr-1 flex items-center gap-1">
+            {viewMode === 'bank' ? (
+              <>
+                <Landmark className="w-3 h-3 text-indigo-600" />
+                <span>Chú giải TCTD:</span>
+              </>
+            ) : viewMode === 'borrower' ? (
+              <>
+                <Building2 className="w-3 h-3 text-indigo-600" />
+                <span>Chú giải Chủ thể:</span>
+              </>
+            ) : (
+              <span>Chú giải:</span>
+            )}
+          </span>
+
+          {/* BANK LEGEND BUTTONS */}
+          {viewMode === 'bank' &&
+            allBanksList.map((b, idx) => {
+              const color = getBankColor(b.bank_code, idx);
+              const isSelected = activeFilter?.type === 'bank' && activeFilter.value === b.bank_code;
+
+              return (
+                <button
+                  key={`leg-bank-${b.bank_code}`}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setDropdownSelection('group:bank');
+                    } else {
+                      setDropdownSelection(`filter:bank:${b.bank_code}`);
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'ring-2 ring-indigo-500 bg-indigo-50/80 border-indigo-300 font-bold shadow-2xs'
+                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                  title={`Bấm để ${isSelected ? 'bỏ lọc' : 'lọc xem riêng'} ${b.bank_name}`}
+                >
+                  <span className={`w-2.5 h-2.5 rounded-xs ${color.bg} shrink-0`} />
+                  <span className="font-semibold text-slate-900">{b.bank_code}</span>
+                  <span className="text-slate-500 font-normal">({formatShortMoney(b.total)})</span>
+                </button>
+              );
+            })}
+
+          {/* BORROWER LEGEND BUTTONS */}
+          {viewMode === 'borrower' &&
+            allBorrowersList.map((c, idx) => {
+              const color = getBorrowerColor(c.shortName, idx);
+              const isSelected = activeFilter?.type === 'borrower' && activeFilter.value === c.shortName;
+
+              return (
+                <button
+                  key={`leg-comp-${c.shortName}`}
+                  type="button"
+                  onClick={() => {
+                    if (isSelected) {
+                      setDropdownSelection('group:borrower');
+                    } else {
+                      setDropdownSelection(`filter:borrower:${c.shortName}`);
+                    }
+                  }}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'ring-2 ring-indigo-500 bg-indigo-50/80 border-indigo-300 font-bold shadow-2xs'
+                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                  title={`Bấm để ${isSelected ? 'bỏ lọc' : 'lọc xem riêng'} ${c.shortName}`}
+                >
+                  <span className={`w-2.5 h-2.5 rounded-xs ${color.bg} shrink-0`} />
+                  <span className="font-semibold text-slate-900">{c.shortName}</span>
+                  <span className="text-slate-500 font-normal">({formatShortMoney(c.total)})</span>
+                </button>
+              );
+            })}
+
+          {/* CONTRACT VIEW LEGEND */}
+          {viewMode === 'contract' && (
+            <div className="flex items-center gap-2 text-[11px] text-slate-500">
+              <span className="w-3 h-3 bg-indigo-600 border border-slate-300 inline-block" />
+              <span>Khoản vay đến hạn (Đơn sắc, phẳng)</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -401,8 +1024,13 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
               Bảng Chi Tiết Đáo Hạn Theo Tháng & Ngân Hàng
             </span>
             <span className="text-[11px] font-semibold text-indigo-700 bg-indigo-50 px-2 py-0.5 border border-indigo-200">
-              {monthsData.length} Tháng (Hàng) × {banksList.length} Ngân Hàng (Cột)
+              {monthsData.length} Tháng (Hàng) × {tableBanksList.length} Ngân Hàng (Cột)
             </span>
+            {activeFilter && (
+              <span className="text-[11px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 border border-amber-200">
+                Đang lọc: {activeFilter.type === 'bank' ? activeFilter.value : activeFilter.value}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2 text-xs font-semibold text-slate-600">
             <span>{isTableOpen ? 'Thu gọn bảng' : 'Mở rộng bảng chi tiết'}</span>
@@ -449,19 +1077,19 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                 </span>
                 <span>•</span>
                 <span>
-                  Tổng số: <strong className="text-slate-800">{processedLoans.length}</strong> khế ước
+                  Tổng số: <strong className="text-slate-800">{displayLoans.length}</strong> khế ước
                 </span>
               </div>
             </div>
 
-            {/* Transposed Table Container: Fixed Layout, Equal Bank Columns, Fits Page Width Without Horizontal Overflow */}
+            {/* Transposed Table Container: Fixed Layout, Equal Bank Columns */}
             <div className="w-full overflow-x-hidden overflow-y-auto max-h-[640px]">
               <table className="w-full table-fixed border-collapse text-xs text-left">
                 <colgroup>
                   {/* Cột 1: Kỳ Hạn Đáo Hạn */}
                   <col className="w-[155px]" />
-                  {/* Cột 2..N: Các cột Ngân hàng luôn có độ rộng bằng nhau tuyệt đối */}
-                  {banksList.map((bank) => (
+                  {/* Cột 2..N: Các cột Ngân hàng */}
+                  {tableBanksList.map((bank) => (
                     <col key={`col-${bank.bank_code}`} />
                   ))}
                   {/* Cột Cuối: Tổng Gốc Đến Hạn */}
@@ -479,8 +1107,8 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                       </div>
                     </th>
 
-                    {/* Columns 2..N: Bank Organizations (Equal Width, Wrap Long Names) */}
-                    {banksList.map((bank) => (
+                    {/* Columns 2..N: Bank Organizations */}
+                    {tableBanksList.map((bank) => (
                       <th
                         key={bank.bank_code}
                         className="px-1.5 py-2.5 text-center font-bold border-r border-slate-200 bg-slate-100/90 align-top break-words"
@@ -505,7 +1133,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                       </th>
                     ))}
 
-                    {/* Column Right: Row Total (All banks in this period) */}
+                    {/* Column Right: Row Total */}
                     <th className="px-2.5 py-2.5 font-bold text-right bg-slate-200 text-slate-900 align-top break-words">
                       Tổng Gốc Đến Hạn
                     </th>
@@ -519,9 +1147,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
 
                     return (
                       <React.Fragment key={m.month_key}>
-                        {/* ======================================================= */}
-                        {/* MONTH ROW (Parent / Group Row)                          */}
-                        {/* ======================================================= */}
+                        {/* MONTH ROW */}
                         <tr
                           className={`transition-colors border-b ${
                             isExpanded
@@ -566,11 +1192,11 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                           </td>
 
                           {/* Bank Cells in Month Row */}
-                          {banksList.map((bank) => {
+                          {tableBanksList.map((bank) => {
                             const bankMonthLoans = m.loans.filter((l) => l.bank_code === bank.bank_code);
                             const bankMonthTotal = bankMonthLoans.reduce((sum, l) => sum + l.obligation, 0);
 
-                            // When month is COLLAPSED: ONLY SHOW SUMMARY TOTAL (SỐ TỔNG), NO INDIVIDUAL CARDS
+                            // When month is COLLAPSED
                             if (!isExpanded) {
                               return (
                                 <td
@@ -593,7 +1219,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                               );
                             }
 
-                            // When month is EXPANDED: Month Row acts as a group summary bar
+                            // When month is EXPANDED
                             return (
                               <td
                                 key={`col-month-exp-${bank.bank_code}-${m.month_key}`}
@@ -624,9 +1250,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                           </td>
                         </tr>
 
-                        {/* ======================================================= */}
-                        {/* CHILD ROWS: INDIVIDUAL DAYS (ONLY WHEN EXPANDED)        */}
-                        {/* ======================================================= */}
+                        {/* CHILD ROWS: INDIVIDUAL DAYS */}
                         {isExpanded &&
                           m.days.map((d) => (
                             <tr
@@ -645,7 +1269,7 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                               </td>
 
                               {/* Bank Columns for this Day */}
-                              {banksList.map((bank) => {
+                              {tableBanksList.map((bank) => {
                                 const bankDayLoans = d.loans.filter((l) => l.bank_code === bank.bank_code);
                                 const bankDayTotal = bankDayLoans.reduce((sum, l) => sum + l.obligation, 0);
 
@@ -658,7 +1282,6 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                                       <span className="text-slate-300 font-light">-</span>
                                     ) : (
                                       <div className="space-y-1.5 text-left">
-                                        {/* THẺ CON TỪNG KHẾ ƯỚC TRONG NGÀY: TÊN CÔNG TY VIẾT TẮT, TỰ XUỐNG DÒNG KHI DÀI */}
                                         {bankDayLoans.map((l) => (
                                           <div
                                             key={l.contract_number}
@@ -668,11 +1291,9 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                                             <div className="text-[10px] font-bold text-indigo-950 font-mono leading-tight break-all">
                                               {l.contract_number}
                                             </div>
-                                            {/* SỐ TIỀN ĐẦY ĐỦ KHÔNG RÚT GỌN */}
                                             <div className="text-[11px] font-bold text-slate-900 mt-0.5 leading-tight break-words">
                                               {formatVND(l.obligation)}
                                             </div>
-                                            {/* TÊN CÔNG TY VIẾT TẮT, NẾU DÀI QUÁ THÌ XUỐNG DÒNG */}
                                             <div
                                               className="text-[10px] text-slate-500 mt-0.5 leading-tight whitespace-normal break-words"
                                               title={l.borrower_name}
@@ -682,7 +1303,6 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                                           </div>
                                         ))}
 
-                                        {/* Subtotal if multiple loans on same day */}
                                         {bankDayLoans.length > 1 && (
                                           <div className="text-[10px] font-bold text-indigo-900 text-right pt-0.5 border-t border-slate-200 break-words">
                                             Tổng: {formatVND(bankDayTotal)}
@@ -708,18 +1328,18 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
                   })}
                 </tbody>
 
-                {/* TABLE FOOTER: SUMMARY ROW ACROSS ALL BANKS */}
+                {/* TABLE FOOTER */}
                 <tfoot>
                   <tr className="bg-slate-200 text-slate-900 font-bold border-t-2 border-slate-400">
                     <td className="bg-slate-200 px-2.5 py-2.5 border-r border-slate-300 align-top break-words">
                       <div className="font-black text-[11px] text-slate-900 leading-tight">TỔNG CỘNG NGÂN HÀNG</div>
                       <div className="text-[10px] text-slate-600 font-normal mt-0.5">
-                        {processedLoans.length} khế ước đáo hạn
+                        {displayLoans.length} khế ước đáo hạn
                       </div>
                     </td>
 
                     {/* Bank Totals */}
-                    {banksList.map((bank) => (
+                    {tableBanksList.map((bank) => (
                       <td
                         key={`foot-${bank.bank_code}`}
                         className="px-1.5 py-2.5 text-center border-r border-slate-300 align-top break-words"
@@ -735,9 +1355,9 @@ export const MonthlyDueStackedChart: React.FC<MonthlyDueStackedChartProps> = ({
 
                     {/* Grand Total */}
                     <td className="px-2.5 py-2.5 text-right font-black text-xs text-indigo-950 bg-indigo-100/90 border-l border-slate-300 align-top break-words">
-                      <span className="text-xs block leading-tight">{formatVND(grandTotal)}</span>
+                      <span className="text-xs block leading-tight">{formatVND(currentTotal)}</span>
                       <span className="text-[10px] text-indigo-800 font-normal">
-                        100% dư nợ gốc
+                        {activeFilter ? 'Dư nợ đang lọc' : '100% dư nợ gốc'}
                       </span>
                     </td>
                   </tr>

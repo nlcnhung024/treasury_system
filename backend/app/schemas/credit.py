@@ -398,3 +398,9 @@ class DebtRolloverPlanConfigUpdate(BaseModel):
     priority_rules: Optional[List[dict]] = None
     custom_bank_order: Optional[List[str]] = None
     updated_by: Optional[str] = "System"
+
+
+class ExportContractsExcelRequest(BaseModel):
+    loan_ids: Optional[List[int]] = None
+    company_name: Optional[str] = "CÔNG TY CỔ PHẦN XI MĂNG SUNRISE"
+

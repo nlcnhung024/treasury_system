@@ -60,6 +60,8 @@ import {
 
   FileCheck2,
 
+  FileSpreadsheet,
+
   Sparkles,
 
 } from 'lucide-react';
@@ -6549,6 +6551,8 @@ export const ContractDetailsPage: React.FC = () => {
 
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
+  const [isExporting, setIsExporting] = useState(false);
+
 
 
   const fetchContracts = () => {
@@ -6585,6 +6589,49 @@ export const ContractDetailsPage: React.FC = () => {
 
     setTimeout(() => setCopiedContract(null), 2000);
 
+  };
+
+  const handleExportExcel = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const today = new Date();
+      const dd = String(today.getDate()).padStart(2, '0');
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const yyyy = today.getFullYear();
+      const expectedFilename = `Thống kê khế ước nhận nợ còn hiệu lực ngày ${dd}.${mm}.${yyyy}.xlsx`;
+
+      // Xuất toàn bộ các khế ước theo nội dung đang hiển thị (sau khi lọc/tìm kiếm)
+      const displayedLoanIds = sortedContracts.map((c) => c.loan_id);
+
+      const response = await api.post(
+        '/loans/contracts/export-excel',
+        {
+          loan_ids: displayedLoanIds,
+          company_name: 'CÔNG TY CỔ PHẦN XI MĂNG SUNRISE',
+        },
+        {
+          responseType: 'blob',
+        }
+      );
+
+      const blob = new Blob([response.data], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', expectedFilename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Lỗi xuất file Excel khế ước:', err);
+      alert('Không thể xuất file Excel lúc này. Vui lòng thử lại!');
+    } finally {
+      setIsExporting(false);
+    }
   };
 
 
@@ -6742,6 +6789,8 @@ export const ContractDetailsPage: React.FC = () => {
     showAllColumns,
 
     resetColumns,
+
+    saveVisibility,
 
     isColumnVisible,
 
@@ -7235,6 +7284,8 @@ export const ContractDetailsPage: React.FC = () => {
 
         onResetColumns={resetColumns}
 
+        onSaveVisibility={saveVisibility}
+
         activeFilterCount={gridActiveFilterCount + activeFilterCount}
 
         onClearAllFilters={() => {
@@ -7248,6 +7299,23 @@ export const ContractDetailsPage: React.FC = () => {
         totalCount={contracts.length}
 
         filteredCount={sortedContracts.length}
+
+        rightActions={
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={isExporting || sortedContracts.length === 0}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded border border-emerald-600 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium transition-colors shadow-2xs focus:outline-none disabled:opacity-50"
+            title="Xuất file Excel danh sách khế ước và bảng Pivot theo ngày đến hạn"
+          >
+            {isExporting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+            )}
+            <span>{isExporting ? 'Đang xuất...' : 'Xuất Excel'}</span>
+          </button>
+        }
 
       />
 

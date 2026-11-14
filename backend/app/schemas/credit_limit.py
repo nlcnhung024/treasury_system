@@ -156,6 +156,7 @@ class CreditAgreementUpdate(BaseModel):
     parent_agreement_id: Optional[int] = None
     renewed_to_agreement_id: Optional[int] = None
     notes: Optional[str] = None
+    transfer_collaterals_from_parent: Optional[bool] = False
 
 
 class CreditAgreementRenewPayload(BaseModel):

@@ -2160,6 +2160,11 @@ paths:
       responses:
         '200':
           description: Hủy phân bổ thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
                   total_unreconciled_amount:
                     type: number
                     format: decimal
@@ -2274,6 +2279,35 @@ paths:
                         maturity_date: { type: string, format: date, nullable: true }
                         repayment_count: { type: integer }
                         status: { type: string }
+  /loans/contracts/export-excel:
+    post:
+      summary: Xuất danh sách khế ước và bảng Pivot theo ngày đến hạn ra file Excel (.xlsx)
+      description: "Xuất file Excel gồm 2 trang: Trang 1 là bảng số liệu chi tiết danh sách khế ước đang hiển thị; Trang 2 là bảng Pivot ma trận Ngày đến hạn × Ngân hàng theo format báo cáo chuyên nghiệp."
+      tags:
+        - Debt Repayment Reconciliation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                loan_ids:
+                  type: array
+                  items:
+                    type: integer
+                  description: "Danh sách ID khế ước cần xuất (nếu rỗng/omitted sẽ xuất tất cả khế ước)"
+                company_name:
+                  type: string
+                  description: "Tên doanh nghiệp hiển thị trên header báo cáo"
+      responses:
+        '200':
+          description: File Excel định dạng .xlsx
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema:
+                type: string
+                format: binary
   /loans/{loan_id}/cashflow:
     get:
       summary: Bảng dòng tiền trả gốc/lãi của một khế ước

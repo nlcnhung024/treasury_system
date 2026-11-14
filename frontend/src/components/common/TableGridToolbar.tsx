@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { SlidersHorizontal, RotateCcw, Eye, X, Filter } from 'lucide-react';
+import { SlidersHorizontal, RotateCcw, Eye, X, Filter, Save, Check } from 'lucide-react';
 import { ColumnConfig } from '../../types/grid';
 
 export interface TableGridToolbarProps {
@@ -8,11 +8,13 @@ export interface TableGridToolbarProps {
   onToggleColumn: (field: string) => void;
   onShowAllColumns: () => void;
   onResetColumns: () => void;
+  onSaveVisibility?: () => void;
   filteredCount: number;
   totalCount: number;
   activeFilterCount?: number;
   onClearAllFilters?: () => void;
   extraActions?: React.ReactNode;
+  rightActions?: React.ReactNode;
   className?: string;
 }
 
@@ -22,14 +24,17 @@ export const TableGridToolbar: React.FC<TableGridToolbarProps> = ({
   onToggleColumn,
   onShowAllColumns,
   onResetColumns,
+  onSaveVisibility,
   filteredCount,
   totalCount,
   activeFilterCount = 0,
   onClearAllFilters,
   extraActions,
+  rightActions,
   className = '',
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,6 +47,14 @@ export const TableGridToolbar: React.FC<TableGridToolbarProps> = ({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen]);
+
+  const handleSaveLayout = () => {
+    if (onSaveVisibility) {
+      onSaveVisibility();
+    }
+    setSavedSuccess(true);
+    setTimeout(() => setSavedSuccess(false), 2000);
+  };
 
   const visibleCount = columns.filter((c) => visibleColumns[c.field] !== false).length;
 
@@ -138,11 +151,13 @@ export const TableGridToolbar: React.FC<TableGridToolbarProps> = ({
               <div className="max-h-60 overflow-y-auto space-y-1 pr-1">
                 {columns.map((col) => {
                   const isVisible = visibleColumns[col.field] !== false;
+                  const isLocked = Boolean(col.locked || col.disableHide);
                   return (
-                    <label
+                    <div
                       key={col.field}
+                      onClick={() => !isLocked && onToggleColumn(col.field)}
                       className={`flex items-center justify-between px-2 py-1.5 rounded hover:bg-slate-100 cursor-pointer select-none transition-colors ${
-                        col.disableHide ? 'opacity-60 cursor-not-allowed' : ''
+                        isLocked ? 'opacity-60 cursor-not-allowed' : ''
                       }`}
                     >
                       <span className="truncate mr-2 font-medium text-slate-700">
@@ -151,17 +166,49 @@ export const TableGridToolbar: React.FC<TableGridToolbarProps> = ({
                       <input
                         type="checkbox"
                         checked={isVisible}
-                        disabled={col.disableHide}
-                        onChange={() => !col.disableHide && onToggleColumn(col.field)}
-                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5"
+                        disabled={isLocked}
+                        readOnly
+                        className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 w-3.5 h-3.5 pointer-events-none"
                       />
-                    </label>
+                    </div>
                   );
                 })}
+              </div>
+
+              {/* Bottom Footer: Save Layout Action & Auto-Persistence Notice */}
+              <div className="pt-2 mt-2 border-t border-slate-100 flex items-center justify-between gap-1">
+                <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                  <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+                  <span>Tự động ghi nhớ</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSaveLayout}
+                  className={`px-2.5 py-1 rounded text-[11px] font-semibold flex items-center gap-1 shadow-2xs transition-all ${
+                    savedSuccess
+                      ? 'bg-emerald-600 text-white'
+                      : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                  }`}
+                  title="Ghi nhớ cấu hình ẩn/hiện cột cho các lần truy cập sau"
+                >
+                  {savedSuccess ? (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>Đã lưu!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-3.5 h-3.5" />
+                      <span>Lưu giao diện</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           )}
         </div>
+
+        {rightActions}
       </div>
     </div>
   );

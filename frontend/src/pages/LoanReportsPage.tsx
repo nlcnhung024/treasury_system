@@ -7,7 +7,6 @@ import {
   Clock,
   Calendar,
   Layers,
-  Building2,
   Table,
   SlidersHorizontal,
   Sparkles,
@@ -18,21 +17,17 @@ import {
   RefreshCw,
   AlertTriangle,
   CheckCircle,
-  Building,
   Save,
   Trash2,
   TrendingUp,
   Landmark,
   Bookmark,
-  LayoutGrid,
-  List,
 } from 'lucide-react';
 import api from '../services/api';
 import {
   CreditFacility,
   CreditFacilitySummary,
 } from '../types';
-import { TreemapChart, TreemapItem } from '../components/common/TreemapChart';
 import { MonthlyDueStackedChart } from '../components/common/MonthlyDueStackedChart';
 import { SortableTh } from '../components/common/SortableTh';
 import { TableGridToolbar } from '../components/common/TableGridToolbar';
@@ -249,10 +244,7 @@ export const LoanReportsPage: React.FC = () => {
   const [summary, setSummary] = useState<CreditFacilitySummary | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [copiedContract, setCopiedContract] = useState<string | null>(null);
-
-  // View mode for structure charts: 'treemap' (Biểu đồ Treemap) | 'list' (Danh sách)
-  const [borrowerViewMode, setBorrowerViewMode] = useState<'treemap' | 'list'>('treemap');
-  const [bankViewMode, setBankViewMode] = useState<'treemap' | 'list'>('treemap');
+  const [warningFilter, setWarningFilter] = useState<'ALL' | 'OVERDUE_PRINCIPAL' | 'OVERDUE_INTEREST' | 'UPCOMING'>('ALL');
 
   // Table Grid Capabilities (Sort, Filter, Visibility, Resizing)
   const {
@@ -522,160 +514,170 @@ export const LoanReportsPage: React.FC = () => {
     };
   }, [loans]);
 
-  // 2. Borrower Structure (Cơ cấu vay theo chủ thể)
-  const borrowerStructure = useMemo(() => {
-    const map = new Map<string, { borrower: string; totalPrincipal: number; loansCount: number; weightedRateSum: number }>();
-
-    loans.forEach((l) => {
-      const bName = l.borrower_name?.trim() || 'Doanh nghiệp chưa xác định';
-      const principal = Number(l.current_principal_balance) || 0;
-      const rate = Number(l.interest_rate) || 0;
-
-      if (!map.has(bName)) {
-        map.set(bName, { borrower: bName, totalPrincipal: 0, loansCount: 0, weightedRateSum: 0 });
-      }
-      const item = map.get(bName)!;
-      item.totalPrincipal += principal;
-      item.loansCount += 1;
-      item.weightedRateSum += principal * rate;
-    });
-
-    const list = Array.from(map.values()).map((item) => ({
-      ...item,
-      percentage: totalPrincipalBalance > 0 ? (item.totalPrincipal / totalPrincipalBalance) * 100 : 0,
-      wair: item.totalPrincipal > 0 ? item.weightedRateSum / item.totalPrincipal : 0,
-    }));
-
-    return list.sort((a, b) => b.totalPrincipal - a.totalPrincipal);
-  }, [loans, totalPrincipalBalance]);
-
-  // 3. Bank Structure (Phân bổ theo TCTD)
-  const bankStructure = useMemo(() => {
-    const map = new Map<string, { bankCode: string; bankName: string; totalPrincipal: number; loansCount: number; weightedRateSum: number }>();
-
-    loans.forEach((l) => {
-      const code = (l.bank_code || 'OTHER').trim().toUpperCase();
-      const name = l.bank_name || code;
-      const principal = Number(l.current_principal_balance) || 0;
-      const rate = Number(l.interest_rate) || 0;
-
-      if (!map.has(code)) {
-        map.set(code, { bankCode: code, bankName: name, totalPrincipal: 0, loansCount: 0, weightedRateSum: 0 });
-      }
-      const item = map.get(code)!;
-      item.totalPrincipal += principal;
-      item.loansCount += 1;
-      item.weightedRateSum += principal * rate;
-    });
-
-    const list = Array.from(map.values()).map((item) => ({
-      ...item,
-      percentage: totalPrincipalBalance > 0 ? (item.totalPrincipal / totalPrincipalBalance) * 100 : 0,
-      wair: item.totalPrincipal > 0 ? item.weightedRateSum / item.totalPrincipal : 0,
-    }));
-
-    return list.sort((a, b) => b.totalPrincipal - a.totalPrincipal);
-  }, [loans, totalPrincipalBalance]);
-
-  // Transform Borrower Structure for Treemap Chart
-  const borrowerTreemapItems = useMemo<TreemapItem[]>(() => {
-    const gradients = [
-      'bg-gradient-to-br from-indigo-600 to-indigo-800',
-      'bg-gradient-to-br from-violet-600 to-purple-800',
-      'bg-gradient-to-br from-blue-600 to-sky-800',
-      'bg-gradient-to-br from-cyan-600 to-teal-800',
-      'bg-gradient-to-br from-slate-600 to-slate-800',
-    ];
-
-    return borrowerStructure.map((item, idx) => ({
-      id: `borrower-${idx}`,
-      name: item.borrower,
-      shortName: item.borrower.length > 20 ? item.borrower.substring(0, 18) + '...' : item.borrower,
-      value: item.totalPrincipal,
-      percentage: item.percentage,
-      loansCount: item.loansCount,
-      wair: item.wair,
-      colorGradient: gradients[idx % gradients.length],
-      badge: `#${idx + 1}`,
-    }));
-  }, [borrowerStructure]);
-
-  // Transform Bank Structure for Treemap Chart
-  const bankTreemapItems = useMemo<TreemapItem[]>(() => {
-    const bankColors: Record<string, string> = {
-      MBB: 'bg-gradient-to-br from-blue-600 to-indigo-800',
-      MB: 'bg-gradient-to-br from-blue-600 to-indigo-800',
-      CTG: 'bg-gradient-to-br from-teal-600 to-emerald-800',
-      VIETINBANK: 'bg-gradient-to-br from-teal-600 to-emerald-800',
-      VPB: 'bg-gradient-to-br from-emerald-500 to-green-700',
-      VPBANK: 'bg-gradient-to-br from-emerald-500 to-green-700',
-      MBV: 'bg-gradient-to-br from-cyan-600 to-blue-700',
-      TPB: 'bg-gradient-to-br from-purple-600 to-indigo-700',
-      TPBANK: 'bg-gradient-to-br from-purple-600 to-indigo-700',
-      EVF: 'bg-gradient-to-br from-amber-500 to-orange-700',
-      EVNFINANCE: 'bg-gradient-to-br from-amber-500 to-orange-700',
-    };
-
-    const defaultGradients = [
-      'bg-gradient-to-br from-blue-600 to-indigo-800',
-      'bg-gradient-to-br from-teal-600 to-emerald-800',
-      'bg-gradient-to-br from-emerald-500 to-green-700',
-      'bg-gradient-to-br from-cyan-600 to-blue-700',
-      'bg-gradient-to-br from-purple-600 to-indigo-700',
-      'bg-gradient-to-br from-amber-500 to-orange-700',
-    ];
-
-    return bankStructure.map((item, idx) => {
-      const codeKey = item.bankCode.toUpperCase();
-      const colorGradient = bankColors[codeKey] || defaultGradients[idx % defaultGradients.length];
-      const fullName = item.bankName && item.bankName !== item.bankCode
-        ? `${item.bankCode} - ${item.bankName}`
-        : item.bankName || item.bankCode;
-
-      return {
-        id: `bank-${item.bankCode}-${idx}`,
-        name: fullName,
-        shortName: item.bankCode,
-        value: item.totalPrincipal,
-        percentage: item.percentage,
-        loansCount: item.loansCount,
-        wair: item.wair,
-        colorGradient,
-        badge: item.bankCode,
-      };
-    });
-  }, [bankStructure]);
-
-  // 4. Upcoming Due Warnings (Cảnh báo khế ước sắp đến hạn trong 14 ngày)
-  const upcomingWarnings = useMemo(() => {
+  // 2. Loan Warnings: Phân loại chi tiết Quá hạn gốc, Quá hạn lãi và Cận đáo hạn trong 14 ngày
+  const dueWarnings = useMemo(() => {
     const now = new Date();
     now.setHours(0, 0, 0, 0);
 
-    return loans
-      .filter((l) => {
-        const dateStr = l.next_repayment_date || l.maturity_date;
-        if (!dateStr) return false;
-        const d = new Date(dateStr);
-        const diffDays = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        return diffDays >= 0 && diffDays <= 14;
-      })
-      .map((l) => {
-        const dateStr = (l.next_repayment_date || l.maturity_date)!;
-        const d = new Date(dateStr);
-        const daysLeft = Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-        const amount = Number(l.total_repayment_amount) > 0
-          ? Number(l.total_repayment_amount)
-          : (Number(l.next_principal_amount) || 0) + (Number(l.next_interest_amount) || 0) || Number(l.current_principal_balance) || 0;
+    const list: {
+      loan: CreditFacility;
+      isPrincipalOverdue: boolean;
+      principalOverdueDays: number;
+      principalDueAmount: number;
+      principalDueDateStr: string;
 
-        return {
-          loan: l,
-          daysLeft,
-          dateStr,
-          amount,
-        };
-      })
-      .sort((a, b) => a.daysLeft - b.daysLeft);
+      isInterestOverdue: boolean;
+      interestOverdueDays: number;
+      interestDueAmount: number;
+      interestDueDateStr: string;
+
+      isUpcoming: boolean;
+      upcomingDays: number;
+
+      totalAmount: number;
+      overdueType: 'BOTH' | 'PRINCIPAL_ONLY' | 'INTEREST_ONLY' | 'UPCOMING';
+      maxOverdueDays: number;
+    }[] = [];
+
+    loans.forEach((l) => {
+      const curBal = Number(l.current_principal_balance) || 0;
+      if (curBal <= 0) return;
+
+      const nextP = Number(l.next_principal_amount) || 0;
+      const nextI = Number(l.next_interest_amount) || 0;
+
+      const nextDateStr = l.next_repayment_date;
+      const matDateStr = l.maturity_date;
+
+      const nextDate = nextDateStr ? new Date(nextDateStr) : null;
+      if (nextDate && !isNaN(nextDate.getTime())) nextDate.setHours(0, 0, 0, 0);
+
+      const matDate = matDateStr ? new Date(matDateStr) : null;
+      if (matDate && !isNaN(matDate.getTime())) matDate.setHours(0, 0, 0, 0);
+
+      // --- KIỂM TRA QUÁ HẠN TIỀN GỐC ---
+      let isPrincipalOverdue = false;
+      let principalOverdueDays = 0;
+      let principalDueAmount = 0;
+      let principalDueDateStr = matDateStr || nextDateStr || '';
+
+      if (matDate && matDate.getTime() < now.getTime()) {
+        isPrincipalOverdue = true;
+        principalOverdueDays = Math.ceil((now.getTime() - matDate.getTime()) / (1000 * 60 * 60 * 24));
+        principalDueAmount = nextP > 0 ? nextP : curBal;
+      } else if (nextDate && nextDate.getTime() < now.getTime() && nextP > 0) {
+        isPrincipalOverdue = true;
+        principalOverdueDays = Math.ceil((now.getTime() - nextDate.getTime()) / (1000 * 60 * 60 * 24));
+        principalDueAmount = nextP;
+      }
+
+      // --- KIỂM TRA QUÁ HẠN TIỀN LÃI ---
+      let isInterestOverdue = false;
+      let interestOverdueDays = 0;
+      let interestDueAmount = 0;
+      let interestDueDateStr = nextDateStr || '';
+
+      if (nextDate && nextDate.getTime() < now.getTime() && nextI > 0) {
+        isInterestOverdue = true;
+        interestOverdueDays = Math.ceil((now.getTime() - nextDate.getTime()) / (1000 * 60 * 60 * 24));
+        interestDueAmount = nextI;
+      }
+
+      // --- KIỂM TRA CẬN ĐÁO HẠN TRONG 14 NGÀY (khi không quá hạn) ---
+      let isUpcoming = false;
+      let upcomingDays = 999;
+
+      if (!isPrincipalOverdue && !isInterestOverdue) {
+        const targetDate = nextDate || matDate;
+        if (targetDate) {
+          const diff = Math.ceil((targetDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          if (diff >= 0 && diff <= 14) {
+            isUpcoming = true;
+            upcomingDays = diff;
+            principalDueAmount = nextP > 0 ? nextP : (matDate && Math.ceil((matDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)) <= 14 ? curBal : 0);
+            interestDueAmount = nextI;
+          }
+        }
+      }
+
+      // Bỏ qua nếu không quá hạn và cũng không cận hạn trong 14 ngày
+      if (!isPrincipalOverdue && !isInterestOverdue && !isUpcoming) return;
+
+      let overdueType: 'BOTH' | 'PRINCIPAL_ONLY' | 'INTEREST_ONLY' | 'UPCOMING' = 'UPCOMING';
+      if (isPrincipalOverdue && isInterestOverdue) {
+        overdueType = 'BOTH';
+      } else if (isPrincipalOverdue) {
+        overdueType = 'PRINCIPAL_ONLY';
+      } else if (isInterestOverdue) {
+        overdueType = 'INTEREST_ONLY';
+      }
+
+      const maxOverdueDays = Math.max(principalOverdueDays, interestOverdueDays);
+      const totalAmount = (principalDueAmount > 0 ? principalDueAmount : 0) + (interestDueAmount > 0 ? interestDueAmount : 0);
+
+      list.push({
+        loan: l,
+        isPrincipalOverdue,
+        principalOverdueDays,
+        principalDueAmount,
+        principalDueDateStr,
+        isInterestOverdue,
+        interestOverdueDays,
+        interestDueAmount,
+        interestDueDateStr,
+        isUpcoming,
+        upcomingDays,
+        totalAmount,
+        overdueType,
+        maxOverdueDays,
+      });
+    });
+
+    // Sắp xếp ưu tiên:
+    // 1. Quá hạn Gốc & Lãi (hoặc Quá hạn Gốc) lên đầu tiên
+    // 2. Quá hạn Lãi
+    // 3. Cận đáo hạn trong 14 ngày
+    return list.sort((a, b) => {
+      const getPriority = (item: typeof list[0]) => {
+        if (item.overdueType === 'BOTH') return 1;
+        if (item.overdueType === 'PRINCIPAL_ONLY') return 2;
+        if (item.overdueType === 'INTEREST_ONLY') return 3;
+        return 4;
+      };
+
+      const pA = getPriority(a);
+      const pB = getPriority(b);
+      if (pA !== pB) return pA - pB;
+
+      if (a.maxOverdueDays !== b.maxOverdueDays) {
+        return b.maxOverdueDays - a.maxOverdueDays;
+      }
+
+      return a.upcomingDays - b.upcomingDays;
+    });
   }, [loans]);
+
+  const overduePrincipalCount = useMemo(() => dueWarnings.filter((w) => w.isPrincipalOverdue).length, [dueWarnings]);
+  const overdueInterestCount = useMemo(() => dueWarnings.filter((w) => w.isInterestOverdue).length, [dueWarnings]);
+  const upcomingCount = useMemo(() => dueWarnings.filter((w) => w.isUpcoming).length, [dueWarnings]);
+
+  const filteredWarnings = useMemo(() => {
+    if (warningFilter === 'OVERDUE_PRINCIPAL') return dueWarnings.filter((w) => w.isPrincipalOverdue);
+    if (warningFilter === 'OVERDUE_INTEREST') return dueWarnings.filter((w) => w.isInterestOverdue);
+    if (warningFilter === 'UPCOMING') return dueWarnings.filter((w) => w.isUpcoming);
+    return dueWarnings;
+  }, [dueWarnings, warningFilter]);
+
+  const footerTotals = useMemo(() => {
+    return filteredWarnings.reduce(
+      (acc, item) => ({
+        principal: acc.principal + item.principalDueAmount,
+        interest: acc.interest + item.interestDueAmount,
+        total: acc.total + item.totalAmount,
+      }),
+      { principal: 0, interest: 0, total: 0 }
+    );
+  }, [filteredWarnings]);
 
   // =============================================================================
   // TAB 2 COMPUTATIONS: FILTERED LIST (READ-ONLY) & PIVOT GRID
@@ -983,272 +985,238 @@ export const LoanReportsPage: React.FC = () => {
           {/* DƯ NỢ ĐẾN HẠN THEO CÁC THÁNG & BẢNG CHI TIẾT THEO NGÂN HÀNG (STACKED BAR & ACCORDION) */}
           <MonthlyDueStackedChart loans={loans} formatVND={formatVND} />
 
-          {/* TWO MAIN INSIGHT CARDS: CƠ CẤU THEO CHỦ THỂ & PHÂN BỔ THEO NGÂN HÀNG */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* CARD 1: CƠ CẤU VAY THEO CHỦ THỂ (Doanh nghiệp vay) */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
+          {/* CẢNH BÁO KHẾ ƯỚC QUÁ HẠN & CẬN ĐÁO HẠN */}
+          <div className={`bg-white rounded-2xl border p-6 shadow-xs space-y-4 ${
+            overduePrincipalCount > 0
+              ? 'border-rose-300'
+              : overdueInterestCount > 0
+              ? 'border-amber-300'
+              : 'border-slate-200'
+          }`}>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 border-slate-100">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className={`w-5 h-5 ${overduePrincipalCount > 0 ? 'text-rose-600' : 'text-amber-600'}`} />
                 <div>
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Building2 className="w-5 h-5 text-indigo-600" />
-                    <span>Cơ Cấu Dư Nợ Theo Chủ Thể Vay</span>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Cảnh Báo Khế Ước Quá Hạn & Cận Đáo Hạn (Trong 14 Ngày Tới)
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Tỷ trọng dư nợ và lãi suất bình quân của từng đơn vị/pháp nhân trong tập đoàn.
+                    Phân tách rõ ràng giữa quá hạn gốc, quá hạn lãi và các kỳ hạn thanh toán sắp tới để chủ động quản trị dòng tiền.
                   </p>
                 </div>
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <span className="text-xs font-semibold bg-indigo-50 text-indigo-700 px-2.5 py-1 rounded-full border border-indigo-200">
-                    {borrowerStructure.length} chủ thể
-                  </span>
-                  {/* View Mode Switcher */}
-                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setBorrowerViewMode('treemap')}
-                      className={`p-1.5 rounded-md text-xs font-semibold flex items-center gap-1 transition-all ${
-                        borrowerViewMode === 'treemap'
-                          ? 'bg-white text-indigo-700 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Biểu đồ Treemap"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Treemap</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBorrowerViewMode('list')}
-                      className={`p-1.5 rounded-md text-xs font-semibold flex items-center gap-1 transition-all ${
-                        borrowerViewMode === 'list'
-                          ? 'bg-white text-indigo-700 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Danh sách chi tiết"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Danh sách</span>
-                    </button>
-                  </div>
-                </div>
               </div>
 
-              {borrowerViewMode === 'treemap' ? (
-                <TreemapChart
-                  items={borrowerTreemapItems}
-                  height={340}
-                  formatValue={formatVND}
-                  emptyMessage="Chưa có thông tin chủ thể vay trong danh mục."
-                />
-              ) : (
-                <div className="space-y-3">
-                  {borrowerStructure.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-slate-400">
-                      Chưa có thông tin chủ thể vay trong danh mục.
-                    </div>
-                  ) : (
-                    borrowerStructure.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 transition-all space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2 font-semibold text-slate-800">
-                            <span className="w-5 h-5 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px]">
-                              {idx + 1}
-                            </span>
-                            <span className="max-w-xs truncate" title={item.borrower}>
-                              {item.borrower}
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-bold text-slate-900">{formatVND(item.totalPrincipal)}</span>
-                            <span className="ml-2 text-indigo-600 font-semibold">({item.percentage.toFixed(1)}%)</span>
-                          </div>
-                        </div>
-
-                        {/* Percentage Bar */}
-                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                          <div
-                            className="bg-indigo-600 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${Math.min(100, Math.max(2, item.percentage))}%` }}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                          <span>Số hợp đồng: <strong className="text-slate-700">{item.loansCount} HĐ</strong></span>
-                          <span>Lãi suất BQ (WAIR): <strong className="text-purple-600">{item.wair.toFixed(2)} %/năm</strong></span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* CARD 2: PHÂN BỔ THEO TỔ CHỨC TÍN DỤNG (Ngân Hàng) */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                <div>
-                  <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Building className="w-5 h-5 text-emerald-600" />
-                    <span>Phân Bổ Dư Nợ Theo Tổ Chức Tín Dụng</span>
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Hạn mức dư nợ thực tế đang vay tại từng Ngân hàng và Tổ chức tài chính.
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 self-start sm:self-auto">
-                  <span className="text-xs font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-full border border-emerald-200">
-                    {bankStructure.length} tổ chức
-                  </span>
-                  {/* View Mode Switcher */}
-                  <div className="flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200">
-                    <button
-                      type="button"
-                      onClick={() => setBankViewMode('treemap')}
-                      className={`p-1.5 rounded-md text-xs font-semibold flex items-center gap-1 transition-all ${
-                        bankViewMode === 'treemap'
-                          ? 'bg-white text-emerald-700 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Biểu đồ Treemap"
-                    >
-                      <LayoutGrid className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Treemap</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBankViewMode('list')}
-                      className={`p-1.5 rounded-md text-xs font-semibold flex items-center gap-1 transition-all ${
-                        bankViewMode === 'list'
-                          ? 'bg-white text-emerald-700 shadow-xs'
-                          : 'text-slate-500 hover:text-slate-700'
-                      }`}
-                      title="Danh sách chi tiết"
-                    >
-                      <List className="w-3.5 h-3.5" />
-                      <span className="hidden sm:inline">Danh sách</span>
-                    </button>
-                  </div>
-                </div>
+              {/* Badges & Quick Filter Controls */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setWarningFilter('ALL')}
+                  className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-all ${
+                    warningFilter === 'ALL'
+                      ? 'bg-slate-800 text-white border-slate-800 shadow-2xs'
+                      : 'bg-slate-100 text-slate-700 border-slate-200 hover:bg-slate-200'
+                  }`}
+                >
+                  Tất cả ({dueWarnings.length})
+                </button>
+                {overduePrincipalCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setWarningFilter('OVERDUE_PRINCIPAL')}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full border transition-all flex items-center gap-1 ${
+                      warningFilter === 'OVERDUE_PRINCIPAL'
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-2xs'
+                        : 'bg-rose-100 text-rose-800 border-rose-300 hover:bg-rose-200'
+                    }`}
+                  >
+                    <span>🚨 Quá hạn gốc ({overduePrincipalCount})</span>
+                  </button>
+                )}
+                {overdueInterestCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setWarningFilter('OVERDUE_INTEREST')}
+                    className={`text-xs font-bold px-2.5 py-1 rounded-full border transition-all flex items-center gap-1 ${
+                      warningFilter === 'OVERDUE_INTEREST'
+                        ? 'bg-amber-600 text-white border-amber-600 shadow-2xs'
+                        : 'bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-200'
+                    }`}
+                  >
+                    <span>⚠️ Quá hạn lãi ({overdueInterestCount})</span>
+                  </button>
+                )}
+                {upcomingCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setWarningFilter('UPCOMING')}
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-full border transition-all flex items-center gap-1 ${
+                      warningFilter === 'UPCOMING'
+                        ? 'bg-blue-600 text-white border-blue-600 shadow-2xs'
+                        : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                    }`}
+                  >
+                    <span>⏰ Cận đáo hạn ({upcomingCount})</span>
+                  </button>
+                )}
               </div>
-
-              {bankViewMode === 'treemap' ? (
-                <TreemapChart
-                  items={bankTreemapItems}
-                  height={340}
-                  formatValue={formatVND}
-                  emptyMessage="Chưa có số liệu phân bổ ngân hàng."
-                />
-              ) : (
-                <div className="space-y-3">
-                  {bankStructure.length === 0 ? (
-                    <div className="py-8 text-center text-xs text-slate-400">
-                      Chưa có số liệu phân bổ ngân hàng.
-                    </div>
-                  ) : (
-                    bankStructure.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="p-3.5 bg-slate-50 hover:bg-slate-100/80 rounded-xl border border-slate-200 transition-all space-y-2"
-                      >
-                        <div className="flex items-center justify-between text-xs">
-                          <div className="flex items-center gap-2 font-semibold text-slate-800">
-                            <span className="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-bold text-[11px]">
-                              {item.bankCode}
-                            </span>
-                            <span className="max-w-xs truncate" title={item.bankName}>
-                              {item.bankName}
-                            </span>
-                          </div>
-                          <div className="text-right">
-                            <span className="font-bold text-slate-900">{formatVND(item.totalPrincipal)}</span>
-                            <span className="ml-2 text-emerald-600 font-semibold">({item.percentage.toFixed(1)}%)</span>
-                          </div>
-                        </div>
-
-                        {/* Percentage Bar */}
-                        <div className="w-full bg-slate-200 h-2 rounded-full overflow-hidden">
-                          <div
-                            className="bg-emerald-600 h-full rounded-full transition-all duration-500"
-                            style={{ width: `${Math.min(100, Math.max(2, item.percentage))}%` }}
-                          />
-                        </div>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 pt-1">
-                          <span>Số khoản vay: <strong className="text-slate-700">{item.loansCount} khoản</strong></span>
-                          <span>Lãi suất BQ: <strong className="text-purple-600">{item.wair.toFixed(2)} %/năm</strong></span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* CẢNH BÁO KHẾ ƯỚC CẬN ĐÁO HẠN TRONG 14 NGÀY */}
-          <div className="bg-white rounded-2xl border border-amber-200 p-6 shadow-xs space-y-4">
-            <div className="flex items-center justify-between border-b border-amber-100 pb-3">
-              <div className="flex items-center gap-2 text-amber-800">
-                <AlertTriangle className="w-5 h-5 text-amber-600" />
-                <h3 className="text-base font-bold">
-                  Cảnh Báo Khế Ước Cận Đáo Hạn (Trong 14 Ngày Tới)
-                </h3>
-              </div>
-              <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
-                {upcomingWarnings.length} khế ước cần lưu ý thanh khoản
-              </span>
             </div>
 
-            {upcomingWarnings.length === 0 ? (
+            {filteredWarnings.length === 0 ? (
               <div className="p-6 bg-emerald-50 rounded-xl border border-emerald-200 text-center text-xs text-emerald-800 font-medium flex items-center justify-center gap-2">
                 <CheckCircle className="w-4 h-4 text-emerald-600" />
-                <span>Không có khoản vay nào đến hạn thanh toán trong 14 ngày tới. An toàn dòng tiền ngắn hạn!</span>
+                <span>
+                  {warningFilter === 'OVERDUE_PRINCIPAL'
+                    ? 'Không có khoản vay nào đang quá hạn nợ gốc. Danh mục an toàn!'
+                    : warningFilter === 'OVERDUE_INTEREST'
+                    ? 'Không có khoản vay nào đang quá hạn nợ lãi.'
+                    : warningFilter === 'UPCOMING'
+                    ? 'Không có khoản vay nào đến hạn trong 14 ngày tới.'
+                    : 'Không có khoản vay nào quá hạn hoặc đến hạn trong 14 ngày tới. An toàn dòng tiền ngắn hạn!'}
+                </span>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto max-h-[520px]">
                 <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-amber-50 text-amber-900 font-semibold border-b border-amber-200">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-100 text-slate-800 font-semibold border-b border-slate-200">
                       <th className="py-2.5 px-3">Số HĐ / Khế Ước</th>
                       <th className="py-2.5 px-3">Chủ Thể Vay</th>
                       <th className="py-2.5 px-3">Ngân Hàng</th>
                       <th className="py-2.5 px-3">Ngày Đến Hạn</th>
-                      <th className="py-2.5 px-3 text-center">Thời Gian Còn Lại</th>
-                      <th className="py-2.5 px-3 text-right">Nghĩa Vụ Cần Trả (Gốc+Lãi)</th>
+                      <th className="py-2.5 px-3 text-center">Phân Loại / Tình Trạng</th>
+                      <th className="py-2.5 px-3 text-right">Gốc Đến Hạn / Quá Hạn</th>
+                      <th className="py-2.5 px-3 text-right">Lãi Đến Hạn / Quá Hạn</th>
+                      <th className="py-2.5 px-3 text-right">Tổng Nghĩa Vụ</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-amber-100">
-                    {upcomingWarnings.map((item, idx) => (
-                      <tr key={idx} className="hover:bg-amber-50/50 transition-colors">
-                        <td className="py-2.5 px-3 font-semibold text-slate-800 font-mono">
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredWarnings.map((item, idx) => (
+                      <tr
+                        key={idx}
+                        className={`transition-colors ${
+                          item.isPrincipalOverdue
+                            ? 'bg-rose-50/60 hover:bg-rose-50/90'
+                            : item.isInterestOverdue
+                            ? 'bg-amber-50/50 hover:bg-amber-50/80'
+                            : item.upcomingDays === 0
+                            ? 'bg-amber-100/60 hover:bg-amber-100/90'
+                            : 'hover:bg-slate-50'
+                        }`}
+                      >
+                        <td className="py-2.5 px-3 font-semibold text-slate-900 font-mono">
                           {item.loan.contract_number}
                         </td>
                         <td className="py-2.5 px-3 text-slate-700">{item.loan.borrower_name}</td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-700">{item.loan.bank_name || item.loan.bank_code}</td>
-                        <td className="py-2.5 px-3 font-medium text-slate-800">{item.dateStr}</td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${
-                            item.daysLeft <= 3
-                              ? 'bg-rose-100 text-rose-800 border border-rose-200 animate-pulse'
-                              : 'bg-amber-100 text-amber-800 border border-amber-200'
-                          }`}>
-                            {item.daysLeft === 0 ? 'HÔM NAY' : `Còn ${item.daysLeft} ngày`}
-                          </span>
+                        <td className="py-2.5 px-3 font-semibold text-slate-700">
+                          {item.loan.bank_name || item.loan.bank_code}
                         </td>
-                        <td className="py-2.5 px-3 text-right font-bold text-rose-600">
-                          {formatVND(item.amount)}
+                        <td className="py-2.5 px-3">
+                          {item.overdueType === 'INTEREST_ONLY' ? (
+                            <div>
+                              <span className="font-semibold text-amber-900 block leading-tight">
+                                {item.interestDueDateStr} <span className="text-[10px] text-amber-700 font-normal">(Trả lãi)</span>
+                              </span>
+                              <span className="text-[10px] text-slate-500 block leading-tight mt-0.5">
+                                Đáo hạn gốc: {item.principalDueDateStr}
+                              </span>
+                            </div>
+                          ) : item.overdueType === 'BOTH' ? (
+                            <div>
+                              <span className="font-semibold text-rose-900 block leading-tight">
+                                {item.principalDueDateStr}
+                              </span>
+                              <span className="text-[10px] text-rose-600 block leading-tight mt-0.5">
+                                (Đáo hạn gốc & lãi)
+                              </span>
+                            </div>
+                          ) : item.overdueType === 'PRINCIPAL_ONLY' ? (
+                            <div>
+                              <span className="font-semibold text-rose-900 block leading-tight">
+                                {item.principalDueDateStr} <span className="text-[10px] text-rose-700 font-normal">(Gốc)</span>
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="font-medium text-slate-800">
+                              {item.loan.next_repayment_date || item.loan.maturity_date}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-center">
+                          {item.overdueType === 'BOTH' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                              <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                              Quá hạn Gốc & Lãi {item.maxOverdueDays} ngày
+                            </span>
+                          ) : item.overdueType === 'PRINCIPAL_ONLY' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 animate-pulse">
+                              <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                              Quá hạn Gốc {item.principalOverdueDays} ngày
+                            </span>
+                          ) : item.overdueType === 'INTEREST_ONLY' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                              <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                              Quá hạn Lãi {item.interestOverdueDays} ngày
+                            </span>
+                          ) : (
+                            <span
+                              className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold ${
+                                item.upcomingDays === 0
+                                  ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                  : item.upcomingDays <= 3
+                                  ? 'bg-amber-100 text-amber-900 border border-amber-300 animate-pulse'
+                                  : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}
+                            >
+                              {item.upcomingDays === 0 ? 'HÔM NAY' : `Còn ${item.upcomingDays} ngày`}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {item.principalDueAmount > 0 ? (
+                            <span className={`block leading-tight ${item.isPrincipalOverdue ? 'font-bold text-rose-700' : 'font-medium text-slate-800'}`}>
+                              {formatVND(item.principalDueAmount)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-light block leading-tight">-</span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          {item.interestDueAmount > 0 ? (
+                            <span className={`block leading-tight ${item.isInterestOverdue ? 'font-bold text-amber-800' : 'font-medium text-slate-800'}`}>
+                              {formatVND(item.interestDueAmount)}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400 font-light block leading-tight">-</span>
+                          )}
+                        </td>
+                        <td className={`py-2.5 px-3 text-right font-bold ${
+                          item.isPrincipalOverdue ? 'text-rose-700' : 'text-slate-900'
+                        }`}>
+                          {formatVND(item.totalAmount)}
                         </td>
                       </tr>
                     ))}
                   </tbody>
+                  <tfoot className="sticky bottom-0 z-10 bg-slate-100 border-t-2 border-slate-300 font-bold text-xs">
+                    <tr>
+                      <td colSpan={5} className="py-2.5 px-3 text-slate-800 font-black">
+                        TỔNG CỘNG ({filteredWarnings.length} khế ước)
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900">
+                        {formatVND(footerTotals.principal)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-amber-900">
+                        {formatVND(footerTotals.interest)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-black text-rose-700">
+                        {formatVND(footerTotals.total)}
+                      </td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             )}
-          </div>
-        </div>
+          </div>        </div>
       )}
 
       {/* ========================================================================= */}

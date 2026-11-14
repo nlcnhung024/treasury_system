@@ -247,6 +247,13 @@ Tự động hóa toàn diện quy trình từ tiếp nhận các file sao kê n
         - Nút và Modal "Gán Hóa Đơn Mới": Lọc hóa đơn cùng TCTD còn hạn mức chưa phân bổ (`remaining_amount > 0`), tìm kiếm theo số HĐ/NCC/MST, tự động gợi ý số tiền phân bổ theo số thiếu hoặc hạn mức HĐ, gọi `POST /loans/{loan_id}/allocate-invoices`.
   - **Bộ lọc đa chiều từng cột (Per-Column Filters):** Hỗ trợ thanh lọc chuyên sâu bên dưới từng tiêu đề cột (bật/tắt bằng nút *Lọc cột*, hiển thị số lượng bộ lọc đang kích hoạt và nút *Xóa lọc* 1-chạm):
     - *Ngân hàng, Số khế ước, Chủ thể vay, Dư nợ gốc, Đã trả gốc, Dư nợ hiện tại, Lãi suất, Lãi tính, Lãi trả, Ngày giải ngân, Ngày đáo hạn, Trạng thái bảo đảm HĐ.*
+  - **Chức năng Xuất Excel Thống kê Khế ước & Báo cáo Pivot (`POST /loans/contracts/export-excel`):**
+    - Nút "Xuất Excel" đặt ngay bên phải nút "Tùy chỉnh cột" trên toolbar bảng khế ước.
+    - Xuất toàn bộ danh sách các khế ước nhận nợ theo nội dung đang hiển thị (sau khi lọc/tìm kiếm, không xuất kèm phần kế hoạch dòng tiền mở rộng).
+    - Tên tệp xuất tự động theo ngày hiện hành: `Thống kê khế ước nhận nợ còn hiệu lực ngày dd.mm.yyyy.xlsx`.
+    - Tệp Excel gồm 2 trang chuẩn kế toán chuyên nghiệp:
+      + **Trang 1 (`Danh_Sach_Khe_Uoc`):** Bảng số liệu cột hàng chi tiết các khế ước (STT, Ngân hàng, Số khế ước, Chủ thể vay, Dư nợ gốc, Tổng gốc đã trả, Dư nợ hiện tại, Lãi suất, Lãi ước tính, Lãi đã trả, Ngày giải ngân, Ngày đến hạn, Tình trạng hóa đơn, Ghi chú), dòng tổng cộng chuẩn kế toán, định dạng số/ngày/tiền tệ và làm sạch chống Formula Injection.
+      + **Trang 2 (`Pivot_Ngay_Den_Han`):** Bảng ma trận Pivot (Hàng: Ngày đến hạn, Cột: Ngân hàng, Giá trị: Dư nợ hiện tại), có phần header format báo cáo chuyên nghiệp (Tên đơn vị, Bộ phận, Tiêu đề lớn, Ngày lập báo cáo, Đơn vị tính), tổng cộng hàng/cột và khu vực chữ ký phê duyệt (Người lập biểu, Kế toán trưởng, Giám đốc tài chính).
   - **Lãi ước tính** = Dư nợ gốc × Lãi suất năm × Số ngày (từ ngày giải ngân đến ngày đáo hạn) / 365.
   - **Tổng dư nợ gốc đã trả / Tổng lãi đã trả** = tổng các giao dịch trả gốc / trả lãi đã đối soát từ sao kê (`loan_repayment_history`).
 - **Phân hệ 7.9: Đối soát Giao dịch Chi Trả nợ & Tự động Giảm trừ Dư nợ Gốc/Lãi (US-07.9):**

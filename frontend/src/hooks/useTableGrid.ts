@@ -9,28 +9,29 @@ export function useTableGrid<T extends Record<string, any>>(options: TableGridOp
   const visibilityStorageKey = `bsp_grid_${tableId}_cols`;
   const widthsStorageKey = `bsp_grid_${tableId}_widths`;
 
-  // 1. Column Visibility State
-  const initialVisibility = useMemo(() => {
-    try {
-      const saved = localStorage.getItem(visibilityStorageKey);
-      if (saved) {
-        return JSON.parse(saved) as Record<string, boolean>;
-      }
-    } catch (e) {
-      console.warn('Failed to parse grid visibility from localStorage', e);
-    }
+  // 1. Column Visibility State (Khởi tạo và ghi nhớ từ localStorage)
+  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(() => {
     const def: Record<string, boolean> = {};
     columns.forEach((c) => {
       def[c.field] = !c.hiddenByDefault;
     });
-    return def;
-  }, [tableId, columns, visibilityStorageKey]);
 
-  const [visibleColumns, setVisibleColumns] = useState<Record<string, boolean>>(initialVisibility);
+    try {
+      const saved = localStorage.getItem(visibilityStorageKey);
+      if (saved) {
+        const parsed = JSON.parse(saved) as Record<string, boolean>;
+        return { ...def, ...parsed };
+      }
+    } catch (e) {
+      console.warn('Failed to parse grid visibility from localStorage', e);
+    }
+    return def;
+  });
 
   const toggleColumn = useCallback((field: string) => {
     setVisibleColumns((prev) => {
-      const next = { ...prev, [field]: !prev[field] };
+      const current = prev[field] !== false;
+      const next = { ...prev, [field]: !current };
       try {
         localStorage.setItem(visibilityStorageKey, JSON.stringify(next));
       } catch (e) {
@@ -39,6 +40,17 @@ export function useTableGrid<T extends Record<string, any>>(options: TableGridOp
       return next;
     });
   }, [visibilityStorageKey]);
+
+  const saveVisibility = useCallback((customConfig?: Record<string, boolean>) => {
+    const configToSave = customConfig || visibleColumns;
+    try {
+      localStorage.setItem(visibilityStorageKey, JSON.stringify(configToSave));
+      return true;
+    } catch (e) {
+      console.warn('Failed to save grid visibility to localStorage', e);
+      return false;
+    }
+  }, [visibilityStorageKey, visibleColumns]);
 
   const showAllColumns = useCallback(() => {
     const next: Record<string, boolean> = {};
@@ -243,6 +255,7 @@ export function useTableGrid<T extends Record<string, any>>(options: TableGridOp
     toggleColumn,
     showAllColumns,
     resetColumns,
+    saveVisibility,
     isColumnVisible,
     // Widths / Resizing
     columnWidths,
